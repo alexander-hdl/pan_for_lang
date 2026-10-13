@@ -2,6 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PenForLang.Ink\PenForLang.Ink.csproj" />
+    <!-- FakeClock для тестов воспроизведения на виртуальных часах. -->
+    <ProjectReference Include="..\..\tools\PenForLang.Testing\PenForLang.Testing.csproj" />
   </ItemGroup>
 
 </Project>

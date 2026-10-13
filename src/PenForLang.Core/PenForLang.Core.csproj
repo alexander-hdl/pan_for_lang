@@ -3,7 +3,7 @@
   <PropertyGroup>
     <IsDomainProject>true</IsDomainProject>
     <BanNumericIntrinsics>true</BanNumericIntrinsics>
-    <Description>Общее ядро: ID, порты IClock/IRandomSource, геометрия.</Description>
+    <Description>Общее ядро: ID, порты IClock/IRandomSource/IContentSource, геометрия.</Description>
   </PropertyGroup>
 
 </Project>
