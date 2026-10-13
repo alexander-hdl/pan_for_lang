@@ -1,0 +1,8 @@
+<Window x:Class="PenForLang.App.Wpf.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PenForLang"
+        Width="960"
+        Height="600">
+  <Grid />
+</Window>

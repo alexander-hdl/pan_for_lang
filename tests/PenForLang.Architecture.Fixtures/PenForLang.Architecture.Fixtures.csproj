@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    НАМЕРЕННО нарушающая сборка: на ней Architecture.Tests доказывают, что правила R1, R3, R4 действительно
+    ловят нарушения. В продукт не входит и не должна использоваться вне Architecture.Tests.
+  -->
+  <PropertyGroup>
+    <!-- Не тестовый проект: переопределяем настройки tests/Directory.Build.props. -->
+    <OutputType>Library</OutputType>
+    <IsTestProject>false</IsTestProject>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <Description>Фикстура с намеренными нарушениями архитектурных правил (только для Architecture.Tests).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Remove="xunit.v3" />
+    <Using Remove="Xunit" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Description>Корень композиции и оболочка приложения (WPF). Per-Monitor V2 DPI задан в app.manifest.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PenForLang.Core\PenForLang.Core.csproj" />
+    <ProjectReference Include="..\PenForLang.Ink\PenForLang.Ink.csproj" />
+    <ProjectReference Include="..\PenForLang.Glyphs\PenForLang.Glyphs.csproj" />
+    <ProjectReference Include="..\PenForLang.Evaluation\PenForLang.Evaluation.csproj" />
+    <ProjectReference Include="..\PenForLang.Platform.Windows\PenForLang.Platform.Windows.csproj" />
+    <ProjectReference Include="..\PenForLang.Wpf.Controls\PenForLang.Wpf.Controls.csproj" />
+  </ItemGroup>
+
+</Project>

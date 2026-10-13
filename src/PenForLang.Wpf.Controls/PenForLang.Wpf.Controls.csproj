@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Description>Визуальные слои WPF: линейки в мм, живые чернила, аниматор глифов (V0.6).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PenForLang.Core\PenForLang.Core.csproj" />
+    <ProjectReference Include="..\PenForLang.Ink\PenForLang.Ink.csproj" />
+    <ProjectReference Include="..\PenForLang.Glyphs\PenForLang.Glyphs.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,17 @@
+<Project>
+
+  <!--
+    R2 (ARCHITECTURE.md §2.4): доменные сборки не используют недетерминированные API.
+    Проект включается в запрет свойством <IsDomainProject>true</IsDomainProject>.
+    Дополнительно <BanNumericIntrinsics>true</BanNumericIntrinsics> (Evaluation, Core.Geometry; A19).
+  -->
+  <ItemGroup Condition="'$(IsDomainProject)' == 'true'">
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" PrivateAssets="all" />
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.Domain.txt" Link="BannedSymbols.Domain.txt" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(IsDomainProject)' == 'true' And '$(BanNumericIntrinsics)' == 'true'">
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.Numeric.txt" Link="BannedSymbols.Numeric.txt" />
+  </ItemGroup>
+
+</Project>

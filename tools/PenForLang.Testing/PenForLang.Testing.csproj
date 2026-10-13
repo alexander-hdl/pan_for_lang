@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Тестовая инфраструктура: FakeClock, (позже) SynthInk, виртуальные ученики. Не входит в установку.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PenForLang.Core\PenForLang.Core.csproj" />
+    <ProjectReference Include="..\..\src\PenForLang.Ink\PenForLang.Ink.csproj" />
+    <ProjectReference Include="..\..\src\PenForLang.Glyphs\PenForLang.Glyphs.csproj" />
+    <ProjectReference Include="..\..\src\PenForLang.Evaluation\PenForLang.Evaluation.csproj" />
+  </ItemGroup>
+
+</Project>

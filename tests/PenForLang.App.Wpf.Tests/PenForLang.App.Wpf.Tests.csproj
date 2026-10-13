@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PenForLang.App.Wpf\PenForLang.App.Wpf.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Манифест проверяется как файл репозитория. -->
+    <None Include="..\..\src\PenForLang.App.Wpf\app.manifest" Link="app.manifest" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

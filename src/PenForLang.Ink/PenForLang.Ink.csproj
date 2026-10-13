@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsDomainProject>true</IsDomainProject>
+    <Description>Сырой ввод пера: PenSample, InkStroke.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PenForLang.Core\PenForLang.Core.csproj" />
+  </ItemGroup>
+
+</Project>
