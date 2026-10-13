@@ -108,6 +108,9 @@ internal sealed class WordReference : INormalizationReference
     /// <summary>Середина горизонтального размаха эталона (подход, тела, соединения, выход): начальный сдвиг рукописи по u.</summary>
     public required double SpanCenterU { get; init; }
 
+    /// <summary>Буква, которой принадлежит точка эталона: тело — своей, соединение и «мостик» — ближайшей, подход — первой, выход — последней.</summary>
+    public required int[] OwnerLetter { get; init; }
+
     public int Count => Pos.Length;
 
     /// <summary>Диапазон соединения <paramref name="join"/> между буквами (диапазон всегда есть: геометрия или мостик).</summary>
@@ -246,6 +249,24 @@ internal sealed class WordReference : INormalizationReference
             zoneArray[bodyEnd[k]] = ZoneKind.Body;
         }
 
+        var owner = new int[posArray.Length];
+        for (int j = 0; j < owner.Length; j++)
+        {
+            int best = 0;
+            int bestDistance = int.MaxValue;
+            for (int k = 0; k < letters; k++)
+            {
+                int d = j < bodyStart[k] ? bodyStart[k] - j : (j > bodyEnd[k] ? j - bodyEnd[k] : 0);
+                if (d < bestDistance)
+                {
+                    bestDistance = d;
+                    best = k;
+                }
+            }
+
+            owner[j] = best;
+        }
+
         var skip = new double[posArray.Length + 1];
         for (int j = 0; j < posArray.Length; j++)
         {
@@ -301,6 +322,7 @@ internal sealed class WordReference : INormalizationReference
             BodyEnd = bodyEnd,
             Intervals = [.. intervals.OrderBy(i => i.Lo).ThenBy(i => i.Hi)],
             SkipPrefix = skip,
+            OwnerLetter = owner,
             OpenBeginMax = bodyStart[0],
             OpenEndMin = bodyEnd[letters - 1],
             Retrace = retrace.ToImmutable(),

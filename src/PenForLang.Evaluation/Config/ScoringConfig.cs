@@ -177,7 +177,8 @@ public sealed record ProcessConfig(double StartTolerance, double StartArcToleran
 /// <param name="ExtendRight">Допустимый старт вдоль той же линии и вправо от начала подхода на столько, x-height (короткий подход, начатый ближе к телу).</param>
 /// <param name="Tolerance">Допуск расстояния до подхода, x-height; жёстче допуска старта тела, потому что подход тянется вдоль овала и старт снизу овала близок к нему (ошибка выражается в единицах <c>startTolerance</c>).</param>
 /// <param name="MaxAngleDeg">Старт на подходе засчитывается, если первый участок рукописи отклонён от хода подхода не больше (градусы).</param>
-/// <param name="MinElevationDeg">... и первые 0,2 x-height не идут вниз: угол подъёма (от горизонтали) не меньше этого, градусы (отрицательный — допустим небольшой спуск).</param>
+/// <param name="MinElevationDeg">... и начало не идёт вниз: угол подъёма (от горизонтали) на участке <c>elevationLength</c> не меньше этого, градусы (отрицательный — допустим небольшой спуск).</param>
+/// <param name="ElevationLength">Длина участка начала для проверки подъёма, x-height. Длиннее участка направления (<c>process.direction.firstSegmentLength</c>): дрожь рукописи у медленного письма отклоняет первые 0,2 x-height вниз и без этого давала ложный P1 (старт «не на подходе»).</param>
 /// <param name="OverlapMax">Старт на подходе не засчитывается, если путь до точки входа в тело перекрыт последующим следом (доля точек в коридоре) не меньше этого ...</param>
 /// <param name="OverlapTolerance">Ширина коридора перекрытия, x-height.</param>
 /// <param name="OverlapSkipTail">Последние столько (x-height) пути до входа не учитываются: они прилегают к телу по построению.</param>
@@ -190,6 +191,7 @@ public sealed record ApproachConfig(
     double Tolerance,
     double MaxAngleDeg,
     double MinElevationDeg,
+    double ElevationLength,
     double OverlapMax,
     double OverlapTolerance,
     double OverlapSkipTail,
@@ -284,7 +286,9 @@ public sealed record ConfidenceConfig(double UnrecognizedMeanDtw, double Unrecog
 /// <param name="LiftInLetterPenalty">Цена отрыва внутри тела буквы (<c>LiftsInsideLetter</c>, не стоп-ошибка).</param>
 /// <param name="SkipBodyCostPerPoint">Цена каждой пропущенной точки тела эталона при отрыве (пропуск соединения бесплатен).</param>
 /// <param name="ContinuousBreakCostPerPoint">Цена каждой точки рукописи, прошедшей ожидаемый разрыв слитно (break — «отрыв или слитно»).</param>
-/// <param name="JoinSlackU">Допуск у границ тел, x-height: отрыв, начатый в пределах допуска перед концом тела эталона или закончившийся в пределах допуска после начала тела следующей буквы, — отрыв на соединении (размер букв ребёнка и эталона различается); пропущенные точки тела в допуске стоят <c>skipBodyCostPerPoint</c>.</param>
+/// <param name="JoinSlackU">Допуск у границ тел, x-height: отрыв, начатый в пределах допуска перед концом тела эталона или закончившийся в пределах допуска после начала тела следующей буквы, — отрыв на соединении (размер букв ребёнка и эталона различается). Цена отрыва растёт от <c>liftJoinPenalty</c> на границе до <c>liftInLetterPenalty</c> на краю допуска (промежуточный штраф): отрыв глубже в теле буквы — отрыв внутри буквы.</param>
+/// <param name="BandMarginU">Запас полосы, x-height: DP считает только клетки с <c>|Δu| ≤ bandU + bandMarginU</c> (вне — недопустимы; если пути нет, расчёт повторяется без ограничения).</param>
+/// <param name="BreakCorridorU">Ширина коридора вокруг мостика эталона (разрыв стиля), в котором слитное прохождение стоит плоскую цену <c>continuousBreakCostPerPoint</c>; дальше — обычная стоимость расстояния (предел пробега: слитная линия не может уйти далеко от места разрыва).</param>
 public sealed record AlignerConfig(
     double BandU,
     double OutOfBandCost,
@@ -292,7 +296,9 @@ public sealed record AlignerConfig(
     double LiftInLetterPenalty,
     double SkipBodyCostPerPoint,
     double ContinuousBreakCostPerPoint,
-    double JoinSlackU);
+    double JoinSlackU,
+    double BandMarginU,
+    double BreakCorridorU);
 
 /// <summary>Границы букв и их уверенность (§6.4.5).</summary>
 /// <param name="ShiftU">Сдвиг границы, при котором измеряется рост стоимости пути, x-height (0,3).</param>
@@ -305,19 +311,26 @@ public sealed record BoundaryConfig(double ShiftU, double MinRiseCost, double Li
 /// <param name="Coverage">Доля тел эталона, покрытых рукописью в коридоре, меньше — U0.</param>
 /// <param name="InkShare">Доля точек основного следа в коридоре эталона меньше — U0 (каракули).</param>
 /// <param name="MediumMeanDtw">Среднее отклонение больше — уверенность не выше Medium.</param>
-public sealed record WordUnrecognizedConfig(double MeanDtw, double Coverage, double InkShare, double MediumMeanDtw);
+/// <param name="CostPerPoint">Стоимость выравнивания на точку рукописи (нормировка гипотез, §6.4.6) больше — U0. Инженерное: верные слова ≤ 0,067, неверные от 0,074 до 0,8 (независимые фикстуры); порог с запасом между ними.</param>
+/// <param name="FarDistance">Точка рукописи дальше этого от выровненной точки эталона — «чужая» (лишняя буква, штрих мимо слова), x-height.</param>
+/// <param name="FarShare">Доля чужих точек больше — U0 (лишняя буква: каждая точка далека от своей пары, а стоимость на точку мала).</param>
+/// <param name="LetterCoverage">Покрытие тела какой-либо буквы рукописью в коридоре меньше — U0 слова (буква без чернил, слово другой длины).</param>
+/// <param name="CoverageTauScale">Множитель <c>form.corridorTau</c> для покрытия и доли чернил в коридоре у слова (допуск шире, чем у изолированной буквы).</param>
+public sealed record WordUnrecognizedConfig(double MeanDtw, double Coverage, double InkShare, double MediumMeanDtw, double CostPerPoint, double FarDistance, double FarShare, double LetterCoverage, double CoverageTauScale);
 
 /// <summary>Числа оценки слова (ключ <c>word</c> в <c>scoring.json</c>).</summary>
 /// <param name="ContextToleranceScale">Множитель допусков формы буквы внутри слова (<c>wordContextTolerance</c>, §6.4.9).</param>
 /// <param name="Aligner">Выравнивание.</param>
 /// <param name="Boundaries">Границы.</param>
 /// <param name="Unrecognized">«Не распознано».</param>
+/// <param name="MarkAdjacencyU">Короткая черта, начатая не дальше этого от конца предыдущего основного штриха, — продолжение основного следа (хвост t после перекладины «сразу»), а не отложенный штрих, x-height.</param>
 /// <param name="RetraceCoveredShare">Ретрейс по соединению проверяется, только если нужное соединение нарисовано: эталонное окно перед ретрейсом покрыто путём не меньше этой доли.</param>
 public sealed record WordConfig(
     double ContextToleranceScale,
     AlignerConfig Aligner,
     BoundaryConfig Boundaries,
     WordUnrecognizedConfig Unrecognized,
+    double MarkAdjacencyU,
     double RetraceCoveredShare);
 
 /// <summary>Углы и петли в соединении (J4, §6.4.9).</summary>
@@ -329,10 +342,11 @@ public sealed record JoinCornerConfig(double ExcessDeg, double WindowU, double E
 /// <summary>Метрики соединений (J1–J4, §6.4.9; ключ <c>joins</c> в <c>scoring.json</c>).</summary>
 /// <param name="HighMinHeight">Наименьшая высота v высокого соединения (флаг <c>high</c> правила стиля; единственное место числа, A25), x-height; J2.</param>
 /// <param name="DrawnShare">Соединение нарисовано, если рукопись прошла не меньше этой доли точек его эталона.</param>
-/// <param name="EntryErr">Вход в тело следующей буквы дальше от эталонного на столько (x-height) — J3.</param>
+/// <param name="EntryErr">Вход в тело следующей буквы дальше от эталонного на столько (x-height) — J3. Мерится относительно буквы ребёнка: после подгонки масштаба и сдвига тела буквы к эталону, а не в общей рамке слова (широкий интервал — F8, низкая t — F4, не J3).</param>
+/// <param name="EntryAngleDeg">Соединение приходит в начало тела под углом, отличающимся от эталонного входа больше этого (градусы) — J3; проверяется, только если соединение нарисовано.</param>
 /// <param name="Corner">Лишние углы.</param>
 /// <param name="MinLoopArea">Наименьшая площадь петли в соединении, засчитываемой как лишняя (J4), x-height².</param>
-public sealed record JoinsConfig(double HighMinHeight, double DrawnShare, double EntryErr, JoinCornerConfig Corner, double MinLoopArea);
+public sealed record JoinsConfig(double HighMinHeight, double DrawnShare, double EntryErr, double EntryAngleDeg, JoinCornerConfig Corner, double MinLoopArea);
 
 /// <summary>
 /// Числа оценщика изолированной буквы (<c>content/config/scoring.json</c>, схема <c>pfl.config.scoring/1</c>).

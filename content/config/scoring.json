@@ -1,8 +1,8 @@
 {
   "schema": "pfl.config.scoring/1",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "meta": {
-    "task": "V0.7, V0.10 (word, joins)",
+    "task": "V0.7, V0.10 (word, joins; review round 1)",
     "status": "engineering starting values; not calibrated on real data (ARCHITECTURE.md 6.7)",
     "units": "x-height of the ruler unless a key name says Deg or Ms",
     "ownerNote": "process.startTolerance is also listed under thresholds.json in ARCHITECTURE.md 3.6; until thresholds.json exists the evaluator owns it here (open question)"
@@ -31,7 +31,7 @@
     "startTolerance": 0.55,
     "startArcTolerance": 0.6,
     "startOnPathTolerance": 0.2,
-    "approach": { "extendLeft": true, "extendRight": 0.9, "tolerance": 0.22, "maxAngleDeg": 90, "minElevationDeg": -10, "overlapMax": 0.4, "overlapTolerance": 0.12, "overlapSkipTail": 0.2, "entryAngleMaxDeg": 35, "ambiguousShare": 0.05, "ambiguousAngleDeg": 5 },
+    "approach": { "extendLeft": true, "extendRight": 0.9, "tolerance": 0.22, "maxAngleDeg": 90, "minElevationDeg": -10, "elevationLength": 0.5, "overlapMax": 0.4, "overlapTolerance": 0.12, "overlapSkipTail": 0.2, "entryAngleMaxDeg": 35, "ambiguousShare": 0.05, "ambiguousAngleDeg": 5 },
     "direction": { "reverseCostRatioMax": 0.8, "strongReverseCostRatio": 0.3, "firstSegmentAngleMaxDeg": 60, "firstSegmentLength": 0.2, "minStrokeLength": 0.4, "barMinDirectionalShare": 0.3, "barReverseIsError": false, "rangeAreaMinShare": 0.3 },
     "strokeCount": { "extraForP4": 1, "extraForStop": 2 },
     "retrace": { "tolerance": 0.12, "minShareOfReference": 0.6, "minPriorPoints": 5, "minRangePoints": 4, "coveredByExtraShare": 0.5 }
@@ -100,15 +100,17 @@
   "confidence": { "unrecognizedMeanDtw": 0.5, "unrecognizedCoverage": 0.25, "unrecognizedInkShare": 0.6, "mediumMeanDtw": 0.2 },
   "word": {
     "contextToleranceScale": 1.25,
-    "aligner": { "bandU": 0.8, "outOfBandCost": 1.0, "liftJoinPenalty": 0.02, "liftInLetterPenalty": 0.5, "skipBodyCostPerPoint": 0.1, "continuousBreakCostPerPoint": 0.02, "joinSlackU": 0.5 },
+    "aligner": { "bandU": 0.8, "outOfBandCost": 1.0, "liftJoinPenalty": 0.02, "liftInLetterPenalty": 0.5, "skipBodyCostPerPoint": 0.1, "continuousBreakCostPerPoint": 0.02, "joinSlackU": 0.25, "bandMarginU": 0.2, "breakCorridorU": 0.5 },
     "boundaries": { "shiftU": 0.3, "minRiseCost": 0.05, "liftSnapU": 0.12 },
-    "unrecognized": { "meanDtw": 0.4, "coverage": 0.3, "inkShare": 0.55, "mediumMeanDtw": 0.12 },
+    "unrecognized": { "meanDtw": 0.4, "coverage": 0.3, "inkShare": 0.55, "mediumMeanDtw": 0.12, "costPerPoint": 0.09, "farDistance": 0.35, "farShare": 0.08, "letterCoverage": 0.5, "coverageTauScale": 2.0 },
+    "markAdjacencyU": 0.2,
     "retraceCoveredShare": 0.5
   },
   "joins": {
     "highMinHeight": 0.7,
     "drawnShare": 0.5,
     "entryErr": 0.4,
+    "entryAngleDeg": 55,
     "corner": { "excessDeg": 70, "windowU": 0.2, "edgeMarginU": 0.2 },
     "minLoopArea": 0.03
   }

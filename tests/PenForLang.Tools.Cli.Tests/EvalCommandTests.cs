@@ -210,4 +210,33 @@ public sealed class EvalCommandTests : IDisposable
         Assert.Equal(1, unknown);
         Assert.Contains("cannot build the word 'az'", error, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void A_gzip_recording_is_read_by_its_signature_whatever_its_name()
+    {
+        StylePack pack = LoadPack();
+        string plain = WritePenLog(new SynthInkGenerator(pack.Manifest).Ideal(WordTemplateBuilder.Build(pack, "at")), "word:at");
+        string zipped = Path.Combine(_temp, "at-lift-01.pfl.jsonl.gz");
+        using (FileStream input = File.OpenRead(plain))
+        using (FileStream output = File.Create(zipped))
+        using (var gzip = new System.IO.Compression.GZipStream(output, System.IO.Compression.CompressionLevel.Fastest))
+        {
+            input.CopyTo(gzip);
+        }
+
+        string disguised = Path.Combine(_temp, "no-extension");
+        File.Copy(zipped, disguised);
+        (int code, string output1, string error) = Run("eval", zipped, "--content", Path.Combine(RepoRoot, "content"));
+        (int codeDisguised, string output2, _) = Run("eval", disguised, "--word", "at", "--content", Path.Combine(RepoRoot, "content"));
+        (int codePlain, string output3, _) = Run("eval", plain, "--content", Path.Combine(RepoRoot, "content"));
+
+        Assert.Equal(0, code);
+        Assert.Equal(string.Empty, error);
+        Assert.Contains("word 'at'", output1, StringComparison.Ordinal);
+        Assert.Contains("findings: none", output1, StringComparison.Ordinal);
+        Assert.Equal(0, codeDisguised);
+        Assert.Equal(0, codePlain);
+        Assert.Equal(output3.Replace("word:at.penlog.jsonl", "X", StringComparison.Ordinal), output1.Replace("at-lift-01.pfl.jsonl.gz", "X", StringComparison.Ordinal));
+        Assert.Contains("decision Target", output2, StringComparison.Ordinal);
+    }
 }

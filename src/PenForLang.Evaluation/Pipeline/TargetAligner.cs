@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using PenForLang.Core.Geometry;
 using PenForLang.Evaluation.Config;
 
@@ -12,6 +13,16 @@ internal readonly record struct PathCell(int I, int J);
 /// <param name="ToJ">Индекс эталона первой точки после отрыва.</param>
 /// <param name="Interval">Индекс диапазона соединения (<see cref="WordReference.Intervals"/>), в который уложен отрыв, или −1 (отрыв внутри тела).</param>
 internal readonly record struct LiftEvent(int I, int FromJ, int ToJ, int Interval);
+
+/// <summary>
+/// Диапазон отрыва в задаче выравнивания: ядро <c>[Lo, Hi]</c> (конец тела левой — начало тела правой буквы) и допуск
+/// <c>[SlackLo, SlackHi]</c> внутрь тел (промежуточный штраф: растёт от ядра к краю допуска).
+/// </summary>
+internal readonly record struct AlignInterval(int Lo, int Hi, bool Expected, int SlackLo, int SlackHi)
+{
+    /// <summary>Диапазон без допуска.</summary>
+    public static AlignInterval Core(int lo, int hi, bool expected) => new(lo, hi, expected, lo, hi);
+}
 
 /// <summary>Условие задачи выравнивания: рукопись, эталон и его разметка (зоны, диапазоны отрыва, допустимые старт и конец).</summary>
 internal sealed class AlignProblem
@@ -31,7 +42,7 @@ internal sealed class AlignProblem
 
     public required double[] SkipPrefix { get; init; }
 
-    public required (int Lo, int Hi, bool Expected)[] Intervals { get; init; }
+    public required AlignInterval[] Intervals { get; init; }
 
     public required int OpenBeginMax { get; init; }
 
@@ -76,10 +87,11 @@ internal sealed class AlignProblem
             skip[j + 1] = skip[j] + (zone[j] == ZoneKind.Body ? 1.0 : 0.0);
         }
 
-        var intervals = new (int, int, bool)[Intervals.Length];
+        var intervals = new AlignInterval[Intervals.Length];
         for (int k = 0; k < intervals.Length; k++)
         {
-            intervals[k] = (n - 1 - Intervals[k].Hi, n - 1 - Intervals[k].Lo, Intervals[k].Expected);
+            AlignInterval a = Intervals[k];
+            intervals[k] = new AlignInterval(n - 1 - a.Hi, n - 1 - a.Lo, a.Expected, n - 1 - a.SlackHi, n - 1 - a.SlackLo);
         }
 
         return new AlignProblem
@@ -98,8 +110,66 @@ internal sealed class AlignProblem
     }
 }
 
-/// <summary>Накопленная таблица DP выравнивания и всё, что нужно для восстановления пути.</summary>
-internal sealed class DpTable
+/// <summary>Буферы DP, переиспользуемые между вызовами (без выделения больших массивов на каждую оценку).</summary>
+internal sealed class AlignWorkspace
+{
+    private static readonly ConcurrentBag<AlignWorkspace> Pool = [];
+
+    public double[] Accumulated = [];
+    public byte[] Back = [];
+    public int[] RowLo = [];
+    public int[] RowHi = [];
+    public int[] RowOffset = [];
+    public double[] LiftBest = [];
+    public double[] PrefixMaxX = [];
+    public double[] SuffixMinX = [];
+
+    public static AlignWorkspace Rent() => Pool.TryTake(out AlignWorkspace? w) ? w : new AlignWorkspace();
+
+    public void Return() => Pool.Add(this);
+
+    public void EnsureRows(int rows)
+    {
+        if (RowLo.Length < rows)
+        {
+            int size = Math.Max(rows, RowLo.Length * 3 / 2);
+            RowLo = new int[size];
+            RowHi = new int[size];
+            RowOffset = new int[size];
+        }
+    }
+
+    public void EnsureCells(long cells)
+    {
+        if (cells > Array.MaxLength)
+        {
+            throw new InvalidOperationException("The alignment table is too large.");
+        }
+
+        if (Accumulated.Length < cells)
+        {
+            int size = (int)Math.Min(Array.MaxLength, Math.Max(cells, (long)Accumulated.Length * 3 / 2));
+            Accumulated = new double[size];
+            Back = new byte[size];
+        }
+    }
+
+    public void EnsureTemplate(int n)
+    {
+        if (LiftBest.Length < n)
+        {
+            LiftBest = new double[n];
+            PrefixMaxX = new double[n];
+            SuffixMinX = new double[n];
+        }
+    }
+}
+
+/// <summary>
+/// Накопленная таблица DP выравнивания (по полосе: в каждой строке только клетки с <c>|Δu| ≤ bandU + bandMarginU</c>) и всё, что
+/// нужно для восстановления пути. Буферы берутся из пула; <see cref="Dispose"/> возвращает их.
+/// </summary>
+internal sealed class DpTable : IDisposable
 {
     private const byte Start = 255;
     private const byte Diagonal = 0;
@@ -107,73 +177,195 @@ internal sealed class DpTable
     private const byte Left = 2;
     private const byte Lift = 3;
 
-    private readonly byte[] _back;
+    private readonly AlignWorkspace _w;
+    private readonly AlignerConfig _config;
+    private readonly DtwConfig _weights;
     private readonly Dictionary<int, (int[] Arg, short[] Interval)> _liftRows = [];
+    private readonly int _rowLimit;
+    private bool _disposed;
 
-    public DpTable(AlignProblem problem, AlignerConfig config, DtwConfig weights)
+    public DpTable(AlignProblem problem, AlignerConfig config, DtwConfig weights, bool restrictToBand = true, int rowLimit = int.MaxValue)
     {
+        _rowLimit = Math.Min(rowLimit, problem.M);
         Problem = problem;
-        int m = problem.M;
-        int n = problem.N;
-        Accumulated = new double[(long)m * n];
-        Local = new double[(long)m * n];
-        _back = new byte[(long)m * n];
-        Fill(config, weights);
+        _config = config;
+        _weights = weights;
+        _w = AlignWorkspace.Rent();
+        BuildRows(restrictToBand);
+        Fill();
+        if (BestEnd < 0 && restrictToBand && _rowLimit >= problem.M)
+        {
+            // Рукопись вне полосы (нет пути): считаем без ограничения.
+            _liftRows.Clear();
+            BestCost = double.PositiveInfinity;
+            BuildRows(false);
+            Fill();
+        }
     }
 
     public AlignProblem Problem { get; }
-
-    /// <summary>Накопленная стоимость <c>D[i * N + j]</c>.</summary>
-    public double[] Accumulated { get; }
-
-    /// <summary>Локальная стоимость клетки <c>c(i, j)</c>.</summary>
-    public double[] Local { get; }
 
     public double BestCost { get; private set; } = double.PositiveInfinity;
 
     public int BestEnd { get; private set; } = -1;
 
-    public double Cumulative(int i, int j) => Accumulated[((long)i * Problem.N) + j];
+    /// <summary>Число клеток таблицы (для оценки работы).</summary>
+    public long Cells { get; private set; }
 
-    private void Fill(AlignerConfig config, DtwConfig weights)
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _disposed = true;
+            _w.Return();
+        }
+    }
+
+    /// <summary>Накопленная стоимость <c>D[i][j]</c>; +∞ вне полосы.</summary>
+    public double Cumulative(int i, int j)
+    {
+        if (i < 0 || i >= _rowLimit || j < _w.RowLo[i] || j > _w.RowHi[i])
+        {
+            return double.PositiveInfinity;
+        }
+
+        return _w.Accumulated[_w.RowOffset[i] + j - _w.RowLo[i]];
+    }
+
+    /// <summary>Локальная стоимость клетки <c>c(i, j)</c>: расстояние и направление; у «мостика» эталона — плоская цена в коридоре.</summary>
+    public double Local(int i, int j)
+    {
+        AlignProblem p = Problem;
+        Vec2 d = p.InkPos[i] - p.TplPos[j];
+        if (p.Zone[j] == ZoneKind.Connector)
+        {
+            double excess = Math.Max(0.0, d.Length - _config.BreakCorridorU);
+            return _config.ContinuousBreakCostPerPoint + (_weights.PositionWeight * excess * excess);
+        }
+
+        double c = (_weights.PositionWeight * d.LengthSquared) + (_weights.DirectionWeight * Math.Max(0.0, 1.0 - Vec2.Dot(p.InkDir[i], p.TplDir[j])));
+        return Math.Abs(d.X) > _config.BandU ? c + _config.OutOfBandCost : c;
+    }
+
+    private void BuildRows(bool restrictToBand)
     {
         AlignProblem p = Problem;
         int m = p.M;
         int n = p.N;
-        double wPos = weights.PositionWeight;
-        double wTheta = weights.DirectionWeight;
-        var liftBest = new double[n];
-        var liftArg = new int[n];
-        var liftInterval = new short[n];
-
-        for (int i = 0; i < m; i++)
+        _w.EnsureRows(m);
+        _w.EnsureTemplate(n);
+        double window = _config.BandU + _config.BandMarginU;
+        double[] prefixMax = _w.PrefixMaxX;
+        double[] suffixMin = _w.SuffixMinX;
+        double run = double.NegativeInfinity;
+        for (int j = 0; j < n; j++)
         {
-            long row = (long)i * n;
-            bool lifted = i > 0 && p.LiftBefore[i];
-            if (lifted)
-            {
-                ComputeLiftRow(i, config, liftBest, liftArg, liftInterval);
-                _liftRows[i] = ((int[])liftArg.Clone(), (short[])liftInterval.Clone());
-            }
+            run = Math.Max(run, p.TplPos[j].X);
+            prefixMax[j] = run;
+        }
 
-            for (int j = 0; j < n; j++)
+        run = double.PositiveInfinity;
+        for (int j = n - 1; j >= 0; j--)
+        {
+            run = Math.Min(run, p.TplPos[j].X);
+            suffixMin[j] = run;
+        }
+
+        long total = 0;
+        for (int i = 0; i < _rowLimit; i++)
+        {
+            int lo = 0;
+            int hi = n - 1;
+            if (restrictToBand)
             {
-                double c;
-                if (p.Zone[j] == ZoneKind.Connector)
+                double x = p.InkPos[i].X;
+
+                // Первый j, у которого ломаная эталона до него уже дошла до x − window (prefixMax не убывает).
+                int a = 0;
+                int b = n;
+                while (a < b)
                 {
-                    c = config.ContinuousBreakCostPerPoint;
-                }
-                else
-                {
-                    Vec2 d = p.InkPos[i] - p.TplPos[j];
-                    c = (wPos * d.LengthSquared) + (wTheta * Math.Max(0.0, 1.0 - Vec2.Dot(p.InkDir[i], p.TplDir[j])));
-                    if (Math.Abs(d.X) > config.BandU)
+                    int mid = (a + b) / 2;
+                    if (prefixMax[mid] >= x - window)
                     {
-                        c += config.OutOfBandCost;
+                        b = mid;
+                    }
+                    else
+                    {
+                        a = mid + 1;
                     }
                 }
 
-                Local[row + j] = c;
+                lo = a;
+
+                // Последний j, после которого ломаная эталона ещё не уходит правее x + window (suffixMin не убывает).
+                a = 0;
+                b = n;
+                while (a < b)
+                {
+                    int mid = (a + b) / 2;
+                    if (suffixMin[mid] > x + window)
+                    {
+                        b = mid;
+                    }
+                    else
+                    {
+                        a = mid + 1;
+                    }
+                }
+
+                hi = a - 1;
+                if (lo > hi)
+                {
+                    lo = 0;
+                    hi = -1;
+                }
+            }
+
+            _w.RowLo[i] = lo;
+            _w.RowHi[i] = hi;
+            _w.RowOffset[i] = (int)total;
+            total += Math.Max(0, hi - lo + 1);
+        }
+
+        Cells = total;
+        _w.EnsureCells(total);
+    }
+
+    private void Fill()
+    {
+        AlignProblem p = Problem;
+        int m = p.M;
+        int n = p.N;
+        double[] acc = _w.Accumulated;
+        byte[] back = _w.Back;
+        BestCost = double.PositiveInfinity;
+        BestEnd = -1;
+
+        for (int i = 0; i < _rowLimit; i++)
+        {
+            int lo = _w.RowLo[i];
+            int hi = _w.RowHi[i];
+            int off = _w.RowOffset[i];
+            bool lifted = i > 0 && p.LiftBefore[i];
+            int[]? liftArg = null;
+            short[]? liftInterval = null;
+            double[]? liftBest = null;
+            if (lifted)
+            {
+                liftBest = _w.LiftBest;
+                liftArg = new int[n];
+                liftInterval = new short[n];
+                ComputeLiftRow(i, liftBest, liftArg, liftInterval);
+                _liftRows[i] = (liftArg, liftInterval);
+            }
+
+            int plo = i > 0 ? _w.RowLo[i - 1] : 0;
+            int phi = i > 0 ? _w.RowHi[i - 1] : -1;
+            int poff = i > 0 ? _w.RowOffset[i - 1] : 0;
+            for (int j = lo; j <= hi; j++)
+            {
+                double c = Local(i, j);
                 double best = double.PositiveInfinity;
                 byte how = Start;
                 if (i == 0)
@@ -182,25 +374,23 @@ internal sealed class DpTable
                     {
                         best = 0.0;
                     }
-                    else if (j > 0)
-                    {
-                        best = Accumulated[row + j - 1];
-                        how = Left;
-                    }
                 }
                 else if (lifted)
                 {
-                    best = liftBest[j];
+                    best = liftBest![j];
                     how = Lift;
                 }
                 else
                 {
-                    long previous = row - n;
-                    best = Accumulated[previous + j];
-                    how = Up;
-                    if (j > 0)
+                    if (j >= plo && j <= phi)
                     {
-                        double diagonal = Accumulated[previous + j - 1];
+                        best = acc[poff + j - plo];
+                        how = Up;
+                    }
+
+                    if (j - 1 >= plo && j - 1 <= phi)
+                    {
+                        double diagonal = acc[poff + j - 1 - plo];
                         if (diagonal < best)
                         {
                             best = diagonal;
@@ -209,9 +399,9 @@ internal sealed class DpTable
                     }
                 }
 
-                if (i > 0 && j > 0)
+                if (j > lo)
                 {
-                    double left = Accumulated[row + j - 1];
+                    double left = acc[off + j - 1 - lo];
                     if (left < best)
                     {
                         best = left;
@@ -219,17 +409,24 @@ internal sealed class DpTable
                     }
                 }
 
-                Accumulated[row + j] = best + c;
-                _back[row + j] = how;
+                acc[off + j - lo] = best + c;
+                back[off + j - lo] = best == double.PositiveInfinity ? Start : how;
             }
         }
 
-        long last = (long)(m - 1) * n;
-        for (int j = p.OpenEndMin; j < n; j++)
+        if (_rowLimit < m)
         {
-            if (Accumulated[last + j] < BestCost)
+            // Усечённая таблица (обратный проход для границ): нужны только накопленные стоимости строк, конца пути нет.
+            return;
+        }
+
+        int last = m - 1;
+        for (int j = Math.Max(p.OpenEndMin, _w.RowLo[last]); j <= _w.RowHi[last]; j++)
+        {
+            double value = acc[_w.RowOffset[last] + j - _w.RowLo[last]];
+            if (value < BestCost)
             {
-                BestCost = Accumulated[last + j];
+                BestCost = value;
                 BestEnd = j;
             }
         }
@@ -237,29 +434,35 @@ internal sealed class DpTable
 
     /// <summary>
     /// Переходы через отрыв пера в строке <paramref name="i"/> (из строки <c>i − 1</c>): отрыв внутри диапазона соединения
-    /// (пропуск геометрии бесплатен, цена — <c>liftJoinPenalty</c> либо 0 для ожидаемого) или отрыв в другом месте (цена
-    /// <c>liftInLetterPenalty</c> и <c>skipBodyCostPerPoint</c> за каждую пропущенную точку тела).
+    /// (пропуск геометрии бесплатен; цена — <c>liftJoinPenalty</c>, растущая к <c>liftInLetterPenalty</c> по мере ухода вглубь тел
+    /// соседних букв в пределах допуска; 0 для ожидаемого отрыва) или отрыв в другом месте (цена <c>liftInLetterPenalty</c> и
+    /// <c>skipBodyCostPerPoint</c> за каждую пропущенную точку тела).
     /// </summary>
-    private void ComputeLiftRow(int i, AlignerConfig config, double[] best, int[] arg, short[] interval)
+    private void ComputeLiftRow(int i, double[] best, int[] arg, short[] interval)
     {
         AlignProblem p = Problem;
         int n = p.N;
-        long previous = (long)(i - 1) * n;
-        double skip = config.SkipBodyCostPerPoint;
+        double skip = _config.SkipBodyCostPerPoint;
         double[] w = p.SkipPrefix;
+        int plo = _w.RowLo[i - 1];
+        int phi = _w.RowHi[i - 1];
+        int poff = _w.RowOffset[i - 1];
+        double[] acc = _w.Accumulated;
+        double Prev(int j) => j >= plo && j <= phi ? acc[poff + j - plo] : double.PositiveInfinity;
 
         // Общий случай: j0 == j без пропуска; j0 < j — с ценой пропущенных точек тела между ними.
         double runMin = double.PositiveInfinity;
         int runArg = -1;
         for (int j = 0; j < n; j++)
         {
-            double same = Accumulated[previous + j] + config.LiftInLetterPenalty;
+            double prev = Prev(j);
+            double same = prev + _config.LiftInLetterPenalty;
             best[j] = same;
             arg[j] = j;
             interval[j] = -1;
             if (runArg >= 0)
             {
-                double viaSkip = runMin + (skip * w[j]) + config.LiftInLetterPenalty;
+                double viaSkip = runMin + (skip * w[j]) + _config.LiftInLetterPenalty;
                 if (viaSkip < best[j])
                 {
                     best[j] = viaSkip;
@@ -267,7 +470,7 @@ internal sealed class DpTable
                 }
             }
 
-            double candidate = Accumulated[previous + j] - (skip * w[j + 1]);
+            double candidate = prev - (skip * w[j + 1]);
             if (candidate < runMin)
             {
                 runMin = candidate;
@@ -275,22 +478,26 @@ internal sealed class DpTable
             }
         }
 
-        // Отрыв внутри диапазона соединения (диапазон расширен на допуск у границ тел: размер букв ребёнка отличается от
-        // эталона, и конец его тела не совпадает с эталонным): цена — liftJoinPenalty (0 для ожидаемого отрыва) и пропущенные
-        // точки тела внутри допуска; пропуск самой геометрии соединения бесплатен.
+        // Отрыв внутри диапазона соединения с допуском.
         for (int k = 0; k < p.Intervals.Length; k++)
         {
-            (int lo, int hi, bool expected) = p.Intervals[k];
-            double penalty = expected ? 0.0 : config.LiftJoinPenalty;
+            AlignInterval a = p.Intervals[k];
+            double basePenalty = a.Expected ? 0.0 : _config.LiftJoinPenalty;
+            int slack = Math.Max(1, Math.Max(a.Lo - a.SlackLo, a.SlackHi - a.Hi));
+            double ramp = Math.Max(0.0, _config.LiftInLetterPenalty - basePenalty) / slack;
             double rangeMin = double.PositiveInfinity;
             int rangeArg = -1;
-            for (int j = lo; j <= hi; j++)
+            for (int j = a.SlackLo; j <= a.SlackHi; j++)
             {
-                double value = Accumulated[previous + j] + penalty;
+                double prev = Prev(j);
+
+                // Отрыв начат правее ядра (j0 > Hi): штраф за глубину; приземление левее ядра (j < Lo) — то же.
+                double depthStart = ramp * Math.Max(0, j - a.Hi);
+                double value = prev + depthStart;
                 int source = j;
                 if (rangeArg >= 0)
                 {
-                    double viaSkip = rangeMin + (skip * w[j]) + penalty;
+                    double viaSkip = rangeMin + (skip * w[j]);
                     if (viaSkip < value)
                     {
                         value = viaSkip;
@@ -298,6 +505,7 @@ internal sealed class DpTable
                     }
                 }
 
+                value += basePenalty + (ramp * Math.Max(0, a.Lo - j));
                 if (value < best[j])
                 {
                     best[j] = value;
@@ -305,7 +513,7 @@ internal sealed class DpTable
                     interval[j] = (short)k;
                 }
 
-                double candidate = Accumulated[previous + j] - (skip * w[j + 1]);
+                double candidate = prev + (ramp * Math.Max(0, j - a.Hi)) - (skip * w[j + 1]);
                 if (candidate < rangeMin)
                 {
                     rangeMin = candidate;
@@ -318,7 +526,6 @@ internal sealed class DpTable
     /// <summary>Восстанавливает путь с конца <paramref name="endJ"/> последней строки.</summary>
     public (List<PathCell> Path, List<LiftEvent> Lifts) Backtrack(int endJ)
     {
-        int n = Problem.N;
         var path = new List<PathCell>();
         var lifts = new List<LiftEvent>();
         int i = Problem.M - 1;
@@ -326,7 +533,7 @@ internal sealed class DpTable
         while (true)
         {
             path.Add(new PathCell(i, j));
-            byte how = _back[((long)i * n) + j];
+            byte how = _w.Back[_w.RowOffset[i] + j - _w.RowLo[i]];
             if (how == Start)
             {
                 break;
@@ -362,7 +569,7 @@ internal sealed class DpTable
 }
 
 /// <summary>Результат выравнивания рукописи с эталоном слова.</summary>
-internal sealed class Alignment
+internal sealed class Alignment : IDisposable
 {
     public required DpTable Forward { get; init; }
 
@@ -377,14 +584,17 @@ internal sealed class Alignment
 
     /// <summary>Для каждой точки рукописи — индекс точки эталона (медиана по клеткам пути).</summary>
     public required int[] TemplateOfInk { get; init; }
+
+    public void Dispose() => Forward.Dispose();
 }
 
 /// <summary>
 /// DTW по цели для слова (ARCHITECTURE.md §6.4.4, A03, A09): состояние <c>(i, j)</c> — точка рукописи и точка эталона;
-/// шаги диагональный, по рукописи и по эталону; полоса по x — «мягкая» (штраф вне полосы); отрыв пера — переход через
-/// маркер отрыва с цены по месту (внутри диапазона соединения — альтернатива геометрии, пропуск соединения бесплатен);
-/// допустимый старт — подход или начало тела первой буквы, допустимый конец — конец тела последней буквы или её выход.
-/// Прямой и обратный проходы дают стоимость пути через любую клетку (уверенность границ).
+/// шаги диагональный, по рукописи и по эталону; полоса по x (клетки вне <c>bandU + bandMarginU</c> не считаются; внутри
+/// <c>bandU</c> — без штрафа, дальше — «мягкий» штраф); отрыв пера — переход через маркер отрыва с ценой по месту (внутри
+/// диапазона соединения — альтернатива геометрии, пропуск соединения бесплатен); допустимый старт — подход или начало тела
+/// первой буквы, допустимый конец — конец тела последней буквы или её выход. Прямой и обратный проходы дают стоимость пути
+/// через любую клетку (уверенность границ).
 /// </summary>
 internal static class TargetAligner
 {
@@ -393,6 +603,7 @@ internal static class TargetAligner
         var table = new DpTable(problem, config.Word.Aligner, config.Dtw);
         if (table.BestEnd < 0)
         {
+            table.Dispose();
             throw new InvalidOperationException("The alignment has no feasible path.");
         }
 
@@ -414,7 +625,7 @@ internal static class TargetAligner
         };
     }
 
-    /// <summary>Рост полной стоимости пути, если пройти через клетку <c>(i, j)</c> вместо лучшей (≥ 0).</summary>
+    /// <summary>Рост полной стоимости пути, если пройти через клетку <c>(i, j)</c> вместо лучшей (≥ 0; +∞ вне полосы).</summary>
     public static double Rise(Alignment alignment, DpTable backward, int i, int j)
     {
         AlignProblem p = alignment.Forward.Problem;
@@ -423,7 +634,7 @@ internal static class TargetAligner
             return double.PositiveInfinity;
         }
 
-        double through = alignment.Forward.Cumulative(i, j) + backward.Cumulative(p.M - 1 - i, p.N - 1 - j) - alignment.Forward.Local[((long)i * p.N) + j];
+        double through = alignment.Forward.Cumulative(i, j) + backward.Cumulative(p.M - 1 - i, p.N - 1 - j) - alignment.Forward.Local(i, j);
         return through - alignment.Forward.BestCost;
     }
 

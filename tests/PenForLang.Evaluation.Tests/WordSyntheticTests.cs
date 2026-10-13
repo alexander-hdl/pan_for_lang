@@ -335,14 +335,38 @@ public class WordSyntheticTests
     }
 
     [Fact]
-    public void Another_word_does_not_pass_as_clean()
+    public void Another_word_is_u0_not_a_clean_word()
     {
-        // Опознавания букв (L*) в v0 нет, но чужое слово не должно выглядеть безупречным: находки формы и процесса.
+        // Опознавания букв (L*) в v0 нет; чужое слово не должно выглядеть безупречным: «не распознано» (U0), без находок.
         EvaluationSummary s = Tester.EvaluateWord(Tester.Synth.Clean(Tester.Word("it"), 3), "at").Summary;
 
-        Assert.NotEmpty(s.Findings);
-        Assert.NotEqual(Confidence.High, s.Confidence);
-        Assert.Contains(s.Letters, l => l.Form < 0.9);
+        Assert.Equal(Decision.Unrecognized, s.Decision);
+        Assert.Equal(Confidence.Low, s.Confidence);
+        Assert.Empty(s.Findings);
+    }
+
+    [Fact]
+    public void An_immediate_mark_of_another_letter_does_not_exempt_a_lift_on_a_distant_join()
+    {
+        // W10-17: отрыв ожидаем только у буквы назначенного слота. В «tat» перекладина первой t поставлена сразу (отрыв на соединении 0
+        // ожидаем), а отрыв посреди соединения 1 — не её и остаётся J1.
+        for (ulong seed = 1; seed <= 10; seed++)
+        {
+            SynthWordSample sample = Sample("tat", SynthWordMutation.DeferredImmediately, seed);
+            SynthJoinTruth join1 = sample.Joins[1];
+            RulerStroke main = sample.Ink.Strokes.Single(s => s.Index == join1.End.Stroke);
+            int cut = (join1.End.Point + join1.Start.Point) / 2;
+            RulerStroke head = main with { Points = [.. main.Points.Take(cut + 1)] };
+            RulerStroke tail = main with { Index = 100, Points = [.. main.Points.Skip(cut)] };
+            RulerInk ink = sample.Ink with { Strokes = [.. sample.Ink.Strokes.Select(s => s.Index == main.Index ? head : s), tail] };
+
+            EvaluationSummary s = Tester.EvaluateWord(ink, "tat").Summary;
+
+            Finding j1 = Assert.Single(s.Of(ErrorCode.J1));
+            Assert.Equal(1, j1.Where.LetterIndex);
+            Assert.True(s.Joins[0].LiftExpected, $"seed {seed}: the lift at join 0 is expected (bar of letter 0)");
+            Assert.False(s.Joins[1].Present);
+        }
     }
 
     [Fact]

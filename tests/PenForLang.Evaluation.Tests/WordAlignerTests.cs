@@ -53,11 +53,27 @@ public class WordAlignerTests
             TplDir = r.Dir,
             Zone = r.Zone,
             SkipPrefix = r.SkipPrefix,
-            Intervals = [.. r.Intervals.Select(i => (i.Lo, i.Hi, i.Expected))],
+            Intervals = [.. r.Intervals.Select(i => AlignInterval.Core(i.Lo, i.Hi, i.Expected))],
             OpenBeginMax = r.OpenBeginMax,
             OpenEndMin = r.OpenEndMin,
         };
     }
+
+    private static readonly int[] Depths = [0, 3, 6, 9, 12];
+
+    private static AlignProblem WithIntervals(AlignProblem p, params AlignInterval[] intervals) => new()
+    {
+        InkPos = p.InkPos,
+        InkDir = p.InkDir,
+        LiftBefore = p.LiftBefore,
+        TplPos = p.TplPos,
+        TplDir = p.TplDir,
+        Zone = p.Zone,
+        SkipPrefix = p.SkipPrefix,
+        Intervals = intervals,
+        OpenBeginMax = p.OpenBeginMax,
+        OpenEndMin = p.OpenEndMin,
+    };
 
     private static Vec2[] PolylineToolsDirections(Vec2[] points)
     {
@@ -295,9 +311,116 @@ public class WordAlignerTests
 
         Assert.Equal(r.Count - 1 - r.OpenEndMin, back.OpenBeginMax);
         Assert.Equal(r.Count - 1 - r.OpenBeginMax, back.OpenEndMin);
-        Assert.Equal((r.Count - 1 - r.Intervals[0].Hi, r.Count - 1 - r.Intervals[0].Lo, false), back.Intervals[0]);
+        Assert.Equal(AlignInterval.Core(r.Count - 1 - r.Intervals[0].Hi, r.Count - 1 - r.Intervals[0].Lo, false), back.Intervals[0]);
         Assert.Equal(problem.LiftBefore.Count(l => l), back.LiftBefore.Count(l => l));
         Assert.Equal(problem.InkPos[0], back.InkPos[^1]);
         Assert.Equal(problem.SkipPrefix[^1], back.SkipPrefix[^1]);
+    }
+
+    // ---------------------------------- V0.10 (W10-06/07/08): допуск отрыва, полоса, коридор, буферы ----------------------------------
+
+    [Fact]
+    public void A_lift_inside_the_slack_zone_costs_more_with_depth_and_never_more_than_a_lift_in_a_letter()
+    {
+        WordReference r = Reference();
+        JoinInterval join = r.Intervals[0];
+        const int slack = 12;
+        AlignInterval interval = new(join.Lo, join.Hi, false, join.Lo - slack, join.Hi + slack);
+
+        double Cost(int depth)
+        {
+            AlignProblem problem = Problem(r, Slice(r, 0, join.Lo - depth), Slice(r, join.Hi, r.Count - 1));
+            problem = WithIntervals(problem, interval);
+            using Alignment alignment = TargetAligner.Align(problem, Config);
+            return alignment.Forward.BestCost;
+        }
+
+        double[] costs = [.. Depths.Select(Cost)];
+
+        for (int k = 1; k < costs.Length; k++)
+        {
+            Assert.True(costs[k] > costs[k - 1], $"the price grows with the depth: {string.Join(", ", costs.Select(c => c.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)))}");
+        }
+
+        Assert.True(costs[0] < Config.Word.Aligner.LiftInLetterPenalty / 2, "a lift at the core of the join is cheap");
+    }
+
+    [Fact]
+    public void A_continuous_connector_drawn_far_outside_the_corridor_pays_more_than_the_flat_price()
+    {
+        StyleManifest style = Shipped.Style with
+        {
+            Joins = new JoinPolicy([new JoinRule(null, ExitClass.Base, [], true, JoinShape.Break, false, new Dictionary<string, double>())], EntryClass.UpTall),
+        };
+        WordReference r = Reference(style, "i", "t");
+        JoinInterval join = r.Intervals[0];
+        int bridge = join.Hi - join.Lo - 1;
+
+        double Cost(double bulge)
+        {
+            Vec2[] drawn = [.. Enumerable.Range(1, bridge).Select(k => Vec2.Lerp(r.Pos[join.Lo], r.Pos[join.Hi], (double)k / (bridge + 1)) + new Vec2(0.0, bulge * Math.Sin(Math.PI * k / (bridge + 1))))];
+            using Alignment alignment = TargetAligner.Align(Problem(r, [.. Slice(r, 0, join.Lo), .. drawn, .. Slice(r, join.Hi, r.Count - 1)]), Config);
+            return alignment.Forward.BestCost;
+        }
+
+        double inside = Cost(0.3);
+        double outside = Cost(1.4);
+
+        Assert.True(outside > inside + 0.05, $"inside {inside:F3}, outside {outside:F3}");
+    }
+
+    [Fact]
+    public void Restricting_the_table_to_the_band_gives_the_same_best_path_with_fewer_cells()
+    {
+        WordReference r = Reference("atatatat");
+        AlignProblem problem = Problem(r, r.Pos);
+        using var banded = new DpTable(problem, Config.Word.Aligner, Config.Dtw);
+        using var full = new DpTable(problem, Config.Word.Aligner, Config.Dtw, restrictToBand: false);
+
+        Assert.Equal(full.BestCost, banded.BestCost, 9);
+        Assert.Equal(full.BestEnd, banded.BestEnd);
+        Assert.True(banded.Cells < full.Cells / 2, $"band {banded.Cells}, full {full.Cells}");
+    }
+
+    [Fact]
+    public void A_row_limit_leaves_the_computed_rows_untouched_and_the_rest_infinite()
+    {
+        WordReference r = Reference("at");
+        AlignProblem problem = Problem(r, r.Pos);
+        using var full = new DpTable(problem, Config.Word.Aligner, Config.Dtw);
+        int limit = problem.M / 2;
+        using var cut = new DpTable(problem, Config.Word.Aligner, Config.Dtw, rowLimit: limit);
+
+        for (int j = 0; j < problem.N; j++)
+        {
+            Assert.Equal(full.Cumulative(limit - 1, j), cut.Cumulative(limit - 1, j));
+            Assert.Equal(double.PositiveInfinity, cut.Cumulative(limit, j));
+        }
+
+        Assert.True(cut.Cells < full.Cells);
+    }
+
+    [Fact]
+    public void Repeated_alignments_reuse_the_pooled_buffers_instead_of_allocating_the_table_again()
+    {
+        WordReference r = Reference("tat");
+        AlignProblem problem = Problem(r, r.Pos);
+        for (int i = 0; i < 3; i++)
+        {
+            TargetAligner.Align(problem, Config).Dispose();
+        }
+
+        long cells = 0;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 10; i++)
+        {
+            using Alignment alignment = TargetAligner.Align(problem, Config);
+            cells = alignment.Forward.Cells;
+        }
+
+        long perRun = (GC.GetAllocatedBytesForCurrentThread() - before) / 10;
+
+        // Таблица занимала бы 9 байт на клетку (double + byte); без пула это были бы сотни КБ на каждый вызов.
+        Assert.True(perRun < cells * 9 / 4, $"{perRun} bytes per alignment, the table alone would take {cells * 9} bytes");
     }
 }

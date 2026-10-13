@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text.Json;
 using PenForLang.Ink;
 
@@ -14,71 +15,111 @@ internal readonly record struct CorpusPoint(int Stroke, int Sample);
 /// <param name="After">Между буквами <c>After</c> и <c>After + 1</c>.</param>
 /// <param name="End">Выход тела левой буквы.</param>
 /// <param name="Start">Вход тела правой буквы.</param>
-/// <param name="Lifted">Перо оторвано: <c>End.Stroke &lt; Start.Stroke</c>.</param>
+/// <param name="Lifted">Перо оторвано: <c>End.Stroke &lt; Start.Stroke</c> (в разметке — <c>kind = lifted</c>).</param>
 internal sealed record CorpusJunction(int After, CorpusPoint End, CorpusPoint Start, bool Lifted);
 
 /// <summary>Отложенный штрих по разметке.</summary>
 /// <param name="Stroke">Штрих записи.</param>
 /// <param name="Letter">Буква слова.</param>
-/// <param name="Immediate">Поставлен сразу (до продолжения слова), а не после слова.</param>
+/// <param name="Immediate">Поставлен сразу (после него пишется ещё штрих основного следа), а не после слова.</param>
 internal sealed record CorpusMark(int Stroke, int Letter, bool Immediate);
 
-/// <summary>Разметка одной записи (то, что нужно корпусному тесту слов).</summary>
+/// <summary>Запись корпуса: проекция в линейку, цель задания и хеш несжатого JSONL.</summary>
+/// <param name="Path">Файл записи.</param>
+/// <param name="Ink">Попытка в линейке (штрихи после последнего «Заново»).</param>
+/// <param name="Target">Цель задания (<c>word:at</c>) или <c>null</c>.</param>
+/// <param name="Sha256">SHA-256 несжатого JSONL, строчные hex.</param>
+internal sealed record CorpusRecording(string Path, RulerInk Ink, string? Target, string Sha256);
+
+/// <summary>Разметка одной записи одним разметчиком (то, что нужно корпусному тесту слов).</summary>
 /// <param name="Annotator">Кто размечал.</param>
 /// <param name="Text">Что написано.</param>
+/// <param name="Variant">Вариант задания (<c>lift</c>, <c>joined</c>, <c>dot</c>) или <c>null</c>.</param>
 /// <param name="Usable">Запись годится для корпуса.</param>
 /// <param name="Junctions">Стыки по порядку букв.</param>
 /// <param name="Deferred">Отложенные штрихи.</param>
-internal sealed record CorpusAnnotation(string Annotator, string Text, bool Usable, ImmutableArray<CorpusJunction> Junctions, ImmutableArray<CorpusMark> Deferred);
+internal sealed record CorpusAnnotation(string Annotator, string Text, string? Variant, bool Usable, ImmutableArray<CorpusJunction> Junctions, ImmutableArray<CorpusMark> Deferred);
+
+/// <summary>Итог чтения разметки: разметка или причина, по которой она не годится.</summary>
+/// <param name="Annotation">Разметка (годная и сверенная с записью) или <c>null</c>.</param>
+/// <param name="Problem">Причина отказа или <c>null</c>.</param>
+internal sealed record AnnotationLoad(CorpusAnnotation? Annotation, string? Problem);
 
 /// <summary>
 /// Единственное место, знающее форматы корпуса: запись пера <c>*.pfl.jsonl.gz</c> и разметка InkLab
-/// <c>&lt;запись&gt;.pfl.jsonl.gz.ann.&lt;annotatorId&gt;.json</c> (<c>pfl.annotation/1</c>). Формат разметки в ветке InkLab
-/// переделывается (стык = две точки End и Start, отрыв ⇔ <c>End.stroke &lt; Start.stroke</c>, привязка точек по <c>t</c>); этот класс читает
-/// и номер точки (<c>sample</c>), и время (<c>t</c>, мкс, как <see cref="RulerPoint.TimeUs"/>) и подгоняется под итоговый формат здесь.
+/// <c>&lt;запись&gt;.pfl.jsonl.gz.ann.&lt;annotatorId&gt;.json</c> (<c>pfl.annotation/1</c>, схема <c>schemas/pfl.annotation.v1.schema.json</c>;
+/// старый <c>&lt;запись&gt;.pfl.jsonl.gz.ann.json</c> читается как файл автора, названного внутри). Разметка сверяется с записью:
+/// <c>penlogSha256</c> (хеш несжатого JSONL), <c>indexing</c> (<c>inkattempt-after-last-restart</c>) и <c>strokes[]</c> (число точек,
+/// <c>t0</c>, <c>t1</c> каждого штриха); устаревшая разметка пропускается. Точка находится по времени <c>t</c> (приоритетнее <c>sample</c>:
+/// время переживает пересборку записи). Папки <c>superseded</c> пропускаются.
 /// </summary>
 internal static class CorpusFormat
 {
     public const string RecordingSuffix = ".pfl.jsonl.gz";
     public const string DefaultAnnotator = "A";
+    public const string Indexing = "inkattempt-after-last-restart";
+    public const string SupersededFolder = "superseded";
+
+    private const byte GzipFirst = 0x1f;
+    private const byte GzipSecond = 0x8b;
 
     /// <summary>Путь разметки записи для разметчика <paramref name="annotator"/>.</summary>
     public static string AnnotationPath(string recording, string annotator) => recording + ".ann." + annotator + ".json";
 
-    /// <summary>Записи корпуса (рекурсивно), по порядку имён.</summary>
-    public static IEnumerable<string> FindRecordings(string root) =>
-        Directory.EnumerateFiles(root, "*" + RecordingSuffix, SearchOption.AllDirectories).Order(StringComparer.Ordinal);
+    /// <summary>Путь старой разметки (до введения идентификатора разметчика).</summary>
+    public static string LegacyAnnotationPath(string recording) => recording + ".ann.json";
 
-    /// <summary>Читает запись пера (с распаковкой) и проецирует в линейку.</summary>
-    public static RulerInk ReadInk(string recording)
+    /// <summary>Записи корпуса (рекурсивно, без <c>superseded</c>), по порядку имён.</summary>
+    public static IEnumerable<string> FindRecordings(string root)
     {
-        using FileStream file = File.OpenRead(recording);
-        using var gzip = new GZipStream(file, CompressionMode.Decompress);
-        PenLog log = PenLogReader.Read(gzip);
-        return RulerProjection.Project(log.ToInkAttempt());
+        string marker = Path.DirectorySeparatorChar + SupersededFolder + Path.DirectorySeparatorChar;
+        return Directory.EnumerateFiles(root, "*" + RecordingSuffix, SearchOption.AllDirectories)
+            .Where(f => !(Path.DirectorySeparatorChar + Path.GetRelativePath(root, f)).Contains(marker, StringComparison.Ordinal))
+            .Order(StringComparer.Ordinal);
     }
 
-    /// <summary>Цель задания из заголовка записи (<c>word:at</c> → <c>at</c>) или <c>null</c>.</summary>
-    public static string? ReadTargetWord(string recording)
+    /// <summary>Читает запись пера (gzip определяется по сигнатуре <c>1f 8b</c>), считает хеш несжатого JSONL и проецирует в линейку.</summary>
+    public static CorpusRecording ReadRecording(string path)
     {
-        using FileStream file = File.OpenRead(recording);
-        using var gzip = new GZipStream(file, CompressionMode.Decompress);
-        string? target = PenLogReader.Read(gzip).Header.Task?.Target;
-        return target is not null && target.StartsWith("word:", StringComparison.Ordinal) ? target["word:".Length..] : null;
+        byte[] raw = File.ReadAllBytes(path);
+        byte[] jsonl = raw.Length >= 2 && raw[0] == GzipFirst && raw[1] == GzipSecond ? Decompress(raw) : raw;
+        PenLog log = PenLogReader.Read(new MemoryStream(jsonl));
+        return new CorpusRecording(path, RulerProjection.Project(log.ToInkAttempt()), log.Header.Task?.Target, Convert.ToHexStringLower(SHA256.HashData(jsonl)));
     }
 
-    /// <summary>Читает разметку или возвращает <c>null</c>, если файла нет.</summary>
-    public static CorpusAnnotation? ReadAnnotation(string recording, string annotator, RulerInk ink)
+    /// <summary>Цель-слово записи (<c>word:at</c> → <c>at</c>) или <c>null</c>.</summary>
+    public static string? WordTarget(CorpusRecording recording) =>
+        recording.Target is { } t && t.StartsWith("word:", StringComparison.Ordinal) ? t["word:".Length..] : null;
+
+    /// <summary>Читает и сверяет разметку; файла нет — <c>Annotation = null, Problem = null</c>.</summary>
+    public static AnnotationLoad ReadAnnotation(CorpusRecording recording, string annotator)
     {
-        string path = AnnotationPath(recording, annotator);
+        string path = AnnotationPath(recording.Path, annotator);
         if (!File.Exists(path))
         {
-            return null;
+            path = LegacyAnnotationPath(recording.Path);
+            if (!File.Exists(path))
+            {
+                return new AnnotationLoad(null, null);
+            }
         }
 
         using JsonDocument document = JsonDocument.Parse(File.ReadAllBytes(path));
         JsonElement root = document.RootElement;
+        string author = root.TryGetProperty("annotator", out JsonElement a) ? a.GetString() ?? string.Empty : string.Empty;
+        if (author != annotator)
+        {
+            return new AnnotationLoad(null, null); // чужая разметка (или старый файл другого автора)
+        }
+
+        string? problem = Verify(root, recording);
+        if (problem is not null)
+        {
+            return new AnnotationLoad(null, problem);
+        }
+
         string text = root.TryGetProperty("text", out JsonElement t) ? t.GetString() ?? string.Empty : string.Empty;
+        string? variant = root.TryGetProperty("variant", out JsonElement v) ? v.GetString() : null;
         bool usable = !root.TryGetProperty("quality", out JsonElement quality) || !quality.TryGetProperty("usable", out JsonElement u) || u.GetBoolean();
 
         var junctions = ImmutableArray.CreateBuilder<CorpusJunction>();
@@ -86,8 +127,8 @@ internal static class CorpusFormat
         {
             foreach (JsonElement j in js.EnumerateArray())
             {
-                CorpusPoint end = ReadPoint(j.GetProperty("end"), ink);
-                CorpusPoint start = ReadPoint(j.GetProperty("start"), ink);
+                CorpusPoint end = ReadPoint(j.GetProperty("end"), recording.Ink);
+                CorpusPoint start = ReadPoint(j.GetProperty("start"), recording.Ink);
                 bool lifted = j.TryGetProperty("kind", out JsonElement kind) ? kind.GetString() == "lifted" : end.Stroke < start.Stroke;
                 junctions.Add(new CorpusJunction(j.GetProperty("after").GetInt32(), end, start, lifted));
             }
@@ -103,7 +144,7 @@ internal static class CorpusFormat
             }
         }
 
-        return new CorpusAnnotation(annotator, text, usable, junctions.ToImmutable(), marks.ToImmutable());
+        return new AnnotationLoad(new CorpusAnnotation(annotator, text, variant, usable, junctions.ToImmutable(), marks.ToImmutable()), null);
     }
 
     /// <summary>Положение точки в линейке или <c>null</c>, если штриха или точки нет.</summary>
@@ -119,31 +160,71 @@ internal static class CorpusFormat
         return (p.U, p.V);
     }
 
-    private static CorpusPoint ReadPoint(JsonElement element, RulerInk ink)
+    /// <summary>Сверка разметки с записью: хеш, нумерация и штрихи. Возвращает причину отказа или <c>null</c>.</summary>
+    private static string? Verify(JsonElement root, CorpusRecording recording)
     {
-        int stroke = element.GetProperty("stroke").GetInt32();
-        if (element.TryGetProperty("sample", out JsonElement sample))
+        if (root.TryGetProperty("penlogSha256", out JsonElement sha) && sha.GetString() is { } hash && hash != recording.Sha256)
         {
-            return new CorpusPoint(stroke, sample.GetInt32());
+            return "penlogSha256 differs: the recording changed after the annotation";
         }
 
-        // Привязка по времени точки (мкс): ближайшая точка штриха.
-        long time = element.GetProperty("t").GetInt64();
-        RulerStroke? s = ink.Strokes.FirstOrDefault(x => x.Index == stroke);
-        if (s is null || s.Points.Length == 0)
+        if (root.TryGetProperty("indexing", out JsonElement indexing) && indexing.GetString() != Indexing)
         {
-            return new CorpusPoint(stroke, 0);
+            return $"unknown indexing '{indexing.GetString()}'";
         }
 
-        int best = 0;
-        for (int i = 1; i < s.Points.Length; i++)
+        if (root.TryGetProperty("strokes", out JsonElement strokes))
         {
-            if (Math.Abs(s.Points[i].TimeUs - time) < Math.Abs(s.Points[best].TimeUs - time))
+            JsonElement[] listed = [.. strokes.EnumerateArray()];
+            if (listed.Length != recording.Ink.Strokes.Length)
             {
-                best = i;
+                return $"the annotation lists {listed.Length} strokes, the recording has {recording.Ink.Strokes.Length}";
+            }
+
+            for (int i = 0; i < listed.Length; i++)
+            {
+                RulerStroke s = recording.Ink.Strokes[i];
+                if (listed[i].GetProperty("n").GetInt32() != s.Points.Length
+                    || listed[i].GetProperty("t0").GetInt64() != s.Points[0].TimeUs
+                    || listed[i].GetProperty("t1").GetInt64() != s.Points[^1].TimeUs)
+                {
+                    return $"stroke {i} differs from the annotation (n, t0, t1)";
+                }
             }
         }
 
-        return new CorpusPoint(stroke, best);
+        return null;
+    }
+
+    private static CorpusPoint ReadPoint(JsonElement element, RulerInk ink)
+    {
+        int stroke = element.GetProperty("stroke").GetInt32();
+        RulerStroke? s = ink.Strokes.FirstOrDefault(x => x.Index == stroke);
+        if (element.TryGetProperty("t", out JsonElement time) && s is not null && s.Points.Length > 0)
+        {
+            // Время точки (мкс) приоритетнее номера: ближайшая по времени точка штриха.
+            long t = time.GetInt64();
+            int best = 0;
+            for (int i = 1; i < s.Points.Length; i++)
+            {
+                if (Math.Abs(s.Points[i].TimeUs - t) < Math.Abs(s.Points[best].TimeUs - t))
+                {
+                    best = i;
+                }
+            }
+
+            return new CorpusPoint(stroke, best);
+        }
+
+        return new CorpusPoint(stroke, element.TryGetProperty("sample", out JsonElement sample) ? sample.GetInt32() : 0);
+    }
+
+    private static byte[] Decompress(byte[] gz)
+    {
+        using var input = new MemoryStream(gz);
+        using var gzip = new GZipStream(input, CompressionMode.Decompress);
+        using var output = new MemoryStream();
+        gzip.CopyTo(output);
+        return output.ToArray();
     }
 }

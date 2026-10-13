@@ -123,7 +123,8 @@ internal static class PairMetricsCalculator
         }
         else
         {
-            (bestStart, nearest, bool viaApproach) = StartError(reference, pos[0], childDirection, process);
+            Vec2 elevationDirection = pos[PolylineTools.IndexAtArc(pos, 0, +1, process.Approach.ElevationLength)] - pos[0];
+            (bestStart, nearest, bool viaApproach) = StartError(reference, pos[0], childDirection, elevationDirection, process);
             if (viaApproach)
             {
                 // Подход засчитывается, только если путь до входа в тело не перекрыт последующим следом ИЛИ приходит в тело
@@ -314,7 +315,7 @@ internal static class PairMetricsCalculator
     /// место подхода — ломаной входящего штриха и её продолжения влево вдоль линии начала — при ходе вперёд, то есть первый
     /// участок рукописи не отклонён от хода подхода больше <c>process.approach.maxAngleDeg</c>.
     /// </summary>
-    private static (double Error, EndpointCandidate Nearest, bool ViaApproach) StartError(RefStroke reference, Vec2 start, Vec2 firstDirection, ProcessConfig process)
+    private static (double Error, EndpointCandidate Nearest, bool ViaApproach) StartError(RefStroke reference, Vec2 start, Vec2 firstDirection, Vec2 elevationDirection, ProcessConfig process)
     {
         EndpointCandidate body = reference.Starts[^1];
         double best = Vec2.Distance(start, body.Position);
@@ -353,7 +354,7 @@ internal static class PairMetricsCalculator
 
         // Ошибка выражается в единицах допуска старта: подход жёстче (process.approach.tolerance), чем начало тела.
         double scaled = onApproach * process.StartTolerance / process.Approach.Tolerance;
-        double elevation = Math.Atan2(firstDirection.Y, Math.Abs(firstDirection.X)) * (180.0 / Math.PI);
+        double elevation = Math.Atan2(elevationDirection.Y, Math.Abs(elevationDirection.X)) * (180.0 / Math.PI);
         if (scaled < best
             && PolylineTools.AngleDegrees(firstDirection, direction) <= process.Approach.MaxAngleDeg
             && elevation >= process.Approach.MinElevationDeg)

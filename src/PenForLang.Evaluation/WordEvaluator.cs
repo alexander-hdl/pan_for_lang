@@ -92,11 +92,12 @@ public sealed class WordEvaluator : IWordEvaluator
         ArgumentNullException.ThrowIfNull(request.Ink);
         ArgumentNullException.ThrowIfNull(request.Word);
         WordReference reference = _references.GetValue(request.Word, t => WordReference.Build(t, _config, _filter));
-        return new WordRun(this, request, reference).Execute();
+        using var run = new WordRun(this, request, reference);
+        return run.Execute();
     }
 
     /// <summary>Состояние одной оценки.</summary>
-    private sealed class WordRun
+    private sealed class WordRun : IDisposable
     {
         private readonly WordEvaluator _owner;
         private readonly ScoringConfig _config;
@@ -108,6 +109,7 @@ public sealed class WordEvaluator : IWordEvaluator
         private List<ChildStroke> _marks = [];
         private MainInk _ink = null!;
         private Alignment _alignment = null!;
+        private DpTable? _backward;
         private double _toleranceScale;
 
         public WordRun(WordEvaluator owner, WordEvaluationRequest request, WordReference reference)
@@ -117,6 +119,12 @@ public sealed class WordEvaluator : IWordEvaluator
             _request = request;
             _reference = reference;
             _word = request.Word;
+        }
+
+        public void Dispose()
+        {
+            _alignment?.Dispose();
+            _backward?.Dispose();
         }
 
         public EvaluationResult Execute()
@@ -129,11 +137,7 @@ public sealed class WordEvaluator : IWordEvaluator
             }
 
             NormalizationParams normalization = ChildInk.Normalize(_children, _reference, _config);
-            foreach (ChildStroke stroke in _children)
-            {
-                (IsMark(stroke) ? _marks : _main).Add(stroke);
-            }
-
+            SplitMainAndMarks();
             if (_main.Count == 0)
             {
                 return Unrecognized(normalization, null);
@@ -143,14 +147,37 @@ public sealed class WordEvaluator : IWordEvaluator
             Similarity refinement = AlignWithRefinement();
             refinement = new Similarity(refinement.Scale * centering.Scale, (centering.Translation * refinement.Scale) + refinement.Translation);
             AlignmentStats stats = Measure();
-            if (stats.MeanDtw > _config.Word.Unrecognized.MeanDtw
-                || stats.Coverage < _config.Word.Unrecognized.Coverage
-                || stats.InkShare < _config.Word.Unrecognized.InkShare)
+            WordUnrecognizedConfig u = _config.Word.Unrecognized;
+            if (stats.MeanDtw > u.MeanDtw
+                || stats.Coverage < u.Coverage
+                || stats.InkShare < u.InkShare
+                || stats.CostPerPoint > u.CostPerPoint
+                || stats.FarShare > u.FarShare
+                || stats.MinLetterCoverage < u.LetterCoverage)
             {
                 return Unrecognized(normalization, stats);
             }
 
             return Assemble(normalization, refinement, stats);
+        }
+
+        /// <summary>
+        /// Основной след и кандидаты в отложенные (§6.4.3). Короткая черта, начатая у конца предыдущего основного штриха, —
+        /// продолжение следа (хвост t после перекладины «сразу»), а не отложенный штрих; точки — всегда отложенные.
+        /// </summary>
+        private void SplitMainAndMarks()
+        {
+            foreach (ChildStroke stroke in _children)
+            {
+                bool mark = IsMark(stroke);
+                if (mark && stroke.Extent > _config.Deferred.DotMaxLength && _main.Count > 0
+                    && Vec2.Distance(stroke.NPos[0], _main[^1].NPos[^1]) <= _config.Word.MarkAdjacencyU)
+                {
+                    mark = false;
+                }
+
+                (mark ? _marks : _main).Add(stroke);
+            }
         }
 
         /// <summary>
@@ -190,19 +217,19 @@ public sealed class WordEvaluator : IWordEvaluator
         }
 
         /// <summary>
-        /// Диапазон отрыва, расширенный на допуск <c>joinSlackU</c> внутрь тел соседних букв, но не больше четверти тела
-        /// (отрыв посреди короткой буквы — это отрыв внутри буквы, а не на соединении).
+        /// Диапазон отрыва с допуском <c>joinSlackU</c> внутрь тел соседних букв, но не больше четверти тела (отрыв посреди
+        /// короткой буквы — это отрыв внутри буквы, а не на соединении). Внутри допуска штраф растёт к штрафу отрыва в букве.
         /// </summary>
-        private (int Lo, int Hi, bool Expected) ExtendedInterval(JoinInterval interval)
+        private AlignInterval ExtendedInterval(JoinInterval interval)
         {
             int slack = (int)Math.Round(_config.Word.Aligner.JoinSlackU / _config.ResampleStep);
             int leftLetter = interval.Letter;
             int rightLetter = Math.Min(_word.Letters.Length - 1, interval.Join >= 0 ? interval.Join + 1 : interval.Letter);
             int leftBody = _reference.BodyEnd[leftLetter] - _reference.BodyStart[leftLetter];
             int rightBody = _reference.BodyEnd[rightLetter] - _reference.BodyStart[rightLetter];
-            int lo = interval.Lo - Math.Min(slack, leftBody / 4);
-            int hi = interval.Hi + Math.Min(slack, rightBody / 4);
-            return (Math.Max(0, lo), Math.Min(_reference.Count - 1, hi), interval.Expected);
+            int lo = Math.Max(0, interval.Lo - Math.Min(slack, leftBody / 4));
+            int hi = Math.Min(_reference.Count - 1, interval.Hi + Math.Min(slack, rightBody / 4));
+            return new AlignInterval(interval.Lo, interval.Hi, interval.Expected, lo, hi);
         }
 
         /// <summary>Выравнивание и раунды «подгонка масштаба и сдвига — повторное выравнивание» (§6.4.2).</summary>
@@ -221,6 +248,7 @@ public sealed class WordEvaluator : IWordEvaluator
 
                 total = new Similarity(fit.Scale * total.Scale, (total.Translation * fit.Scale) + fit.Translation);
                 ChildInk.Transform(_children, fit);
+                _alignment.Dispose();
                 _alignment = TargetAligner.Align(BuildProblem(), _config);
                 if (change <= refine.RerunAbove)
                 {
@@ -261,61 +289,125 @@ public sealed class WordEvaluator : IWordEvaluator
             return change <= refine.MinChange ? (Similarity.Identity, 0.0) : (fit, change);
         }
 
-        private sealed record AlignmentStats(double MeanDtw, double Coverage, double InkShare);
+        private sealed record AlignmentStats(double MeanDtw, double Coverage, double InkShare, double CostPerPoint, double FarShare, double MinLetterCoverage, double[] LetterCoverage);
 
+        /// <summary>Подгонка тела буквы ребёнка к эталону: <c>p' = tplMean + (p − inkMean)·scale</c>.</summary>
+        private readonly record struct LetterFit(double Scale, Vec2 InkMean, Vec2 TplMean)
+        {
+            public Vec2 Apply(Vec2 p) => TplMean + ((p - InkMean) * Scale);
+        }
+
+        private LetterFit[] _fits = [];
+
+
+        /// <summary>
+        /// Подгонка (масштаб и сдвиг) тела каждой буквы к эталону по клеткам пути: форма буквы судится независимо от того, где
+        /// и каким размером ребёнок её поставил (интервал — F8, размер — F4, не J3 и не «буква не та»).
+        /// </summary>
+        private LetterFit[] ComputeFits()
+        {
+            int letters = _word.Letters.Length;
+            var ink = new List<Vec2>[letters];
+            var tpl = new List<Vec2>[letters];
+            for (int k = 0; k < letters; k++)
+            {
+                ink[k] = [];
+                tpl[k] = [];
+            }
+
+            foreach (PathCell cell in _alignment.Path)
+            {
+                if (_reference.Zone[cell.J] != ZoneKind.Body)
+                {
+                    continue;
+                }
+
+                int k = _reference.OwnerLetter[cell.J];
+                ink[k].Add(_ink.Pos[cell.I]);
+                tpl[k].Add(_reference.Pos[cell.J]);
+            }
+
+            var fits = new LetterFit[letters];
+            for (int k = 0; k < letters; k++)
+            {
+                if (ink[k].Count < 3)
+                {
+                    fits[k] = new LetterFit(1.0, Vec2.Zero, Vec2.Zero);
+                    continue;
+                }
+
+                // Робастная подгонка (отсечение худших соответствий): лишние чернила, сваленные на конец эталона, подгонку не тянут.
+                RefineConfig refine = _config.Normalization.Refine with { ScaleMin = 0.5, ScaleMax = 2.0, KeepShare = 0.7, Iterations = 4 };
+                Similarity fit = SimilarityFit.Fit(ink[k], tpl[k], refine);
+                fits[k] = new LetterFit(fit.Scale, Vec2.Zero, fit.Translation);
+            }
+
+            return fits;
+        }
+
+        /// <summary>
+        /// Сводка выравнивания для решения «не распознано» (§6.4.7): среднее отклонение выровненных точек, доля «чужих» точек,
+        /// покрытие тел эталона (в целом и по буквам) и доля чернил в коридоре. Отклонения для покрытия и «чужих» точек — после
+        /// подгонки тела своей буквы (<see cref="ComputeFits"/>). Считается по клеткам пути, без перебора «точка × ломаная».
+        /// </summary>
         private AlignmentStats Measure()
         {
+            WordUnrecognizedConfig u = _config.Word.Unrecognized;
+            double tau = _config.Form.CorridorTau * _toleranceScale * u.CoverageTauScale;
+            int letters = _word.Letters.Length;
+            _fits = ComputeFits();
+            var nearest = new double[_reference.Count];
+            Array.Fill(nearest, double.PositiveInfinity);
             double sum = 0.0;
             int counted = 0;
-            for (int i = 0; i < _ink.Count; i++)
+            int far = 0;
+            int inside = 0;
+            foreach (PathCell cell in _alignment.Path)
             {
-                int j = _alignment.TemplateOfInk[i];
-                if (j < 0 || _reference.Zone[j] == ZoneKind.Connector)
+                if (_reference.Zone[cell.J] == ZoneKind.Connector)
                 {
                     continue;
                 }
 
-                sum += Vec2.Distance(_ink.Pos[i], _reference.Pos[j]);
+                sum += Vec2.Distance(_ink.Pos[cell.I], _reference.Pos[cell.J]);
                 counted++;
+                double d = Vec2.Distance(_fits[_reference.OwnerLetter[cell.J]].Apply(_ink.Pos[cell.I]), _reference.Pos[cell.J]);
+                nearest[cell.J] = Math.Min(nearest[cell.J], d);
+                far += d > u.FarDistance ? 1 : 0;
+                inside += d <= tau ? 1 : 0;
             }
 
-            double tau = _config.Form.CorridorTau * _toleranceScale * 2.0;
-            var strokes = _main.Select(s => s.NPos).ToList();
             int body = 0;
             int covered = 0;
-            for (int j = 0; j < _reference.Count; j++)
+            var letterCoverage = new double[letters];
+            for (int k = 0; k < letters; k++)
             {
-                if (_reference.Zone[j] != ZoneKind.Body)
+                int letterBody = 0;
+                int letterCovered = 0;
+                for (int j = _reference.BodyStart[k]; j <= _reference.BodyEnd[k]; j++)
                 {
-                    continue;
-                }
-
-                body++;
-                foreach (Vec2[] stroke in strokes)
-                {
-                    if (PolylineMath.DistanceToPolyline(_reference.Pos[j], stroke) <= tau)
+                    if (_reference.Zone[j] != ZoneKind.Body)
                     {
-                        covered++;
-                        break;
+                        continue;
                     }
-                }
-            }
 
-            int inkTotal = 0;
-            int inkInside = 0;
-            foreach (Vec2 point in _ink.Pos)
-            {
-                inkTotal++;
-                if (PolylineMath.DistanceToPolyline(point, _reference.Pos) <= tau)
-                {
-                    inkInside++;
+                    letterBody++;
+                    letterCovered += nearest[j] <= tau ? 1 : 0;
                 }
+
+                body += letterBody;
+                covered += letterCovered;
+                letterCoverage[k] = letterBody == 0 ? 1.0 : (double)letterCovered / letterBody;
             }
 
             return new AlignmentStats(
                 counted == 0 ? double.PositiveInfinity : sum / counted,
                 body == 0 ? 0.0 : (double)covered / body,
-                inkTotal == 0 ? 1.0 : (double)inkInside / inkTotal);
+                counted == 0 ? 0.0 : (double)inside / counted,
+                _alignment.CostPerInkPoint,
+                counted == 0 ? 1.0 : (double)far / counted,
+                letterCoverage.Length == 0 ? 0.0 : letterCoverage.Min(),
+                letterCoverage);
         }
 
         // ---------- Сегментация ----------
@@ -382,14 +474,9 @@ public sealed class WordEvaluator : IWordEvaluator
             return result;
         }
 
-        /// <summary>Рост стоимости пути при сдвиге границы на <c>shiftU</c> в обе стороны (меньшее из двух).</summary>
-        private double BoundaryRise(DpTable? backward, int index, int templateIndex)
+        /// <summary>Точки следа на расстоянии <c>shiftU</c> до и после границы (по длине дуги, через отрыв без приращения).</summary>
+        private (int Before, int After) ShiftRange(int index)
         {
-            if (backward is null)
-            {
-                return double.PositiveInfinity;
-            }
-
             double shift = _config.Word.Boundaries.ShiftU;
             int before = index;
             while (before > 0 && _ink.Arc[index] - _ink.Arc[before] < shift)
@@ -403,8 +490,45 @@ public sealed class WordEvaluator : IWordEvaluator
                 after++;
             }
 
-            double riseBefore = before == index ? double.PositiveInfinity : TargetAligner.Rise(_alignment, backward, before, templateIndex);
-            double riseAfter = after == index ? double.PositiveInfinity : TargetAligner.Rise(_alignment, backward, after, templateIndex);
+            return (before, after);
+        }
+
+        /// <summary>
+        /// Обратный проход DP нужен только для неуверенных (не краёв штриха) границ и только по строкам от самой ранней из них:
+        /// стоимость «до конца» нужна у границ, а не у начала слова.
+        /// </summary>
+        private void PrepareBackward((BoundaryPos End, BoundaryPos Start)[] boundaries)
+        {
+            int earliest = int.MaxValue;
+            for (int k = 0; k < boundaries.Length; k++)
+            {
+                foreach (BoundaryPos b in new[] { boundaries[k].End, boundaries[k].Start })
+                {
+                    if (!b.Crisp)
+                    {
+                        earliest = Math.Min(earliest, ShiftRange(b.Index).Before);
+                    }
+                }
+            }
+
+            if (earliest != int.MaxValue)
+            {
+                AlignProblem reversed = _alignment.Forward.Problem.Reversed();
+                _backward = new DpTable(reversed, _config.Word.Aligner, _config.Dtw, rowLimit: reversed.M - earliest);
+            }
+        }
+
+        /// <summary>Рост стоимости пути при сдвиге границы на <c>shiftU</c> в обе стороны (меньшее из двух).</summary>
+        private double BoundaryRise(int index, int templateIndex)
+        {
+            if (_backward is null)
+            {
+                return double.PositiveInfinity;
+            }
+
+            (int before, int after) = ShiftRange(index);
+            double riseBefore = before == index ? double.PositiveInfinity : TargetAligner.Rise(_alignment, _backward, before, templateIndex);
+            double riseAfter = after == index ? double.PositiveInfinity : TargetAligner.Rise(_alignment, _backward, after, templateIndex);
             return Math.Min(riseBefore, riseAfter);
         }
 
@@ -414,7 +538,6 @@ public sealed class WordEvaluator : IWordEvaluator
         {
             int letters = _word.Letters.Length;
             (BoundaryPos End, BoundaryPos Start)[] boundaries = FindBoundaries();
-            DpTable? backward = boundaries.Length == 0 ? null : new DpTable(_alignment.Forward.Problem.Reversed(), _config.Word.Aligner, _config.Dtw);
 
             // Диапазоны рукописи по буквам (глобальные индексы точек основного следа).
             var inkRange = new (int From, int To)[letters];
@@ -425,6 +548,7 @@ public sealed class WordEvaluator : IWordEvaluator
                 inkRange[k] = (from, Math.Max(from, to));
             }
 
+            PrepareBackward(boundaries);
             var findings = new List<Finding>();
 
             // Отложенные штрихи и ожидаемые отрывы (§6.4.8).
@@ -434,25 +558,25 @@ public sealed class WordEvaluator : IWordEvaluator
                 deferred,
                 _config,
                 policy,
-                slot => _reference.Slots.First(s => ReferenceEquals(s.Slot, slot.Slot)).Letter,
+                slot => LetterOfSlot(slot),
                 mark => NearestLetterSpan(mark, inkRange),
                 findings);
 
-            // Отрывы основного следа.
-            var immediateMarks = deferred.Slots.Where(s => s.Stroke is not null && s.Timing == DeferredTiming.Immediate).Select(s => s.Stroke!).ToList();
-            var lifts = ClassifyLifts(immediateMarks, out int liftsInsideLetter);
+            // Отрывы основного следа: ожидаем отрыв рядом с отложенным штрихом, поставленным сразу, у ЕГО буквы (A03).
+            var immediate = deferred.Slots
+                .Where(slot => slot.Stroke is not null && slot.Timing == DeferredTiming.Immediate)
+                .Select(slot => (Stroke: slot.Stroke!, Letter: LetterOfSlot(slot)))
+                .ToList();
+            var lifts = ClassifyLifts(immediate, out int liftsInsideLetter);
 
-            // Соединения.
-            var joinMetrics = ImmutableArray.CreateBuilder<JoinMetrics>();
-            var joinSummaries = ImmutableArray.CreateBuilder<JoinSummary>();
+            // Границы и уверенность.
             var boundaryDetail = ImmutableArray.CreateBuilder<WordBoundary>();
-            var entryErrors = new double[Math.Max(0, letters - 1)];
+            double minRise = _config.Word.Boundaries.MinRiseCost;
             for (int k = 0; k + 1 < letters; k++)
             {
                 (BoundaryPos end, BoundaryPos start) = boundaries[k];
-                double endRise = end.Crisp ? double.PositiveInfinity : BoundaryRise(backward, end.Index, _reference.BodyEnd[k]);
-                double startRise = start.Crisp ? double.PositiveInfinity : BoundaryRise(backward, start.Index, _reference.BodyStart[k + 1]);
-                double minRise = _config.Word.Boundaries.MinRiseCost;
+                double endRise = end.Crisp ? double.PositiveInfinity : BoundaryRise(end.Index, _reference.BodyEnd[k]);
+                double startRise = start.Crisp ? double.PositiveInfinity : BoundaryRise(start.Index, _reference.BodyStart[k + 1]);
                 boundaryDetail.Add(new WordBoundary(
                     k,
                     _ink.RawPoint(end.Index),
@@ -462,8 +586,20 @@ public sealed class WordEvaluator : IWordEvaluator
                     startRise >= minRise,
                     endRise,
                     startRise));
-                JoinMetrics metrics = MeasureJoin(k, end.Index, start.Index, lifts);
-                entryErrors[k] = metrics.EntryErr;
+            }
+
+            var letterConfident = new bool[letters];
+            for (int k = 0; k < letters; k++)
+            {
+                letterConfident[k] = (k == 0 || boundaryDetail[k - 1].StartConfident) && (k + 1 == letters || boundaryDetail[k].EndConfident);
+            }
+
+            // Соединения.
+            var joinMetrics = ImmutableArray.CreateBuilder<JoinMetrics>();
+            var joinSummaries = ImmutableArray.CreateBuilder<JoinSummary>();
+            for (int k = 0; k + 1 < letters; k++)
+            {
+                JoinMetrics metrics = MeasureJoin(k, boundaries[k].End.Index, boundaries[k].Start.Index, lifts);
                 joinMetrics.Add(metrics);
                 joinSummaries.Add(new JoinSummary(
                     k,
@@ -477,7 +613,7 @@ public sealed class WordEvaluator : IWordEvaluator
             }
 
             AddJoinFindings(joinMetrics, findings);
-            AddRetraceFindings(findings);
+            HashSet<int> retraceFailed = AddRetraceFindings(letterConfident, findings);
 
             // Локальная оценка букв.
             var letterResults = ImmutableArray.CreateBuilder<EvaluationResult>(letters);
@@ -487,11 +623,14 @@ public sealed class WordEvaluator : IWordEvaluator
                 EvaluationResult result = EvaluateLetter(k, inkRange[k]);
                 letterResults.Add(result);
                 LetterSummary local = result.Summary.Letters[0];
-                bool confident = (k == 0 || boundaryDetail[k - 1].StartConfident) && (k + 1 == letters || boundaryDetail[k].EndConfident);
+                bool confident = letterConfident[k];
                 bool? processOk = local.ProcessOk;
-                if (k > 0 && processOk is not null)
+                if (processOk is not null)
                 {
-                    processOk = confident ? processOk.Value && entryErrors[k - 1] <= _config.Joins.EntryErr : null;
+                    // Внутри слова: направление и ретрейс (в том числе по соединению) и вход (J3) — только при уверенной сегментации.
+                    processOk = k == 0
+                        ? processOk.Value && !retraceFailed.Contains(k)
+                        : (confident ? processOk.Value && !retraceFailed.Contains(k) && EntryOk(joinMetrics[k - 1]) : null);
                 }
 
                 letterSummaries.Add(local with
@@ -503,6 +642,12 @@ public sealed class WordEvaluator : IWordEvaluator
                 });
                 foreach (Finding f in result.Summary.Findings)
                 {
+                    // P2 и P6 внутренней буквы судятся только при уверенной сегментации: иначе участок мог быть вырезан неверно.
+                    if (k > 0 && !confident && f.Code is ErrorCode.P2 or ErrorCode.P6)
+                    {
+                        continue;
+                    }
+
                     findings.Add(f with { Where = f.Where with { LetterIndex = k } });
                 }
             }
@@ -538,6 +683,8 @@ public sealed class WordEvaluator : IWordEvaluator
             diagnostics["align.meanDtw"] = stats.MeanDtw;
             diagnostics["align.coverage"] = stats.Coverage;
             diagnostics["align.inkShare"] = stats.InkShare;
+            diagnostics["align.farShare"] = stats.FarShare;
+            diagnostics["align.minLetterCoverage"] = stats.MinLetterCoverage;
             diagnostics["ink.main"] = _main.Count;
             diagnostics["ink.marks"] = _marks.Count;
             diagnostics["lifts.total"] = lifts.Count;
@@ -549,6 +696,13 @@ public sealed class WordEvaluator : IWordEvaluator
             {
                 diagnostics[FormattableString.Invariant($"tpl.body{k}.from")] = _reference.BodyStart[k];
                 diagnostics[FormattableString.Invariant($"tpl.body{k}.to")] = _reference.BodyEnd[k];
+            }
+
+            for (int k = 0; k < letters; k++)
+            {
+                diagnostics[FormattableString.Invariant($"fit{k}.scale")] = _fits[k].Scale;
+                diagnostics[FormattableString.Invariant($"fit{k}.dx")] = _fits[k].TplMean.X;
+                diagnostics[FormattableString.Invariant($"fit{k}.dy")] = _fits[k].TplMean.Y;
             }
 
             for (int q = 0; q < _alignment.Lifts.Count; q++)
@@ -593,6 +747,8 @@ public sealed class WordEvaluator : IWordEvaluator
         }
 
         // ---------- Отложенные штрихи ----------
+
+        private int LetterOfSlot(DeferredAssignment slot) => _reference.Slots.First(x => ReferenceEquals(x.Slot, slot.Slot)).Letter;
 
         private DeferredOutcome AssignDeferred((int From, int To)[] inkRange)
         {
@@ -660,7 +816,7 @@ public sealed class WordEvaluator : IWordEvaluator
 
         private sealed record ClassifiedLift(LiftEvent Event, int Join, int Letter, bool Expected);
 
-        private List<ClassifiedLift> ClassifyLifts(List<ChildStroke> immediateMarks, out int insideLetter)
+        private List<ClassifiedLift> ClassifyLifts(List<(ChildStroke Stroke, int Letter)> immediateMarks, out int insideLetter)
         {
             var result = new List<ClassifiedLift>(_alignment.Lifts.Count);
             insideLetter = 0;
@@ -694,9 +850,14 @@ public sealed class WordEvaluator : IWordEvaluator
                     }
                 }
 
+                // Отложенный штрих «сразу» между штрихами основного следа ожидает отрыв у ЕГО буквы: на соединении до неё и после неё
+                // и внутри неё; штрих другой буквы отрыв не объясняет.
                 ChildStroke previous = _main[_ink.StrokeOf(lift.I - 1)];
                 ChildStroke next = _main[_ink.StrokeOf(lift.I)];
-                bool byMark = immediateMarks.Any(m => m.StartUs >= previous.EndUs && m.EndUs <= next.StartUs);
+                bool byMark = immediateMarks.Any(m =>
+                    m.Stroke.StartUs >= previous.EndUs
+                    && m.Stroke.EndUs <= next.StartUs
+                    && (join >= 0 ? (join == m.Letter || join == m.Letter - 1) : letter == m.Letter));
                 bool expected = templateExpected || byMark;
                 if (join < 0 && !expected)
                 {
@@ -763,9 +924,125 @@ public sealed class WordEvaluator : IWordEvaluator
                 }
             }
 
-            double entryErr = Vec2.Distance(_ink.Pos[startIndex], _reference.Pos[_reference.BodyStart[k + 1]]);
-            return new JoinMetrics(k, lifted, expected, drawn, coverage, minV, entryErr, cornerExcess, loops);
+            (double entryErr, double? entryAngle) = EntryFit(k + 1, startIndex);
+            return new JoinMetrics(k, lifted, expected, drawn, coverage, minV, entryErr, cornerExcess, loops, entryAngle);
         }
+
+        /// <summary>
+        /// Вход в тело буквы <paramref name="letter"/> относительно буквы ребёнка (J3): тело буквы подгоняется к эталону (масштаб
+        /// и сдвиг по клеткам пути), и мерится, где после подгонки оказалась точка начала тела; широкий интервал (F8) или низкая
+        /// буква (F4) смещают всё тело вместе со входом и не дают ошибки входа. Угол — между направлением прихода и эталонным.
+        /// </summary>
+        private (double Error, double? AngleDeg) EntryFit(int letter, int startIndex)
+        {
+            int bs = _reference.BodyStart[letter];
+            Vec2 entry = _reference.Pos[bs];
+            double error = EntryOffset(letter, startIndex);
+
+            double? angle = null;
+            int w = Math.Max(2, (int)Math.Round(_config.Joins.Corner.WindowU / _config.ResampleStep));
+            if (startIndex - w >= 0 && bs - w >= 0 && _ink.StrokeOf(startIndex - w) == _ink.StrokeOf(startIndex))
+            {
+                Vec2 inkDirection = _ink.Pos[startIndex] - _ink.Pos[startIndex - w];
+                Vec2 tplDirection = entry - _reference.Pos[bs - w];
+                if (inkDirection.Length > 1e-9 && tplDirection.Length > 1e-9)
+                {
+                    double cos = Math.Clamp(Vec2.Dot(inkDirection.Normalized(), tplDirection.Normalized()), -1.0, 1.0);
+                    angle = Math.Acos(cos) * 180.0 / Math.PI;
+                }
+            }
+
+            return (error, angle);
+        }
+
+        /// <summary>
+        /// Смещение входа относительно тела буквы ребёнка. По клеткам тела (без начала, где соединение вливается в букву)
+        /// подгоняется поправка «рукопись − эталон», линейная по высоте: <c>Δu = a + k·v</c> (сдвиг и свой наклон буквы),
+        /// <c>Δv = b + c·v</c> (сдвиг и свой размер); смещение входа — остаток в точке входа после поправки (с отсечением худших
+        /// 30% клеток). Сдвиг всей буквы (интервал, F8), другая высота (F4) и другой наклон буквы входа не смещают.
+        /// </summary>
+        private double EntryOffset(int letter, int startIndex)
+        {
+            int bs = _reference.BodyStart[letter];
+            int be = _reference.BodyEnd[letter];
+            int skipUntil = bs + (int)Math.Round(_config.Joins.Corner.WindowU / (2.0 * _config.ResampleStep));
+            var v = new List<double>();
+            var du = new List<double>();
+            var dv = new List<double>();
+            foreach (PathCell cell in _alignment.Path)
+            {
+                if (cell.J > skipUntil && cell.J <= be)
+                {
+                    Vec2 d = _ink.Pos[cell.I] - _reference.Pos[cell.J];
+                    v.Add(_ink.Pos[cell.I].Y);
+                    du.Add(d.X);
+                    dv.Add(d.Y);
+                }
+            }
+
+            Vec2 atEntry = _ink.Pos[startIndex] - _reference.Pos[bs];
+            if (v.Count < 5)
+            {
+                return atEntry.Length;
+            }
+
+            var keep = new bool[v.Count];
+            Array.Fill(keep, true);
+            (double a, double k, double b, double c) = (0.0, 0.0, 0.0, 0.0);
+            for (int pass = 0; pass < 2; pass++)
+            {
+                (a, k) = Regress(v, du, keep);
+                (b, c) = Regress(v, dv, keep);
+                if (pass == 0)
+                {
+                    double[] residual = [.. Enumerable.Range(0, v.Count).Select(i => Math.Sqrt(Math.Pow(du[i] - (a + (k * v[i])), 2) + Math.Pow(dv[i] - (b + (c * v[i])), 2)))];
+                    double limit = residual.Order().ElementAt((int)(residual.Length * 0.7));
+                    for (int i = 0; i < keep.Length; i++)
+                    {
+                        keep[i] = residual[i] <= limit;
+                    }
+                }
+            }
+
+            double y = _ink.Pos[startIndex].Y;
+            return (atEntry - new Vec2(a + (k * y), b + (c * y))).Length;
+        }
+
+        /// <summary>Прямая <c>y = a + k·x</c> по методу наименьших квадратов (по отмеченным точкам).</summary>
+        private static (double A, double K) Regress(List<double> x, List<double> y, bool[] keep)
+        {
+            double n = 0.0;
+            double sx = 0.0;
+            double sy = 0.0;
+            double sxx = 0.0;
+            double sxy = 0.0;
+            for (int i = 0; i < x.Count; i++)
+            {
+                if (!keep[i])
+                {
+                    continue;
+                }
+
+                n++;
+                sx += x[i];
+                sy += y[i];
+                sxx += x[i] * x[i];
+                sxy += x[i] * y[i];
+            }
+
+            double denominator = (n * sxx) - (sx * sx);
+            if (n < 2 || Math.Abs(denominator) < 1e-9)
+            {
+                return (n > 0 ? sy / n : 0.0, 0.0);
+            }
+
+            double slope = ((n * sxy) - (sx * sy)) / denominator;
+            return ((sy - (slope * sx)) / n, slope);
+        }
+
+        /// <summary>Вход в тело в допуске: одна формула для находки J3, оценки соединения и <c>process_ok</c> следующей буквы.</summary>
+        private bool EntryOk(JoinMetrics m) =>
+            m.EntryErr <= _config.Joins.EntryErr * _toleranceScale && (m.EntryAngleDeg ?? 0.0) <= _config.Joins.EntryAngleDeg;
 
         /// <summary>Наибольший поворот внутри соединения рукописи сверх эталонного и число петель (J4); концы соединения не судятся.</summary>
         private (double? Excess, int Loops) CornersAndLoops(JoinInterval interval, int endIndex, int startIndex)
@@ -819,7 +1096,7 @@ public sealed class WordEvaluator : IWordEvaluator
             }
 
             bool bad = (join.High && m.Drawn && m.MinV is { } v && v < _config.Joins.HighMinHeight)
-                || m.EntryErr > _config.Joins.EntryErr
+                || !EntryOk(m)
                 || m.CornerExcessDeg > _config.Joins.Corner.ExcessDeg
                 || m.Loops > 0;
             return bad ? 0.5 : 1.0;
@@ -844,10 +1121,14 @@ public sealed class WordEvaluator : IWordEvaluator
                     findings.Add(new Finding(ErrorCode.J2, where, FindingBuilder.Severity(f, j.HighMinHeight - minV + j.HighMinHeight, j.HighMinHeight), span, FindingKind.Error, minV, j.HighMinHeight));
                 }
 
-                if (m.EntryErr > j.EntryErr * _toleranceScale)
+                if (!EntryOk(m))
                 {
+                    // Измеренное и порог — по той метрике, что вышла из допуска (позиция входа в долях допуска, иначе угол прихода).
                     double threshold = j.EntryErr * _toleranceScale;
-                    findings.Add(new Finding(ErrorCode.J3, where, FindingBuilder.Severity(f, m.EntryErr, threshold), span, FindingKind.Error, m.EntryErr, threshold));
+                    bool position = m.EntryErr > threshold;
+                    double measured = position ? m.EntryErr : m.EntryAngleDeg ?? 0.0;
+                    double limit = position ? threshold : j.EntryAngleDeg;
+                    findings.Add(new Finding(ErrorCode.J3, where, FindingBuilder.Severity(f, measured, limit), span, FindingKind.Error, measured, limit));
                 }
 
                 if (m.CornerExcessDeg > j.Corner.ExcessDeg || m.Loops > 0)
@@ -863,13 +1144,15 @@ public sealed class WordEvaluator : IWordEvaluator
         /// Ретрейс по соединению (§3.2.4: «включая соединение»): начало тела внутренней буквы повторяет подход; проверяется,
         /// только если соединение нарисовано (иначе повторять нечего), так же, как P6 буквы.
         /// </summary>
-        private void AddRetraceFindings(List<Finding> findings)
+        private HashSet<int> AddRetraceFindings(bool[] letterConfident, List<Finding> findings)
         {
+            var failed = new HashSet<int>();
             RetraceConfig retrace = _config.Process.Retrace;
             Vec2[] all = _ink.Pos;
             foreach (WordRetrace r in _reference.Retrace)
             {
-                if (r.Letter == 0 || !r.StartsBody || r.RefShare is not { } refShare)
+                // Только внутренняя буква, только при уверенной сегментации (иначе участок мог быть вырезан неверно).
+                if (r.Letter == 0 || !r.StartsBody || r.RefShare is not { } refShare || !letterConfident[r.Letter])
                 {
                     continue;
                 }
@@ -905,11 +1188,16 @@ public sealed class WordEvaluator : IWordEvaluator
                     continue;
                 }
 
-                double relative = to - from + 1 < retrace.MinRangePoints
-                    ? 0.0
-                    : (refShare > 1e-9 ? Math.Min(1.0, PolylineTools.ShareOnPriorInk(all, from, to, retrace.Tolerance) / refShare) : 1.0);
+                // Участок отобразился в слишком малое число точек (низкая t, слишком короткий ретрейс): не измерено, а не «ретрейса нет».
+                if (to - from + 1 < retrace.MinRangePoints)
+                {
+                    continue;
+                }
+
+                double relative = refShare > 1e-9 ? Math.Min(1.0, PolylineTools.ShareOnPriorInk(all, from, to, retrace.Tolerance) / refShare) : 1.0;
                 if (relative < retrace.MinShareOfReference)
                 {
+                    failed.Add(r.Letter);
                     string? stroke = _word.Letters[r.Letter].Glyph.Strokes.OrderBy(s => s.Order).FirstOrDefault()?.Id;
                     double span = Math.Max(1, _reference.BodyEnd[r.Letter] - _reference.BodyStart[r.Letter]);
                     findings.Add(new Finding(
@@ -922,6 +1210,8 @@ public sealed class WordEvaluator : IWordEvaluator
                         retrace.MinShareOfReference));
                 }
             }
+
+            return failed;
         }
 
         // ---------- Буквы ----------
@@ -997,6 +1287,9 @@ public sealed class WordEvaluator : IWordEvaluator
                 diagnostics["align.meanDtw"] = stats.MeanDtw;
                 diagnostics["align.coverage"] = stats.Coverage;
                 diagnostics["align.inkShare"] = stats.InkShare;
+                diagnostics["align.costPerPoint"] = stats.CostPerPoint;
+                diagnostics["align.farShare"] = stats.FarShare;
+                diagnostics["align.minLetterCoverage"] = stats.MinLetterCoverage;
             }
 
             diagnostics["ink.main"] = _main.Count;

@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text.Json;
 using PenForLang.Core;
+using PenForLang.Evaluation.Tests.Support;
 using PenForLang.Glyphs;
 using PenForLang.Ink;
 using PenForLang.Testing.SynthInk;
@@ -10,14 +12,17 @@ namespace PenForLang.Evaluation.Tests.Corpus;
 
 /// <summary>
 /// Маленький корпус во временной папке: синтетические попытки слов, записанные как <c>*.pfl.jsonl.gz</c>, и разметка
-/// <c>.ann.&lt;annotator&gt;.json</c> с истинными стыками из SynthInk. Нужен, чтобы проверить сам корпусный тест (читатель и
-/// критерии) без реальных записей V0.9.
+/// <c>.ann.&lt;annotator&gt;.json</c> с истинными стыками из SynthInk — строго по <c>schemas/pfl.annotation.v1.schema.json</c>
+/// (проверяется схемой в <see cref="Add"/>): <c>penlogSha256</c> несжатого JSONL, <c>indexing</c>, <c>strokes[]</c>, точки с <c>sample</c> и
+/// <c>t</c>, <c>confidence</c>. Нужен, чтобы проверить читатель и критерии без реальных записей V0.9.
 /// </summary>
 internal sealed class SyntheticCorpus : IDisposable
 {
     private const double XHeightPx = 112.5;
     private const double OriginXPx = 180;
     private const double BaselineYPx = 620;
+
+    private static readonly MiniJsonSchema Schema = MiniJsonSchema.FromRepo("pfl.annotation.v1.schema.json");
 
     public SyntheticCorpus()
     {
@@ -35,12 +40,44 @@ internal sealed class SyntheticCorpus : IDisposable
         }
     }
 
-    /// <summary>Добавляет запись и разметку по истине генератора; <paramref name="annotationLifted"/> позволяет намеренно исказить разметку.</summary>
-    public string Add(string name, WordTemplate word, SynthWordSample sample, string annotator = CorpusFormat.DefaultAnnotator, Func<SynthJoinTruth, bool>? annotationLifted = null, bool usable = true)
+    /// <summary>
+    /// Добавляет запись и разметку по истине генератора. <paramref name="annotationLifted"/> позволяет намеренно исказить разметку,
+    /// <paramref name="target"/> — цель задания в записи (по умолчанию <c>word:&lt;слово&gt;</c>), <paramref name="subfolder"/> — подпапку.
+    /// </summary>
+    public string Add(
+        string name,
+        WordTemplate word,
+        SynthWordSample sample,
+        string annotator = CorpusFormat.DefaultAnnotator,
+        Func<SynthJoinTruth, bool>? annotationLifted = null,
+        bool usable = true,
+        string? variant = null,
+        string? target = null,
+        string? subfolder = null,
+        bool legacyName = false)
     {
-        string recording = Path.Combine(Root, name + CorpusFormat.RecordingSuffix);
-        WriteRecording(recording, sample.Ink, "word:" + word.Text);
+        string directory = subfolder is null ? Root : Path.Combine(Root, subfolder);
+        Directory.CreateDirectory(directory);
+        string recording = Path.Combine(directory, name + CorpusFormat.RecordingSuffix);
+        string sha = WriteRecording(recording, sample.Ink, target ?? "word:" + word.Text);
+        File.WriteAllText(legacyName ? CorpusFormat.LegacyAnnotationPath(recording) : CorpusFormat.AnnotationPath(recording, annotator), AnnotationJson(recording, word, sample, annotator, annotationLifted, usable, variant, target ?? "word:" + word.Text, sha));
+        return recording;
+    }
 
+    /// <summary>Разметка по схеме; нарушение схемы — исключение (тест не должен «писать» неверный формат).</summary>
+    public static string AnnotationJson(
+        string recording,
+        WordTemplate word,
+        SynthWordSample sample,
+        string annotator,
+        Func<SynthJoinTruth, bool>? annotationLifted,
+        bool usable,
+        string? variant,
+        string target,
+        string sha)
+    {
+        RulerInk ink = sample.Ink;
+        long TimeOf(SynthInkPoint p) => ink.Strokes.Single(s => s.Index == p.Stroke).Points[p.Point].TimeUs;
         var junctions = new List<object>();
         foreach (SynthJoinTruth truth in sample.Joins)
         {
@@ -49,34 +86,47 @@ internal sealed class SyntheticCorpus : IDisposable
             {
                 after = truth.Join,
                 kind = lifted ? "lifted" : "connected",
-                end = new { stroke = truth.End.Stroke, sample = truth.End.Point },
-                start = new { stroke = truth.Start.Stroke, sample = truth.Start.Point },
+                end = new { stroke = truth.End.Stroke, sample = truth.End.Point, t = TimeOf(truth.End) },
+                start = new { stroke = truth.Start.Stroke, sample = truth.Start.Point, t = TimeOf(truth.Start) },
+                confidence = "high",
             });
         }
 
-        var deferred = new List<object>();
-        foreach (ExpectedFinding immediate in sample.Expected.Where(e => e.Code == ErrorCode.D4))
+        var deferred = sample.Deferred
+            .Select(d => (object)new { stroke = d.Stroke, letter = d.Letter, kind = d.Kind == DeferredKind.Dot ? "dot" : "crossbar", timing = d.Immediate ? "immediate" : "afterWord" })
+            .ToList();
+        var annotation = new Dictionary<string, object?>
         {
-            WordDeferred slot = word.Deferred.First(d => d.SlotId == immediate.StrokeId);
-            deferred.Add(new { stroke = 0, letter = slot.Letter, kind = slot.Kind == DeferredKind.Dot ? "dot" : "crossbar", timing = "immediate" });
+            ["schema"] = "pfl.annotation/1",
+            ["penlog"] = Path.GetFileName(recording),
+            ["penlogSha256"] = sha,
+            ["indexing"] = CorpusFormat.Indexing,
+            ["target"] = target,
+            ["annotator"] = annotator,
+            ["annotatedAt"] = "2026-10-14T00:00:00Z",
+            ["tool"] = "tests/SyntheticCorpus",
+            ["text"] = word.Text,
+            ["quality"] = new { usable, flags = Array.Empty<string>() },
+            ["strokes"] = ink.Strokes.Select(s => new { n = s.Points.Length, t0 = s.Points[0].TimeUs, t1 = s.Points[^1].TimeUs }).ToList(),
+            ["junctions"] = junctions,
+            ["deferred"] = deferred,
+        };
+        if (variant is not null)
+        {
+            annotation["variant"] = variant;
         }
 
-        var annotation = new
+        string json = JsonSerializer.Serialize(annotation);
+        List<string> errors = Schema.Validate(json);
+        if (errors.Count > 0)
         {
-            schema = "pfl.annotation/1",
-            penlog = Path.GetFileName(recording),
-            target = "word:" + word.Text,
-            annotator,
-            text = word.Text,
-            quality = new { usable, flags = Array.Empty<string>() },
-            junctions,
-            deferred,
-        };
-        File.WriteAllText(CorpusFormat.AnnotationPath(recording, annotator), JsonSerializer.Serialize(annotation));
-        return recording;
+            throw new InvalidOperationException("The synthetic annotation violates schemas/pfl.annotation.v1.schema.json: " + string.Join("; ", errors));
+        }
+
+        return json;
     }
 
-    private static void WriteRecording(string path, RulerInk ink, string target)
+    private static string WriteRecording(string path, RulerInk ink, string target)
     {
         var header = new PenLogHeader(
             "0.10.0",
@@ -99,8 +149,15 @@ internal sealed class SyntheticCorpus : IDisposable
             }
         }
 
-        using FileStream file = File.Create(path);
-        using var gzip = new GZipStream(file, CompressionLevel.Fastest);
-        PenLogWriter.Write(gzip, new PenLog(header, entries.ToImmutable()));
+        using var jsonl = new MemoryStream();
+        PenLogWriter.Write(jsonl, new PenLog(header, entries.ToImmutable()));
+        byte[] bytes = jsonl.ToArray();
+        using (FileStream file = File.Create(path))
+        using (var gzip = new GZipStream(file, CompressionLevel.Fastest))
+        {
+            gzip.Write(bytes);
+        }
+
+        return Convert.ToHexStringLower(SHA256.HashData(bytes));
     }
 }

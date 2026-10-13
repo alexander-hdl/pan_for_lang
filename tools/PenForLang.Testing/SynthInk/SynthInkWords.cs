@@ -44,6 +44,14 @@ public sealed record SynthJoinTruth(int Join, SynthInkPoint End, SynthInkPoint S
 /// <param name="V">v.</param>
 public sealed record SynthInkPoint(int Stroke, int Point, double U, double V);
 
+/// <summary>Истинный отложенный штрих синтетической попытки слова.</summary>
+/// <param name="Letter">Буква.</param>
+/// <param name="SlotId">Слот глифа (<c>dot</c>, <c>bar</c>).</param>
+/// <param name="Kind">Вид.</param>
+/// <param name="Stroke"><see cref="RulerStroke.Index"/> штриха в попытке.</param>
+/// <param name="Immediate">После штриха пишется ещё основной штрих (поставлен сразу, а не после слова).</param>
+public sealed record SynthDeferredTruth(int Letter, string SlotId, DeferredKind Kind, int Stroke, bool Immediate);
+
 /// <summary>Синтетическая попытка слова с разметкой.</summary>
 /// <param name="Ink">Попытка в координатах линейки.</param>
 /// <param name="Mutation">Внесённая мутация.</param>
@@ -57,7 +65,11 @@ public sealed record SynthWordSample(
     ImmutableArray<ExpectedFinding> Expected,
     ImmutableArray<ErrorCode> Forbidden,
     ImmutableArray<SynthJoinTruth> Joins,
-    int LiftsInsideLetter = 0);
+    int LiftsInsideLetter = 0)
+{
+    /// <summary>Отложенные штрихи попытки с номерами штрихов и временем постановки (для разметки корпуса).</summary>
+    public ImmutableArray<SynthDeferredTruth> Deferred { get; init; } = [];
+}
 
 /// <summary>Синтетические попытки слов из <see cref="WordTemplate"/> (V0.10).</summary>
 public sealed partial class SynthInkGenerator
@@ -234,7 +246,20 @@ public sealed partial class SynthInkGenerator
         Retime(strokes);
         List<IdealStroke> sorted = [.. strokes.OrderBy(s => s.StartMs)];
         RulerInk ink = Render(strokes, variation, rng, noisy: true);
-        return new SynthWordSample(ink, mutation, expected, forbidden, Truth(word, sorted, ink, lifted), insideLetter);
+        var deferredTruth = ImmutableArray.CreateBuilder<SynthDeferredTruth>();
+        int lastMain = sorted.FindLastIndex(x => !x.IsDeferred);
+        for (int i = 0; i < sorted.Count; i++)
+        {
+            if (!sorted[i].IsDeferred)
+            {
+                continue;
+            }
+
+            WordDeferred slot = word.Deferred.First(d => $"{d.SlotId}.{d.Letter}" == sorted[i].Id);
+            deferredTruth.Add(new SynthDeferredTruth(slot.Letter, slot.SlotId, slot.Kind, ink.Strokes[i].Index, i < lastMain));
+        }
+
+        return new SynthWordSample(ink, mutation, expected, forbidden, Truth(word, sorted, ink, lifted), insideLetter) { Deferred = deferredTruth.ToImmutable() };
     }
 
     private List<IdealStroke> IdealWord(WordTemplate word) =>

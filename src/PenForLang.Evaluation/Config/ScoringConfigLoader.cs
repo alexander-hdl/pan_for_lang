@@ -242,7 +242,9 @@ public static class ScoringConfigLoader
                 a.Double("liftInLetterPenalty", 0, 1000),
                 a.Double("skipBodyCostPerPoint", 0, 1000),
                 a.Double("continuousBreakCostPerPoint", 0, 1000),
-                a.Double("joinSlackU", 0, 3));
+                a.Double("joinSlackU", 0, 3),
+                a.Double("bandMarginU", 0, 5),
+                a.Double("breakCorridorU", 0.01, 5));
             a.Done();
         }
 
@@ -256,13 +258,23 @@ public static class ScoringConfigLoader
         WordUnrecognizedConfig? unrecognized = null;
         if (w.Obj("unrecognized") is { } u)
         {
-            unrecognized = new WordUnrecognizedConfig(u.Double("meanDtw", 0, 100), u.Double("coverage", 0, 1), u.Double("inkShare", 0, 1), u.Double("mediumMeanDtw", 0, 100));
+            unrecognized = new WordUnrecognizedConfig(
+                u.Double("meanDtw", 0, 100),
+                u.Double("coverage", 0, 1),
+                u.Double("inkShare", 0, 1),
+                u.Double("mediumMeanDtw", 0, 100),
+                u.Double("costPerPoint", 0, 100),
+                u.Double("farDistance", 0.05, 10),
+                u.Double("farShare", 0, 1),
+                u.Double("letterCoverage", 0, 1),
+                u.Double("coverageTauScale", 0.5, 10));
             u.Done();
         }
 
+        double adjacency = w.Double("markAdjacencyU", 0, 2);
         double covered = w.Double("retraceCoveredShare", 0, 1);
         w.Done();
-        return aligner is null || boundaries is null || unrecognized is null ? null : new WordConfig(contextScale, aligner, boundaries, unrecognized, covered);
+        return aligner is null || boundaries is null || unrecognized is null ? null : new WordConfig(contextScale, aligner, boundaries, unrecognized, adjacency, covered);
     }
 
     private static JoinsConfig? ReadJoins(ConfigObject? j)
@@ -275,6 +287,7 @@ public static class ScoringConfigLoader
         double highMin = j.Double("highMinHeight", 0, 5);
         double drawn = j.Double("drawnShare", 0, 1);
         double entryErr = j.Double("entryErr", 0, 10);
+        double entryAngle = j.Double("entryAngleDeg", 0, 180);
         JoinCornerConfig? corner = null;
         if (j.Obj("corner") is { } c)
         {
@@ -284,7 +297,7 @@ public static class ScoringConfigLoader
 
         double loopArea = j.Double("minLoopArea", 0, 5);
         j.Done();
-        return corner is null ? null : new JoinsConfig(highMin, drawn, entryErr, corner, loopArea);
+        return corner is null ? null : new JoinsConfig(highMin, drawn, entryErr, entryAngle, corner, loopArea);
     }
 
     private static NormalizationConfig? ReadNormalization(ConfigObject? n, List<string> issues)
@@ -402,6 +415,7 @@ public static class ScoringConfigLoader
                 ap.Double("tolerance", 0.01, 10),
                 ap.Double("maxAngleDeg", 0, 180),
                 ap.Double("minElevationDeg", -90, 90),
+                ap.Double("elevationLength", 0.05, 3),
                 ap.Double("overlapMax", 0, 1),
                 ap.Double("overlapTolerance", 0.01, 2),
                 ap.Double("overlapSkipTail", 0, 5),

@@ -99,10 +99,11 @@ public sealed record WordBoundary(int Join, InkPoint BodyEnd, InkPoint BodyStart
 /// <param name="Drawn">Рукопись прошла не меньше <c>joins.drawnShare</c> точек эталона соединения.</param>
 /// <param name="Coverage">Доля точек эталона соединения, пройденных рукописью.</param>
 /// <param name="MinV">Наименьшее v рукописи в диапазоне соединения (нормализованное) или <c>null</c>, если соединение не нарисовано.</param>
-/// <param name="EntryErr">Расстояние точки начала тела правой буквы в рукописи от эталонного входа (нормализованное), x-height.</param>
+/// <param name="EntryErr">Расстояние точки начала тела правой буквы в рукописи от эталонного входа после подгонки масштаба и сдвига тела этой буквы к эталону (то есть относительно буквы ребёнка, а не общей рамки слова), x-height.</param>
 /// <param name="CornerExcessDeg">Наибольший угол поворота в соединении рукописи сверх эталонного, градусы, или <c>null</c>, если не проверялось.</param>
 /// <param name="Loops">Число лишних петель в соединении.</param>
-public sealed record JoinMetrics(int Join, bool Lifted, bool LiftExpected, bool Drawn, double Coverage, double? MinV, double EntryErr, double? CornerExcessDeg, int Loops)
+/// <param name="EntryAngleDeg">Угол между направлением прихода соединения в начало тела и эталонным входом, градусы, или <c>null</c>, если перо оторвано перед входом (прихода нет).</param>
+public sealed record JoinMetrics(int Join, bool Lifted, bool LiftExpected, bool Drawn, double Coverage, double? MinV, double EntryErr, double? CornerExcessDeg, int Loops, double? EntryAngleDeg = null)
 {
     /// <summary>J1 не выдаётся: в диапазоне нет отрыва, либо отрыв ожидаем (§6.4.9).</summary>
     public bool Present => !Lifted || LiftExpected;

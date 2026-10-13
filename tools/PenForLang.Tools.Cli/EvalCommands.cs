@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.Globalization;
+using System.IO.Compression;
 using PenForLang.Evaluation;
 using PenForLang.Evaluation.Config;
 using PenForLang.Glyphs;
@@ -23,7 +24,7 @@ public static class EvalCommands
     /// <summary>Команда <c>eval &lt;penlog&gt; [--glyph a | --word at] [--style dir] [--content root] [--profile learning]</c>.</summary>
     public static Command CreateEvalCommand()
     {
-        var penlog = new Argument<string>("penlog") { Description = "Pen log file (pfl.penlog/1, .jsonl)." };
+        var penlog = new Argument<string>("penlog") { Description = "Pen log file (pfl.penlog/1: .jsonl or gzip-compressed .jsonl.gz, detected by signature)." };
         var glyph = new Option<string?>("--glyph", "-g") { Description = "Glyph to evaluate: 'a', 'a.default'. Default: the single-character target from the log header." };
         var word = new Option<string?>("--word", "-w") { Description = "Word to evaluate: 'at', 'it'. Default for logs whose task target is 'word:<text>'." };
         var style = new Option<string?>("--style", "-s") { Description = "Style package directory or style id (default: the style of the log's ruler)." };
@@ -84,7 +85,8 @@ public static class EvalCommands
         PenLog log;
         try
         {
-            using FileStream stream = File.OpenRead(penlogFile);
+            using FileStream file = File.OpenRead(penlogFile);
+            using Stream stream = IsGzip(file) ? new GZipStream(file, CompressionMode.Decompress) : file;
             log = PenLogReader.Read(stream);
         }
         catch (Exception ex) when (ex is PenLogFormatException or IOException)
@@ -146,6 +148,15 @@ public static class EvalCommands
         EvaluationResult result = evaluator.Evaluate(new LetterEvaluationRequest(ink, glyph, pack.Manifest, tolerance));
         Print(result, glyph, penlogFile, output);
         return ExitOk;
+    }
+
+    /// <summary>Файл начинается с сигнатуры gzip (<c>1f 8b</c>): запись корпуса <c>*.pfl.jsonl.gz</c>. Позиция потока возвращается в начало.</summary>
+    private static bool IsGzip(FileStream file)
+    {
+        int first = file.ReadByte();
+        int second = file.ReadByte();
+        file.Seek(0, SeekOrigin.Begin);
+        return first == 0x1f && second == 0x8b;
     }
 
     /// <summary>Префикс цели лога для слова (<c>word:at</c>).</summary>
