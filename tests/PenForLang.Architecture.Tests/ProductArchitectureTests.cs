@@ -101,5 +101,40 @@ public class ProductArchitectureTests
         Assert.Empty(violations);
     }
 
+    [Fact]
+    public void R2_domain_projects_have_culture_sensitive_api_rules_as_errors()
+    {
+        // F12: CA1304 (CultureInfo), CA1305 (IFormatProvider), CA1310 (StringComparison) — ошибки во всех доменных проектах.
+        string editorConfig = File.ReadAllText(RepositoryLayout.PathOf(".editorconfig"));
+        string[] lines = editorConfig.Replace("\r", string.Empty, StringComparison.Ordinal).Split('\n');
+
+        int sectionStart = Array.FindIndex(lines, l => l.StartsWith("[src/PenForLang.{", StringComparison.Ordinal));
+        Assert.True(sectionStart >= 0, ".editorconfig has no section for domain projects.");
+        string header = lines[sectionStart];
+        foreach (string project in AllowedGraph.DomainProjects)
+        {
+            Assert.Contains(project["PenForLang.".Length..], header, StringComparison.Ordinal);
+        }
+
+        string[] section = lines.Skip(sectionStart + 1).TakeWhile(l => !l.StartsWith('[')).ToArray();
+        foreach (string rule in new[] { "CA1304", "CA1305", "CA1310" })
+        {
+            Assert.Contains($"dotnet_diagnostic.{rule}.severity = error", section);
+        }
+    }
+
+    [Fact]
+    public void Libraries_do_not_enable_invariant_globalization_because_it_silences_the_culture_analyzers()
+    {
+        // При InvariantGlobalization=true CA1304/CA1305/CA1310 не срабатывают, а домен исполняется в WPF-приложении с реальной культурой.
+        string targets = File.ReadAllText(RepositoryLayout.PathOf("Directory.Build.targets"));
+        Assert.Contains("'$(OutputType)' != 'Library'", targets, StringComparison.Ordinal);
+        Assert.Contains("'$(UseWPF)' != 'true'", targets, StringComparison.Ordinal);
+        Assert.Contains("'$(InvariantGlobalization)' == ''", targets, StringComparison.Ordinal);
+
+        string props = File.ReadAllText(RepositoryLayout.PathOf("Directory.Build.props"));
+        Assert.DoesNotContain("InvariantGlobalization", props, StringComparison.Ordinal);
+    }
+
     private static Assembly Load(ProjectInfo project) => Assembly.Load(new AssemblyName(project.AssemblyName));
 }
