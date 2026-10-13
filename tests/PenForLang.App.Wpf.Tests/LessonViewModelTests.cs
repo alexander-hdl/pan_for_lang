@@ -782,4 +782,131 @@ public class LessonViewModelTests
         Assert.NotEmpty(vm.Highlight.Polylines);
         Assert.All(vm.Highlight.Polylines, line => Assert.True(line.Length >= 2));
     }
+
+    private static async Task<LessonViewModel> ToMemoryAsync(List<string>? aidEvents = null)
+    {
+        LessonViewModel vm = NewLesson();
+        if (aidEvents is not null)
+        {
+            vm.AidShown += aidEvents.Add;
+        }
+
+        Begin(vm);
+        await AttemptAsync(vm, Ideal("a"));
+        vm.Next();
+        for (int i = 0; i < 3; i++)
+        {
+            await AttemptAsync(vm, Ideal("a"));
+            vm.Next();
+        }
+
+        Assert.Equal(StepKind.Memory, vm.Step.Kind);
+        return vm;
+    }
+
+    [Fact]
+    public async Task Show_again_in_a_memory_attempt_marks_it_aided_does_not_count_it_and_repeats_the_same_level_once()
+    {
+        var events = new List<string>();
+        LessonViewModel vm = await ToMemoryAsync(events);
+        PassMemoryPause(vm);
+        Assert.Equal(SupportLevel.L2, vm.Step.Level);
+        Assert.True(vm.StartDotOnWritingRow);
+        int done = vm.CompletedAttempts;
+        int total = vm.TotalAttempts;
+
+        Assert.True(vm.CanShowAgain);
+        vm.ShowAgain();
+
+        Assert.Equal(["button"], events); // событие aid-shown с причиной button (в penlog пишет окно)
+        Assert.True(vm.MemoryAided);
+        Assert.Equal(Content.Locale("ru").Get("ui.step.memoryAided"), vm.InstructionText);
+        Assert.False(vm.StartDotOnWritingRow);
+        vm.ShowAgain();
+        Assert.Single(events); // повторное нажатие в той же попытке — одно событие
+
+        await AttemptAsync(vm, Ideal("a"));
+        Assert.Equal(done, vm.CompletedAttempts); // как попытка по памяти не засчитана
+        Assert.Equal(total, vm.TotalAttempts); // общее число не растёт: впереди один повтор того же уровня
+        vm.Next();
+
+        // Тот же уровень (L2) ещё раз, снова со вспышкой и паузой, без опоры.
+        Assert.Equal(SupportLevel.L2, vm.Step.Level);
+        Assert.Equal(StepKind.Memory, vm.Step.Kind);
+        Assert.Equal(LessonPhase.Look, vm.Phase);
+        Assert.False(vm.MemoryAided);
+        PassMemoryPause(vm);
+        Assert.True(vm.StartDotOnWritingRow);
+        await AttemptAsync(vm, Ideal("a"));
+        Assert.Equal(done + 1, vm.CompletedAttempts);
+        vm.Next();
+
+        Assert.Equal(SupportLevel.L1, vm.Step.Level); // дальше идём обычным порядком
+    }
+
+    [Fact]
+    public async Task A_second_aided_attempt_on_the_same_level_does_not_loop_the_scenario_moves_on()
+    {
+        LessonViewModel vm = await ToMemoryAsync();
+        for (int i = 0; i < 2; i++)
+        {
+            PassMemoryPause(vm);
+            Assert.Equal(SupportLevel.L2, vm.Step.Level);
+            vm.ShowAgain();
+            await AttemptAsync(vm, Ideal("a"));
+            vm.Next();
+        }
+
+        Assert.Equal(SupportLevel.L1, vm.Step.Level); // максимум одна дополнительная попытка на уровень
+        PassMemoryPause(vm);
+        vm.ShowAgain();
+        await AttemptAsync(vm, Ideal("a"));
+        vm.Next();
+        PassMemoryPause(vm);
+        vm.ShowAgain();
+        await AttemptAsync(vm, Ideal("a"));
+        vm.Next();
+
+        Assert.Equal(LessonPhase.Finished, vm.Phase);
+        Assert.Equal(4, vm.CompletedAttempts); // обводка и три копии; ни одной засчитанной попытки по памяти
+    }
+
+    [Fact]
+    public async Task Show_again_during_the_flash_or_the_pause_also_marks_the_memory_attempt_aided()
+    {
+        var events = new List<string>();
+        LessonViewModel vm = await ToMemoryAsync(events);
+        Assert.Equal(LessonPhase.Look, vm.Phase);
+        vm.ShowAgain();
+        Assert.Single(events);
+
+        LessonViewModel pause = await ToMemoryAsync(events);
+        Advance(pause, 2001);
+        Assert.Equal(LessonPhase.Delay, pause.Phase);
+        pause.ShowAgain();
+        Assert.Equal(2, events.Count);
+        Assert.True(pause.MemoryAided);
+    }
+
+    [Fact]
+    public async Task Show_again_in_trace_and_copy_behaves_as_before_no_aided_mark_and_normal_counting()
+    {
+        var events = new List<string>();
+        LessonViewModel vm = NewLesson();
+        vm.AidShown += events.Add;
+        Begin(vm);
+        vm.ShowAgain();
+        await AttemptAsync(vm, Ideal("a"));
+        Assert.Equal(1, vm.CompletedAttempts);
+        vm.Next();
+        Assert.Equal(StepKind.Copy, vm.Step.Kind);
+        vm.ShowAgain();
+        await AttemptAsync(vm, Ideal("a"));
+        Assert.Equal(2, vm.CompletedAttempts);
+        vm.Next();
+
+        Assert.Empty(events);
+        Assert.False(vm.MemoryAided);
+        Assert.Equal(2, vm.AttemptInStep); // копия продолжается обычным порядком
+    }
 }

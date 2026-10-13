@@ -113,6 +113,9 @@ public sealed class LessonViewModel : INotifyPropertyChanged
     private int _cues;
     private int _raisedAidsLeft;
     private bool _aidActive;
+    private bool _attemptAided;
+    private bool _repeatPending;
+    private readonly int[] _memoryRepeats;
     private bool _demoRequested;
     private int _demoFinished;
     private int _autoRepeatsLeft;
@@ -142,6 +145,7 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         _letter = letter;
         _content.GetGlyph(letter); // нет такой буквы — сразу ошибка
         _stepDone = new int[content.Config.Steps.Length];
+        _memoryRepeats = new int[content.Config.Steps.Length];
         EnterStep(0);
     }
 
@@ -165,6 +169,12 @@ public sealed class LessonViewModel : INotifyPropertyChanged
 
     /// <summary>Попытка принята кнопкой «Готово» (до оценки): запись пера закрывается.</summary>
     public event Action? AttemptFinished;
+
+    /// <summary>
+    /// В письме по памяти нажато «Покажи ещё раз»: попытка помечена «с опорой» (в penlog — событие <c>aid-shown</c>, причина — <c>button</c>,
+    /// режим <c>copy-aided</c>). Она не засчитывается как попытка по памяти.
+    /// </summary>
+    public event Action<string>? AidShown;
 
     /// <summary>Эталон по памяти показан (<c>true</c>) или скрыт (<c>false</c>): события <c>stimulus-start</c> и <c>stimulus-end</c> в penlog.</summary>
     public event Action<bool>? StimulusChanged;
@@ -218,7 +228,8 @@ public sealed class LessonViewModel : INotifyPropertyChanged
                 else if (i == _stepIndex)
                 {
                     bool inProgress = _phase is LessonPhase.Look or LessonPhase.Delay or LessonPhase.Writing or LessonPhase.Evaluating
-                        || _plan is { CountsAsAttempt: false };
+                        || _plan is { CountsAsAttempt: false }
+                        || _repeatPending;
                     int need = Math.Max(step.MinAttempts, _stepDone[i] + (inProgress ? 1 : 0));
                     if (!inProgress && step.Kind == StepKind.Trace && _lastHadProcessError && _stepDone[i] < step.Attempts)
                     {
@@ -277,10 +288,13 @@ public sealed class LessonViewModel : INotifyPropertyChanged
     /// </summary>
     public bool ModelAbove =>
         _phase == LessonPhase.Look
-        || (InAttemptView && (Step.Kind == StepKind.Copy || (Step.Kind == StepKind.Memory && (_aidActive || _phase != LessonPhase.Writing))));
+        || (InAttemptView && (Step.Kind == StepKind.Copy || (Step.Kind == StepKind.Memory && (MemoryAided || _phase != LessonPhase.Writing))));
+
+    /// <summary>Попытка по памяти идёт с опорой: добавлена при перегрузе или нажата «Покажи ещё раз».</summary>
+    public bool MemoryAided => Step.Kind == StepKind.Memory && (_aidActive || _attemptAided);
 
     /// <summary>Точка старта на строке письма (письмо по памяти на L2: на строке видна только она).</summary>
-    public bool StartDotOnWritingRow => _phase == LessonPhase.Writing && Step.Kind == StepKind.Memory && Step.StartDot && !_aidActive;
+    public bool StartDotOnWritingRow => _phase == LessonPhase.Writing && Step.Kind == StepKind.Memory && Step.StartDot && !MemoryAided;
 
     /// <summary>Стрелки на эталоне видны (в копии они скрываются после <see cref="LessonStep.HideArrowsAfterCorrect"/> верных попыток).</summary>
     public bool ArrowsVisible =>
@@ -290,7 +304,9 @@ public sealed class LessonViewModel : INotifyPropertyChanged
     public bool DemoVisible => _phase == LessonPhase.Demo || ModelAbove || _demoRequested;
 
     /// <summary>Можно ли показать анимацию ещё раз.</summary>
-    public bool CanShowAgain => _phase is LessonPhase.Demo or LessonPhase.Writing or LessonPhase.Feedback;
+    public bool CanShowAgain =>
+        _phase is LessonPhase.Demo or LessonPhase.Writing or LessonPhase.Feedback
+        || (Step.Kind == StepKind.Memory && _phase is LessonPhase.Look or LessonPhase.Delay);
 
     /// <summary>«Заново» доступно, пока идёт попытка (перо опущено — решает окно).</summary>
     public bool CanRestart => _phase == LessonPhase.Writing;
@@ -345,7 +361,7 @@ public sealed class LessonViewModel : INotifyPropertyChanged
                         return Text("ui.step.memoryCompare");
                     }
 
-                    return Text(_aidActive ? "ui.step.memoryAided" : (Step.StartDot ? "ui.step.memoryWriteDot" : "ui.step.memoryWrite"));
+                    return Text(MemoryAided ? "ui.step.memoryAided" : (Step.StartDot ? "ui.step.memoryWriteDot" : "ui.step.memoryWrite"));
             }
         }
     }
@@ -440,6 +456,8 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         _history = HintHistory.Empty;
         _outcomes.Clear();
         Array.Clear(_stepDone);
+        Array.Clear(_memoryRepeats);
+        _repeatPending = false;
         _raisedAidsLeft = 0;
         _aidActive = false;
         _demoRequested = false;
@@ -460,6 +478,13 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         }
 
         RequestReplay(ReplayReason.Button);
+        if (Step.Kind == StepKind.Memory && !MemoryAided && _phase is LessonPhase.Look or LessonPhase.Delay or LessonPhase.Writing)
+        {
+            // Методика §6.2: кнопка доступна в любом задании, но память этой попытки не проверена: попытка «с опорой».
+            _attemptAided = true;
+            AidShown?.Invoke("button");
+        }
+
         Changed();
     }
 
@@ -664,7 +689,14 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         _highlight = plan.Highlight is { } spec ? TemplateGeometry.Resolve(glyph, spec, plan.Tone) : null;
         _lastHadProcessError = summary is not null && summary.Findings.Any(f =>
             f.Kind == FindingKind.Error && _content.Config.Feedback.ProcessCodes.Contains(f.Code));
-        if (plan.CountsAsAttempt)
+        bool aidedMemory = Step.Kind == StepKind.Memory && _attemptAided && !_aidActive;
+        _repeatPending = false;
+        if (aidedMemory && plan.CountsAsAttempt)
+        {
+            // Не засчитывается как попытка по памяти: после обратной связи тот же уровень повторяется один раз, затем идём дальше.
+            _repeatPending = _memoryRepeats[_stepIndex] < 1;
+        }
+        else if (plan.CountsAsAttempt)
         {
             _stepDone[_stepIndex]++;
             if (summary is not null && plan.HintKey is null && plan.Reason is FeedbackReason.Praise or FeedbackReason.Clean)
@@ -704,6 +736,12 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         else if (_plan is { CountsAsAttempt: false })
         {
             BeginAttempt(isRetry: true); // U0: одна повторная попытка в том же номере
+        }
+        else if (_repeatPending)
+        {
+            _repeatPending = false;
+            _memoryRepeats[_stepIndex]++;
+            BeginAttempt(isRetry: false); // тот же уровень ещё раз
         }
         else if (_attemptInStep >= Step.Attempts
             || (Step.Kind == StepKind.Trace && _attemptInStep >= Step.MinAttempts && !_lastHadProcessError))
@@ -764,6 +802,8 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         }
 
         ResetInk();
+        _attemptAided = false;
+        _repeatPending = false;
         _cues = 0;
         _plan = null;
         _highlight = null;
@@ -801,7 +841,7 @@ public sealed class LessonViewModel : INotifyPropertyChanged
     private void CheckLiveStart(PenSample sample)
     {
         LiveCueSettings cue = _content.Config.LiveCue;
-        if (!cue.Enabled || !Step.LiveCue || _aidActive || _cues >= cue.MaxPerAttempt || _writingFrame is not { } frame)
+        if (!cue.Enabled || !Step.LiveCue || MemoryAided || _aidActive || _cues >= cue.MaxPerAttempt || _writingFrame is not { } frame)
         {
             return;
         }

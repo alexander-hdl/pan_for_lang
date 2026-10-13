@@ -155,6 +155,7 @@ public partial class LessonWindow : Window
         _vm.AttemptRestarted += () => _recorder?.Restart();
         _vm.AttemptFinished += OnAttemptFinished;
         _vm.StimulusChanged += OnStimulusChanged;
+        _vm.AidShown += reason => _recorder?.RecordEvent("aid-shown", new Dictionary<string, string> { ["by"] = reason, ["mode"] = "copy-aided" });
 
         if (_options.Dev)
         {
