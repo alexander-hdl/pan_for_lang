@@ -1,6 +1,18 @@
 <Project>
 
   <!--
+    Инвариантная глобализация — только для исполняемых проектов (консоль, тесты), и не для WPF: WPF падает на первом тексте
+    (MS.Internal.FontCache.MajorLanguages создаёт CultureInfo("en")). Условие — здесь, а не в Directory.Build.props,
+    потому что UseWPF и OutputType задаются в самом проекте, то есть после props.
+    Библиотеки намеренно БЕЗ неё: у библиотеки runtimeconfig нет (на поведение не влияет), а анализаторы CA1304/CA1305/CA1310
+    при InvariantGlobalization=true молчат — между тем домен исполняется и внутри WPF-приложения с настоящей культурой.
+    Проект может задать значение сам (тесты культуры выставляют false): заданное явно не перетирается.
+  -->
+  <PropertyGroup Condition="'$(InvariantGlobalization)' == '' And '$(UseWPF)' != 'true' And '$(OutputType)' != 'Library'">
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!--
     R2 (ARCHITECTURE.md §2.4): доменные сборки не используют недетерминированные API.
     Проект включается в запрет свойством <IsDomainProject>true</IsDomainProject>.
     Дополнительно <BanNumericIntrinsics>true</BanNumericIntrinsics> (Evaluation, Core.Geometry; A19).
