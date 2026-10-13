@@ -37,6 +37,36 @@ internal static class Sta
     }
 }
 
+/// <summary>
+/// Измерение выделений памяти потоком теста. <c>GC.GetAllocatedBytesForCurrentThread</c> учитывает память квантами контекста
+/// выделения (около 8 КБ), а сборка мусора, запущенная ДРУГИМ потоком (тесты идут параллельно), сдвигает этот счётчик, не будучи
+/// выделением кода под тестом: именно так на CI получилось 8120 байт при нуле локально. Поэтому окно измерения считается
+/// действительным, только если за него не прошло ни одной сборки мусора; недействительное окно повторяется. Допуска на размер нет:
+/// в действительном окне требуется ровно 0 байт.
+/// </summary>
+internal static class Allocation
+{
+    private const int MaxWindows = 20;
+
+    /// <summary>Байты, выделенные потоком за <paramref name="work"/> в первом окне без сборок мусора.</summary>
+    public static long MeasureQuiet(Action work)
+    {
+        for (int attempt = 0; attempt < MaxWindows; attempt++)
+        {
+            int collectionsBefore = GC.CollectionCount(0);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            work();
+            long after = GC.GetAllocatedBytesForCurrentThread();
+            if (GC.CollectionCount(0) == collectionsBefore)
+            {
+                return after - before;
+            }
+        }
+
+        throw new InvalidOperationException($"No measurement window without a garbage collection in {MaxWindows} attempts.");
+    }
+}
+
 /// <summary>Стиль-пакет репозитория и вспомогательные построители.</summary>
 internal static class Shipped
 {
@@ -127,4 +157,11 @@ internal static class Pixels
 
         return count;
     }
+}
+
+/// <summary>Тесты выделений идут не параллельно с остальными: чужие потоки не запускают сборки мусора в окне измерения.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class AllocationSensitive
+{
+    public const string Name = "allocation-sensitive";
 }
