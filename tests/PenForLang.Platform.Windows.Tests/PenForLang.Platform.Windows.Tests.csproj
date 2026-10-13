@@ -2,10 +2,15 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- Per-Monitor V2, как у приложения: интерактивные тесты работают в физических пикселях (A12). -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PenForLang.Platform.Windows\PenForLang.Platform.Windows.csproj" />
+    <!-- FakeMonotonicClock (10 МГц, ~месяц аптайма) для проверки переполнений при переводе времени. -->
+    <ProjectReference Include="..\..\tools\PenForLang.Testing\PenForLang.Testing.csproj" />
   </ItemGroup>
 
 </Project>
