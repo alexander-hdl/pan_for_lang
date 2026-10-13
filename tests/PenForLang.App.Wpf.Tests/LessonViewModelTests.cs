@@ -565,15 +565,17 @@ public class LessonViewModelTests
     }
 
     [Fact]
-    public async Task Evaluation_runs_off_the_calling_thread_and_does_not_block_it()
+    public async Task Done_returns_while_the_evaluator_is_blocked_and_the_result_is_applied_after_it_is_released()
     {
-        var evaluationThreads = new List<int>();
-        var gate = new TaskCompletionSource();
+        // Поведенческий критерий без номеров потоков: оценщик заблокирован «воротами»; если бы он выполнялся синхронно внутри
+        // DoneAsync, вызов не вернулся бы до таймаута ворот, и задача была бы уже завершена.
+        using var entered = new ManualResetEventSlim(false);
+        using var release = new ManualResetEventSlim(false);
         var runtime = new LessonRuntime(
-            work => Task.Run(async () =>
+            work => Task.Run(() =>
             {
-                evaluationThreads.Add(Environment.CurrentManagedThreadId);
-                await gate.Task;
+                entered.Set();
+                Assert.True(release.Wait(TimeSpan.FromSeconds(10)), "the gate was never opened");
                 return work();
             }),
             null,
@@ -583,22 +585,23 @@ public class LessonViewModelTests
         Begin(vm);
         await WriteAsync(vm, Ideal("a"));
 
-        int callerThread = Environment.CurrentManagedThreadId;
         Task done = vm.DoneAsync();
 
-        // Пока оценка не вернулась, вызывающий поток свободен, а фаза — «оценивается»; ввод не принимается.
+        // Управление вернулось, пока оценщик заблокирован: фаза «оценивается», ввод и «Дальше» недоступны.
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken), "the evaluator was never called");
         Assert.False(done.IsCompleted);
         Assert.Equal(LessonPhase.Evaluating, vm.Phase);
         Assert.False(vm.AcceptsInk);
         Assert.False(vm.CanNext);
         Assert.Equal(Content.Locale("ru").Get("ui.evaluating"), vm.HintText);
+        Assert.Empty(vm.Outcomes); // результат ещё не применён
 
-        gate.SetResult();
+        release.Set();
         await done;
 
         Assert.Equal(LessonPhase.Feedback, vm.Phase);
-        Assert.Single(evaluationThreads);
-        Assert.NotEqual(callerThread, evaluationThreads[0]);
+        Assert.Single(vm.Outcomes);
+        Assert.NotNull(vm.Outcomes[0].Summary);
     }
 
     [Fact]
