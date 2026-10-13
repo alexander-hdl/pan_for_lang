@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace PenForLang.Ink;
 
 /// <summary>
@@ -23,6 +25,25 @@ public sealed record InkEvent(long TimeUs, string Name, IReadOnlyDictionary<stri
 
         /// <summary>Попытка завершена; поле <c>by</c> — причина.</summary>
         public const string Completed = "completed";
+    }
+
+    /// <summary>Читает поле данных как целое (инвариантная культура, только цифры и необязательный минус).</summary>
+    /// <returns><c>false</c>, если поля нет или текст не целое.</returns>
+    public bool TryGetInt64(string key, out long value)
+    {
+        value = 0;
+        return Data is not null && Data.TryGetValue(key, out string? text)
+            && long.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out value);
+    }
+
+    /// <summary>Читает поле данных как число с плавающей точкой (инвариантная культура, точка как разделитель, без экспоненты тысяч).</summary>
+    /// <returns><c>false</c>, если поля нет, текст не число или число не конечно.</returns>
+    public bool TryGetDouble(string key, out double value)
+    {
+        value = 0;
+        return Data is not null && Data.TryGetValue(key, out string? text)
+            && double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value)
+            && double.IsFinite(value);
     }
 
     /// <inheritdoc />

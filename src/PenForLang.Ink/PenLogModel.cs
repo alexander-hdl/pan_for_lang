@@ -139,7 +139,12 @@ public sealed record PenLogEventEntry(InkEvent Event) : PenLogEntry
 /// <summary>Прочитанный (или собранный для записи) лог пера целиком: заголовок и записи в хронологическом порядке.</summary>
 /// <param name="Header">Заголовок.</param>
 /// <param name="Entries">Точки и события; время не убывает.</param>
-public sealed record PenLog(PenLogHeader Header, ImmutableArray<PenLogEntry> Entries)
+/// <param name="SkippedRecords">Сколько записей неизвестного типа пропущено при чтении (совместимость вперёд); при записи не используется.</param>
+/// <remarks>
+/// Равенство записи сравнивает <see cref="Entries"/> по ссылке на массив (см. ловушку в <see cref="InkStroke"/>); для сравнения
+/// содержимого используйте <c>Entries.SequenceEqual(...)</c>.
+/// </remarks>
+public sealed record PenLog(PenLogHeader Header, ImmutableArray<PenLogEntry> Entries, int SkippedRecords = 0)
 {
     /// <summary>Только точки, в порядке записи.</summary>
     public IEnumerable<PenSample> Samples => Entries.OfType<PenLogSampleEntry>().Select(e => e.Sample);
@@ -151,9 +156,14 @@ public sealed record PenLog(PenLogHeader Header, ImmutableArray<PenLogEntry> Ent
     /// Собирает <see cref="InkAttempt"/>: штрихи — из точек (<see cref="StrokeAssembler"/>), <c>StimulusEndUs</c> — из события
     /// <c>stimulus-end</c>, <c>Restarts</c> — число <c>restart-button</c>, <c>Completion</c> — из последнего <c>completed</c>
     /// (поле <c>by</c>; нет события или неизвестное значение — <see cref="InkCompletion.Cancelled"/>).
-    /// Штрихи до «Заново» не удаляются: решение об отбрасывании принимает вызывающий.
     /// </summary>
-    public InkAttempt ToInkAttempt()
+    /// <param name="includeStrokesBeforeRestart">
+    /// <c>false</c> (по умолчанию) — в попытке остаются только штрихи, начатые после последнего <c>restart-button</c>: «Заново»
+    /// очищает холст и доступна только при поднятом пере (§7.6), так что ранние штрихи — отменённая попытка. Номера штрихов
+    /// считаются заново с 0. <c>true</c> — полная история всех штрихов. События и <see cref="InkAttempt.Restarts"/>
+    /// сохраняются в обоих режимах.
+    /// </param>
+    public InkAttempt ToInkAttempt(bool includeStrokesBeforeRestart = false)
     {
         var assembler = new StrokeAssembler();
         var events = ImmutableArray.CreateBuilder<InkEvent>();
@@ -178,6 +188,11 @@ public sealed record PenLog(PenLogHeader Header, ImmutableArray<PenLogEntry> Ent
                             break;
                         case InkEvent.Names.RestartButton:
                             restarts++;
+                            if (!includeStrokesBeforeRestart)
+                            {
+                                assembler = new StrokeAssembler();
+                            }
+
                             break;
                         case InkEvent.Names.Completed:
                             completion = ParseCompletion(ev);

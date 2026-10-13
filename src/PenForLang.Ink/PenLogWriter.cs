@@ -90,6 +90,32 @@ public sealed class PenLogWriter : IDisposable
         ArgumentNullException.ThrowIfNull(header.Device);
         ArgumentNullException.ThrowIfNull(header.Device.Product);
         ArgumentNullException.ThrowIfNull(header.Screen);
+        if (header.Task is { } t)
+        {
+            ArgumentNullException.ThrowIfNull(t.TaskId);
+            ArgumentNullException.ThrowIfNull(t.Exercise);
+            ArgumentNullException.ThrowIfNull(t.Target);
+            ArgumentNullException.ThrowIfNull(t.Level);
+            ArgumentNullException.ThrowIfNull(t.Mode);
+            ArgumentNullException.ThrowIfNull(t.Handedness);
+        }
+
+        if (header.Subject is { } subj)
+        {
+            ArgumentNullException.ThrowIfNull(subj.Anon);
+        }
+
+        if (header.Consent is { } c)
+        {
+            ArgumentNullException.ThrowIfNull(c.Kind);
+            ArgumentNullException.ThrowIfNull(c.Version);
+        }
+
+        if (header.Subject is { Kind: PenSubjectKind.Child } && header.Consent is null)
+        {
+            throw new ArgumentException("A recording of a child (subject.kind = child) requires 'consent' (ARCHITECTURE.md section 3.4).", nameof(header));
+        }
+
         if (!AllFinite(
             header.Device.RateHzNominal ?? 0,
             header.Device.RateHzMeasured ?? 0,
@@ -141,7 +167,7 @@ public sealed class PenLogWriter : IDisposable
         WriteNumber(w, "xHeightPx", guides.XHeightPx);
         WriteNumber(w, "xHeightMm", guides.XHeightMm);
         WriteNumber(w, "lineSpacing", guides.LineSpacing);
-        w.WriteString("style", guides.Style);
+        w.WriteString("style", guides.Style.Value);
         if (guides.SlantDeg is { } slant)
         {
             WriteNumber(w, "slantDeg", slant);

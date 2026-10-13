@@ -2,14 +2,16 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using PenForLang.Core;
 
 namespace PenForLang.Ink;
 
 /// <summary>
 /// Читает лог пера <c>pfl.penlog/1</c> (ARCHITECTURE.md §3.4) из потока: JSON Lines, UTF-8. Для <c>*.pfl.jsonl.gz</c>
 /// передайте <c>GZipStream</c>. Неизвестные поля игнорируются (совместимость вперёд в пределах версии 1); неизвестная версия
-/// схемы, пропущенные обязательные поля, неизвестный тип записи и убывающее время — <see cref="PenLogFormatException"/>
-/// с номером строки.
+/// схемы, пропущенные обязательные поля, запись ребёнка без согласия, расхождение <c>xHeightMm</c> с <c>xHeightPx / pxPerMm</c>
+/// и убывающее время — <see cref="PenLogFormatException"/> с номером строки. Записи неизвестного типа (будущие расширения)
+/// пропускаются и учитываются в <see cref="SkippedRecordCount"/>; их время не проверяется.
 /// </summary>
 public sealed class PenLogReader : IDisposable
 {
@@ -34,6 +36,9 @@ public sealed class PenLogReader : IDisposable
         _reader = new StreamReader(stream, new UTF8Encoding(false), detectEncodingFromByteOrderMarks: true, bufferSize: 4096, leaveOpen: leaveOpen);
     }
 
+    /// <summary>Сколько записей неизвестного типа пропущено.</summary>
+    public int SkippedRecordCount { get; private set; }
+
     /// <summary>Читает лог целиком.</summary>
     /// <exception cref="PenLogFormatException">Формат нарушен.</exception>
     public static PenLog Read(Stream stream, bool leaveOpen = true)
@@ -46,7 +51,7 @@ public sealed class PenLogReader : IDisposable
             entries.Add(entry);
         }
 
-        return new PenLog(header, entries.ToImmutable());
+        return new PenLog(header, entries.ToImmutable(), reader.SkippedRecordCount);
     }
 
     /// <summary>Читает заголовок — первую непустую строку. Вызывается один раз, до <see cref="ReadEntry"/>.</summary>
@@ -91,23 +96,38 @@ public sealed class PenLogReader : IDisposable
             throw new InvalidOperationException("Call ReadHeader first.");
         }
 
-        string? line = NextLine();
-        if (line is null)
+        while (true)
         {
-            return null;
+            string? line = NextLine();
+            if (line is null)
+            {
+                return null;
+            }
+
+            using JsonDocument doc = ParseLine(line);
+            JsonElement root = RequireObject(doc.RootElement);
+            string type = RequireString(root, "type");
+            PenLogEntry? entry = type switch
+            {
+                "p" => new PenLogSampleEntry(ParseSample(root)),
+                "ev" => new PenLogEventEntry(ParseEvent(root)),
+                "header" => throw new PenLogFormatException("Duplicate header record.", _lineNumber),
+                _ => null,
+            };
+
+            if (entry is null)
+            {
+                SkippedRecordCount++;
+                continue;
+            }
+
+            CheckTime(entry);
+            return entry;
         }
+    }
 
-        using JsonDocument doc = ParseLine(line);
-        JsonElement root = RequireObject(doc.RootElement);
-        string type = RequireString(root, "type");
-        PenLogEntry entry = type switch
-        {
-            "p" => new PenLogSampleEntry(ParseSample(root)),
-            "ev" => new PenLogEventEntry(ParseEvent(root)),
-            "header" => throw new PenLogFormatException("Duplicate header record.", _lineNumber),
-            _ => throw new PenLogFormatException($"Unknown record type '{type}'.", _lineNumber),
-        };
-
+    private void CheckTime(PenLogEntry entry)
+    {
         if (entry.TimeUs < 0)
         {
             throw new PenLogFormatException($"Negative time {entry.TimeUs}.", _lineNumber);
@@ -119,7 +139,6 @@ public sealed class PenLogReader : IDisposable
         }
 
         _lastTimeUs = entry.TimeUs;
-        return entry;
     }
 
     /// <inheritdoc />
@@ -220,7 +239,8 @@ public sealed class PenLogReader : IDisposable
             screen.PxPerMm,
             RequireDouble(guidesEl, "lineSpacing"),
             OptionalDouble(guidesEl, "slantDeg"),
-            RequireString(guidesEl, "style"));
+            ParseStyle(RequireString(guidesEl, "style")));
+        CheckXHeightMm(guidesEl, guides);
 
         PenLogTask? task = null;
         if (OptionalObject(root, "task") is { } taskEl)
@@ -255,6 +275,11 @@ public sealed class PenLogReader : IDisposable
                 RequireString(consentEl, "version"));
         }
 
+        if (subject is { Kind: PenSubjectKind.Child } && consent is null)
+        {
+            throw new PenLogFormatException("A recording of a child (subject.kind = child) requires 'consent'.", _lineNumber);
+        }
+
         return new PenLogHeader(
             RequireString(root, "app"),
             RequireString(root, "os"),
@@ -265,6 +290,25 @@ public sealed class PenLogReader : IDisposable
             subject,
             consent,
             RequireInt64(root, "qpcFreq"));
+    }
+
+    private StyleId ParseStyle(string text) =>
+        StyleId.TryParse(text, out StyleId id) ? id : throw new PenLogFormatException($"Invalid style id '{text}'.", _lineNumber);
+
+    private void CheckXHeightMm(JsonElement guidesEl, GuideFrame guides)
+    {
+        if (OptionalDouble(guidesEl, "xHeightMm") is not { } declared)
+        {
+            return;
+        }
+
+        double expected = guides.XHeightMm;
+        if (Math.Abs(declared - expected) > (1e-6 * Math.Max(1.0, Math.Abs(expected))) + 1e-9)
+        {
+            throw new PenLogFormatException(
+                $"guides.xHeightMm = {declared.ToString("R", CultureInfo.InvariantCulture)} contradicts xHeightPx / pxPerMm = {expected.ToString("R", CultureInfo.InvariantCulture)}.",
+                _lineNumber);
+        }
     }
 
     private PenSample ParseSample(JsonElement root)
@@ -317,15 +361,19 @@ public sealed class PenLogReader : IDisposable
                 continue;
             }
 
+            // Строки — как есть; числа и булевы — исходным текстом; вложенные объекты и массивы — сырым JSON; null пропускается.
             string? value = property.Value.ValueKind switch
             {
                 JsonValueKind.String => property.Value.GetString(),
-                JsonValueKind.Number => property.Value.GetRawText(),
+                JsonValueKind.Number or JsonValueKind.Object or JsonValueKind.Array => property.Value.GetRawText(),
                 JsonValueKind.True => "true",
                 JsonValueKind.False => "false",
-                _ => throw new PenLogFormatException($"Event field '{property.Name}' must be a string, number or boolean.", _lineNumber),
+                _ => null,
             };
-            (data ??= new Dictionary<string, string>(StringComparer.Ordinal))[property.Name] = value!;
+            if (value is not null)
+            {
+                (data ??= new Dictionary<string, string>(StringComparer.Ordinal))[property.Name] = value;
+            }
         }
 
         return new InkEvent(time, name, data);

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using PenForLang.Core;
 using static PenForLang.Ink.Tests.TestData;
 
 namespace PenForLang.Ink.Tests;
@@ -50,11 +51,11 @@ public class InkStrokeTests
     [Fact]
     public void GuideFrame_validates_its_numbers()
     {
-        Assert.Throws<ArgumentException>(() => new GuideFrame(0, 0, 0, 7.5, 3, null, "s"));
-        Assert.Throws<ArgumentException>(() => new GuideFrame(0, 0, 10, -1, 3, null, "s"));
-        Assert.Throws<ArgumentException>(() => new GuideFrame(double.NaN, 0, 10, 7.5, 3, null, "s"));
-        Assert.Throws<ArgumentException>(() => new GuideFrame(0, 0, 10, 7.5, 3, double.PositiveInfinity, "s"));
-        Assert.Equal(15, new GuideFrame(0, 0, 112.5, 7.5, 3, null, "s").XHeightMm);
+        Assert.Throws<ArgumentException>(() => new GuideFrame(0, 0, 0, 7.5, 3, null, new StyleId("s")));
+        Assert.Throws<ArgumentException>(() => new GuideFrame(0, 0, 10, -1, 3, null, new StyleId("s")));
+        Assert.Throws<ArgumentException>(() => new GuideFrame(double.NaN, 0, 10, 7.5, 3, null, new StyleId("s")));
+        Assert.Throws<ArgumentException>(() => new GuideFrame(0, 0, 10, 7.5, 3, double.PositiveInfinity, new StyleId("s")));
+        Assert.Equal(15, new GuideFrame(0, 0, 112.5, 7.5, 3, null, new StyleId("s")).XHeightMm);
     }
 
     [Fact]

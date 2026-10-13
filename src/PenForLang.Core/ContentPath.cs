@@ -5,7 +5,8 @@ public static class ContentPath
 {
     /// <summary>
     /// Проверяет путь: не <c>null</c>, не пустой (кроме случая <paramref name="allowEmpty"/>), не абсолютный,
-    /// без <c>\</c>, без пустых сегментов, <c>.</c> и <c>..</c>, без управляющих символов.
+    /// без <c>\</c> и <c>:</c> (буквы дисков, альтернативные потоки NTFS), без пустых сегментов, <c>.</c> и <c>..</c>,
+    /// без сегментов, оканчивающихся точкой или пробелом (Windows обрезает их молча), без управляющих символов.
     /// </summary>
     /// <exception cref="ArgumentException">Путь некорректен.</exception>
     public static void Validate(string relativePath, bool allowEmpty = false)
@@ -21,12 +22,12 @@ public static class ContentPath
             throw new ArgumentException("Content path must not be empty.", nameof(relativePath));
         }
 
-        if (relativePath.Contains('\\', StringComparison.Ordinal) || relativePath.Any(char.IsControl))
+        if (relativePath.Any(c => c is '\\' or ':' || char.IsControl(c)))
         {
-            throw new ArgumentException($"Content path '{relativePath}' contains a backslash or a control character.", nameof(relativePath));
+            throw new ArgumentException($"Content path '{relativePath}' contains a backslash, a colon or a control character.", nameof(relativePath));
         }
 
-        if (relativePath[0] == '/' || (relativePath.Length > 1 && relativePath[1] == ':'))
+        if (relativePath[0] == '/')
         {
             throw new ArgumentException($"Content path '{relativePath}' must be relative.", nameof(relativePath));
         }
@@ -36,6 +37,11 @@ public static class ContentPath
             if (segment.Length == 0 || segment is "." or "..")
             {
                 throw new ArgumentException($"Content path '{relativePath}' has an invalid segment '{segment}'.", nameof(relativePath));
+            }
+
+            if (segment[^1] is '.' or ' ')
+            {
+                throw new ArgumentException($"Content path '{relativePath}': segment '{segment}' must not end with a dot or a space.", nameof(relativePath));
             }
         }
     }

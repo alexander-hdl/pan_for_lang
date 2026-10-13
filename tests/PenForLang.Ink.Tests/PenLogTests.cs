@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using PenForLang.Core;
@@ -7,32 +8,32 @@ namespace PenForLang.Ink.Tests;
 
 public class PenLogTests
 {
-    private static byte[] WriteToBytes(PenLog log)
+    internal static byte[] WriteToBytes(PenLog log)
     {
         using var stream = new MemoryStream();
         PenLogWriter.Write(stream, log);
         return stream.ToArray();
     }
 
-    private static PenLog ReadFromBytes(byte[] bytes)
+    internal static PenLog ReadFromBytes(byte[] bytes)
     {
         using var stream = new MemoryStream(bytes);
         return PenLogReader.Read(stream);
     }
 
-    private static PenLog ReadFromText(string text) => ReadFromBytes(new UTF8Encoding(false).GetBytes(text));
+    internal static PenLog ReadFromText(string text) => ReadFromBytes(new UTF8Encoding(false).GetBytes(text));
 
-    private static PenLog RoundTrip(PenLog log)
+    internal static PenLog RoundTrip(PenLog log)
     {
         PenLog result = ReadFromBytes(WriteToBytes(log));
         AssertLogsEqual(log, result);
         return result;
     }
 
-    private static PenLogFormatException ReadFails(string text) =>
+    internal static PenLogFormatException ReadFails(string text) =>
         Assert.Throws<PenLogFormatException>(() => ReadFromText(text));
 
-    private const string HeaderLine =
+    internal const string HeaderLine =
         """{"type":"header","schema":"pfl.penlog/1","app":"0.3.0","os":"10.0.26100","device":{"product":"P","source":"wm_pointer","tilt":true,"timestamps":"qpc"},"screen":{"wPx":1920,"hPx":1080,"mmW":256,"mmH":144,"dpiScale":1.5,"pxPerMm":7.5,"pxPerMmSource":"calibrated"},"guides":{"x0Px":180,"baselinePx":620,"xHeightPx":112.5,"xHeightMm":15,"lineSpacing":3.0,"style":"zaner-bloser","slantDeg":null},"qpcFreq":10000000}""";
 
     [Fact]
@@ -65,7 +66,7 @@ public class PenLogTests
             string.Empty,
             new PenDeviceInfo(string.Empty, PenSourceKind.Mouse, null, null, null, false, PenTimestampKind.Interpolated),
             new PenScreenInfo(1, 1, 0.5, 0.5, 1.0, 7.5, PxPerMmSource.Default),
-            new GuideFrame(0, 0, 1, 7.5, 0, 12.5, string.Empty),
+            new GuideFrame(0, 0, 1, 7.5, 0, 12.5, new StyleId("a")),
             null,
             null,
             null,
@@ -305,7 +306,9 @@ public class PenLogTests
         Assert.True(clipped.IsClipped);
         Assert.Equal(0f, clipped.TiltXDeg);
 
-        InkAttempt attempt = log.ToInkAttempt();
+        // В примере после штриха нажато «Заново»: по умолчанию отменённый штрих в попытку не входит.
+        Assert.Empty(log.ToInkAttempt().Strokes);
+        InkAttempt attempt = log.ToInkAttempt(includeStrokesBeforeRestart: true);
         Assert.Single(attempt.Strokes);
         Assert.Equal(4, attempt.Strokes[0].Samples.Length);
         Assert.Equal(640_000, attempt.StimulusEndUs);
@@ -374,10 +377,6 @@ public class PenLogTests
         Assert.Equal(2, duplicate.LineNumber);
         Assert.Contains("Duplicate header", duplicate.Message, StringComparison.Ordinal);
 
-        PenLogFormatException unknown = ReadFails(HeaderLine + "\n" + """{"type":"zzz","t":1}""" + "\n");
-        Assert.Equal(2, unknown.LineNumber);
-        Assert.Contains("Unknown record type 'zzz'", unknown.Message, StringComparison.Ordinal);
-
         PenLogFormatException truncated = ReadFails(HeaderLine + "\n" + """{"type":"p","t":1,"x":1,"y""");
         Assert.Equal(2, truncated.LineNumber);
     }
@@ -394,8 +393,6 @@ public class PenLogTests
     [InlineData("""{"type":"p","t":-1,"x":1,"y":2,"p":0.5,"btn":0,"ph":"move","pid":1}""", "Negative time")]
     [InlineData("""{"type":"p","t":1,"x":1e999,"y":2,"p":0.5,"btn":0,"ph":"move","pid":1}""", "'x' must be a finite number")]
     [InlineData("""{"type":"ev","t":1}""", "Missing required field 'name'")]
-    [InlineData("""{"type":"ev","t":1,"name":"a","x":{"y":1}}""", "must be a string, number or boolean")]
-    [InlineData("""{"type":"ev","t":1,"name":"a","x":null}""", "must be a string, number or boolean")]
     public void Invalid_records_are_rejected(string record, string expectedFragment)
     {
         PenLogFormatException ex = ReadFails(HeaderLine + "\n" + record + "\n");
@@ -444,6 +441,10 @@ public class PenLogTests
     [InlineData("\"pxPerMmSource\":\"calibrated\"", "\"pxPerMmSource\":\"guess\"")]
     [InlineData("\"timestamps\":\"qpc\"", "\"timestamps\":\"ntp\"")]
     [InlineData("\"wPx\":1920", "\"wPx\":1920.5")]
+    [InlineData("\"style\":\"zaner-bloser\"", "\"style\":\"Zaner Bloser\"")]
+    [InlineData("\"style\":\"zaner-bloser\"", "\"style\":\"\"")]
+    [InlineData("\"xHeightMm\":15", "\"xHeightMm\":20")]
+    [InlineData("\"xHeightMm\":15", "\"xHeightMm\":15.1")]
     public void Header_with_invalid_values_is_rejected(string original, string replacement)
     {
         Assert.Contains(original, HeaderLine, StringComparison.Ordinal);

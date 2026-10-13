@@ -269,6 +269,63 @@ public class ReplayPenSourceTests
     }
 
     [Fact]
+    public async Task StopAsync_from_a_sample_handler_interrupts_the_current_poll()
+    {
+        PenLog log = Log(
+            Header(),
+            Sample(100, 0, 0, PenPhase.Down),
+            Event(150, "mark"),
+            Sample(200, 1, 1),
+            Sample(300, 2, 2, PenPhase.Up));
+        var clock = new FakeClock();
+        var source = new ReplayPenSource(log, clock);
+        var received = new List<long>();
+        var events = new List<string>();
+        source.SamplesReceived += batch =>
+        {
+            received.AddRange(batch.ToArray().Select(s => s.TimeUs));
+            source.StopAsync().AsTask().GetAwaiter().GetResult();
+        };
+        source.LogEventRaised += ev => events.Add(ev.Name);
+
+        await source.StartAsync(CancellationToken.None);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        int emitted = source.Poll();
+
+        Assert.Equal([100L], received);
+        Assert.Empty(events); // событие после остановки не доставлено
+        Assert.Equal(1, emitted);
+        Assert.False(source.IsRunning);
+        Assert.Equal(0, source.Poll());
+    }
+
+    [Fact]
+    public async Task StopAsync_from_an_event_handler_stops_before_the_remaining_samples()
+    {
+        PenLog log = Log(Header(), Event(100, "stop-here"), Sample(200, 1, 1, PenPhase.Down), Sample(300, 2, 2, PenPhase.Up));
+        var clock = new FakeClock();
+        var source = new ReplayPenSource(log, clock);
+        int batches = 0;
+        source.SamplesReceived += _ => batches++;
+        source.LogEventRaised += _ => source.StopAsync().AsTask().GetAwaiter().GetResult();
+
+        await source.StartAsync(CancellationToken.None);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        int emitted = source.Poll();
+
+        Assert.Equal(1, emitted);
+        Assert.Equal(0, batches);
+    }
+
+    [Fact]
+    public void Replay_declares_task_relative_time()
+    {
+        var source = new ReplayPenSource(new PenLog(Header(), []), new FakeClock());
+
+        Assert.Equal(PenTimeBase.TaskRelative, source.TimeBase);
+    }
+
+    [Fact]
     public void Constructor_rejects_nulls()
     {
         Assert.Throws<ArgumentNullException>(() => new ReplayPenSource(null!, new FakeClock()));

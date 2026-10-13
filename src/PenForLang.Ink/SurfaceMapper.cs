@@ -8,7 +8,8 @@ namespace PenForLang.Ink;
 /// Главный инвариант A12: <c>PointToScreen</c> в WPF уже возвращает физические пиксели, поэтому переход
 /// «экран → поверхность» — только вычитание начала холста, <b>без</b> участия DPI. DPI-масштаб монитора окна
 /// нужен лишь для перехода в DIP и обратно (<see cref="SurfaceToDip"/>, <see cref="DipToSurface"/>).
-/// Экземпляр неизменяем; при смене монитора/DPI/положения окна создаётся новый.
+/// Экземпляр неизменяем; при смене монитора, DPI или положения окна создаётся новый (все три параметра задаются вместе,
+/// чтобы нельзя было получить прямоугольник нового монитора со старым DPI).
 /// </remarks>
 public sealed class SurfaceMapper
 {
@@ -51,9 +52,6 @@ public sealed class SurfaceMapper
 
     /// <summary>DPI-масштаб монитора окна.</summary>
     public double DpiScale { get; }
-
-    /// <summary>Новый преобразователь с другим прямоугольником (окно переехало), с теми же <c>PxPerMm</c> и DPI.</summary>
-    public SurfaceMapper WithSurface(PenSurface surface) => new(surface, PxPerMm, DpiScale);
 
     /// <summary>Экранные физические px → поверхность (физические px от угла холста). DPI не участвует (A12).</summary>
     public (double X, double Y) ScreenToSurface(double screenXPx, double screenYPx) =>

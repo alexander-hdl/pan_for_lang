@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using PenForLang.Core;
 
 namespace PenForLang.Ink.Tests;
 
@@ -12,7 +13,7 @@ internal static class TestData
         new(1920, 1080, 256, 144, dpiScale, pxPerMm, PxPerMmSource.Calibrated);
 
     public static GuideFrame Guides(double pxPerMm = 7.5) =>
-        new(180, 620, 112.5, pxPerMm, 3.0, null, "zaner-bloser");
+        new(180, 620, 112.5, pxPerMm, 3.0, null, new StyleId("zaner-bloser"));
 
     public static PenLogHeader Header(PenLogTask? task = null, PenLogSubject? subject = null, PenLogConsent? consent = null) =>
         new("0.3.0", "10.0.26100", Device(), Screen(), Guides(), task, subject, consent, 10_000_000);

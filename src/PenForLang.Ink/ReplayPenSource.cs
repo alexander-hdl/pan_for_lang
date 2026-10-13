@@ -14,6 +14,9 @@ namespace PenForLang.Ink;
 /// Точки лога уже в координатах поверхности, поэтому <see cref="SetSurface"/> только запоминает прямоугольник
 /// и точки не преобразует. События лога (<c>stimulus-start</c>, <c>completed</c> и т. д.) приходят через <see cref="LogEventRaised"/>
 /// в том же порядке, что и точки. Не потокобезопасен.
+/// <para>Время точек — как в логе, то есть уже «мкс от начала задания»: <see cref="TimeBase"/> =
+/// <see cref="PenTimeBase.TaskRelative"/>, пересчёт <see cref="AttemptTimeRebaser"/> не применяется.</para>
+/// <para>Вызов <see cref="StopAsync"/> из обработчика события прерывает текущий <see cref="Poll"/>: оставшиеся записи не выдаются.</para>
 /// </remarks>
 public sealed class ReplayPenSource : IPenInputSource
 {
@@ -50,6 +53,9 @@ public sealed class ReplayPenSource : IPenInputSource
 
     /// <inheritdoc />
     public PenSourceKind Kind => PenSourceKind.Replay;
+
+    /// <inheritdoc />
+    public PenTimeBase TimeBase => PenTimeBase.TaskRelative;
 
     /// <summary>Устройство, на котором записан лог.</summary>
     public PenDeviceInfo? Device { get; }
@@ -125,7 +131,8 @@ public sealed class ReplayPenSource : IPenInputSource
         int emitted = 0;
         int batchCount = 0;
 
-        while (_position < _entries.Length && _entries[_position].TimeUs <= elapsedUs)
+        // Обработчик может вызвать StopAsync: тогда текущий Poll прекращает выдачу (проверка _running на каждом шаге).
+        while (_running && _position < _entries.Length && _entries[_position].TimeUs <= elapsedUs)
         {
             PenLogEntry entry = _entries[_position++];
             emitted++;
@@ -136,11 +143,23 @@ public sealed class ReplayPenSource : IPenInputSource
             else if (entry is PenLogEventEntry ev)
             {
                 FlushBatch(ref batchCount);
-                LogEventRaised?.Invoke(ev.Event);
+                if (_running)
+                {
+                    LogEventRaised?.Invoke(ev.Event);
+                }
+                else
+                {
+                    emitted--; // остановили в обработчике пачки: событие не доставлено
+                    _position--;
+                }
             }
         }
 
-        FlushBatch(ref batchCount);
+        if (_running)
+        {
+            FlushBatch(ref batchCount);
+        }
+
         return emitted;
     }
 

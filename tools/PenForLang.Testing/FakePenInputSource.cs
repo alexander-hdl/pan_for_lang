@@ -9,10 +9,14 @@ namespace PenForLang.Testing;
 public sealed class FakePenInputSource : IPenInputSource
 {
     /// <summary>Создаёт источник заданного вида (по умолчанию <see cref="PenSourceKind.Mouse"/>).</summary>
-    public FakePenInputSource(PenSourceKind kind = PenSourceKind.Mouse, PenDeviceInfo? device = null)
+    public FakePenInputSource(
+        PenSourceKind kind = PenSourceKind.Mouse,
+        PenDeviceInfo? device = null,
+        PenTimeBase timeBase = PenTimeBase.MonotonicAbsolute)
     {
         Kind = kind;
         Device = device;
+        TimeBase = timeBase;
     }
 
     /// <inheritdoc />
@@ -23,6 +27,9 @@ public sealed class FakePenInputSource : IPenInputSource
 
     /// <inheritdoc />
     public PenSourceKind Kind { get; }
+
+    /// <inheritdoc />
+    public PenTimeBase TimeBase { get; }
 
     /// <inheritdoc />
     public PenDeviceInfo? Device { get; }

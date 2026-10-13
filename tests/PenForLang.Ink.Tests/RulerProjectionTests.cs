@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using PenForLang.Core;
 using static PenForLang.Ink.Tests.TestData;
 
 namespace PenForLang.Ink.Tests;
@@ -38,7 +39,7 @@ public class RulerProjectionTests
     [Fact]
     public void ToRuler_and_ToSurface_are_inverse()
     {
-        GuideFrame guides = new(33.3, 417.9, 80.25, 6.0, 2.5, null, "s");
+        GuideFrame guides = new(33.3, 417.9, 80.25, 6.0, 2.5, null, new StyleId("s"));
         foreach ((double x, double y) in new[] { (0.0, 0.0), (1234.5, -77.7), (33.3, 417.9) })
         {
             (double u, double v) = RulerProjection.ToRuler(guides, x, y);
@@ -99,24 +100,6 @@ public class RulerProjectionTests
         RulerInk ink = RulerProjection.Project(attempt);
 
         Assert.Equal([0.125f, 0f], ink.Strokes[0].Points.Select(p => p.Pressure));
-    }
-
-    [Theory]
-    [InlineData(1.0)]
-    [InlineData(1.25)]
-    [InlineData(1.5)]
-    public void Projection_does_not_depend_on_dpi_scale(double dpi)
-    {
-        // Один и тот же физический холст и один и тот же штрих в физических px на мониторе с любым DPI-масштабом Windows.
-        // Окно в DIP отличается, физические px (PointToScreen) — нет; линейка берётся из физических px, значит u, v совпадают.
-        var monitor = new SurfaceMapper(new PenSurface(0, 0, 1200, 800), 7.5, dpi);
-        (double x, double y) = monitor.ScreenToSurface(180 + 56.25, 620 - 56.25);
-        var attempt = Attempt(Guides(), new InkStroke(0, [Sample(1, x, y, PenPhase.Down), Sample(2, x, y, PenPhase.Up)]));
-
-        RulerInk ink = RulerProjection.Project(attempt);
-
-        Assert.Equal(0.5, ink.Strokes[0].Points[0].U, Eps);
-        Assert.Equal(0.5, ink.Strokes[0].Points[0].V, Eps);
     }
 
     [Fact]

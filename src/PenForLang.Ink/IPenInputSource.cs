@@ -34,16 +34,40 @@ public readonly record struct PenSurface(double OriginXPx, double OriginYPx, dou
     public bool ContainsSurfacePoint(double x, double y) => x >= 0 && y >= 0 && x <= WidthPx && y <= HeightPx;
 }
 
+/// <summary>Основа времени точек, выдаваемых источником.</summary>
+public enum PenTimeBase
+{
+    /// <summary>Абсолютное монотонное время в мкс (QPC); пересчёт «от начала задания» делает <see cref="AttemptTimeRebaser"/>.</summary>
+    MonotonicAbsolute,
+
+    /// <summary>Время уже в мкс от начала задания (воспроизведение лога).</summary>
+    TaskRelative,
+}
+
 /// <summary>
 /// Источник ввода пера (ARCHITECTURE.md §3.7, §7.1). Платформенные реализации живут в <c>Platform.Windows</c>;
 /// платформенно-независимые — <see cref="ReplayPenSource"/> и фейки в <c>PenForLang.Testing</c>.
 /// </summary>
 /// <remarks>
 /// Касание и отрыв выражены фазами точек (<see cref="PenPhase.Down"/>, <see cref="PenPhase.Up"/>), указатель — <see cref="PenSample.PointerId"/>.
-/// Владение указателем по <c>pointerId</c> (A11) реализует источник; чистая часть правила — <see cref="PointerOwnership"/>.
+/// Владение указателем по <c>pointerId</c> (A11) реализует источник; чистая часть правила — <see cref="PointerOwnership"/>
+/// (соответствие её результата признаку «обработано» для <c>WM_POINTER</c> описано там).
+/// <para><b>Время.</b> Живой источник (<see cref="TimeBase"/> = <see cref="PenTimeBase.MonotonicAbsolute"/>) отдаёт в
+/// <see cref="PenSample.TimeUs"/> АБСОЛЮТНОЕ монотонное время в мкс: тики QPC, переведённые через
+/// <c>MonotonicTime.ToMicroseconds</c> (без переполнения; начало отсчёта произвольно). Источник не знает, где начало задания.
+/// Пересчёт «мкс от начала задания» выполняется в одном месте — <see cref="AttemptTimeRebaser"/>, который создаёт контроллер
+/// записи попытки в момент старта задания (<see cref="AttemptTimeRebaser.Start"/>) и применяет к каждой пачке до сборки
+/// штрихов и записи penlog. Источники с <see cref="PenTimeBase.TaskRelative"/> (<see cref="ReplayPenSource"/>) отдают время
+/// уже относительно начала задания, и пересчёт к ним не применяется.</para>
+/// <para><b>Пассивность воспроизведения.</b> <see cref="ReplayPenSource"/> — пассивный источник: сам по таймеру ничего не
+/// выдаёт, записи выдаются вызовами <c>Poll</c> (или <c>RunToEndAsync</c>); это делает воспроизведение детерминированным на
+/// <c>FakeClock</c>. Интерфейс этого не требует: живые источники выдают пачки по сообщениям ОС.</para>
 /// </remarks>
 public interface IPenInputSource : IAsyncDisposable
 {
+    /// <summary>Основа времени, в которой источник выдаёт <see cref="PenSample.TimeUs"/>.</summary>
+    PenTimeBase TimeBase { get; }
+
     /// <summary>Вид источника.</summary>
     PenSourceKind Kind { get; }
 

@@ -77,6 +77,13 @@ public class InMemoryContentSourceTests
     [InlineData("a//b.json")]
     [InlineData("a/b/")]
     [InlineData("a/\nb")]
+    [InlineData("a:b.json")]
+    [InlineData("a/b.json:stream")]
+    [InlineData("a/b:c/d.json")]
+    [InlineData("a./b.json")]
+    [InlineData("a/b.")]
+    [InlineData("a/b ")]
+    [InlineData("a /b.json")]
     public void Invalid_paths_are_rejected_everywhere(string path)
     {
         InMemoryContentSource source = Sample();

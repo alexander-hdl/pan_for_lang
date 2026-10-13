@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <PropertyGroup>
+    <!-- Тесты культуры (ru-RU, U+2212 и т. п.) требуют реальных данных ICU/NLS, а не инвариантного режима. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\PenForLang.Ink\PenForLang.Ink.csproj" />
     <!-- FakeClock для тестов воспроизведения на виртуальных часах. -->

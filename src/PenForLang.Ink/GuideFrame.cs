@@ -1,3 +1,5 @@
+using PenForLang.Core;
+
 namespace PenForLang.Ink;
 
 /// <summary>
@@ -13,7 +15,7 @@ public sealed record GuideFrame
     /// <param name="pxPerMm">Физических пикселей в миллиметре; &gt; 0.</param>
     /// <param name="lineSpacing">Межстрочный интервал в x-height.</param>
     /// <param name="slantDeg">Наклон линейки в градусах; <c>null</c> — не задан (в v0 в проекцию не входит).</param>
-    /// <param name="style">Идентификатор стиля письма (например <c>zaner-bloser</c>).</param>
+    /// <param name="style">Идентификатор стиля письма (например <c>zaner-bloser</c>); не <c>default</c>.</param>
     /// <exception cref="ArgumentException">Числа не конечны, либо <paramref name="xHeightPx"/>/<paramref name="pxPerMm"/> не положительны.</exception>
     public GuideFrame(
         double originXPx,
@@ -22,9 +24,13 @@ public sealed record GuideFrame
         double pxPerMm,
         double lineSpacing,
         double? slantDeg,
-        string style)
+        StyleId style)
     {
-        ArgumentNullException.ThrowIfNull(style);
+        if (style.IsDefault)
+        {
+            throw new ArgumentException("Style must be set.", nameof(style));
+        }
+
         RequireFinite(originXPx, nameof(originXPx));
         RequireFinite(baselineYPx, nameof(baselineYPx));
         RequireFinite(lineSpacing, nameof(lineSpacing));
@@ -64,10 +70,62 @@ public sealed record GuideFrame
     public double? SlantDeg { get; }
 
     /// <summary>Идентификатор стиля письма.</summary>
-    public string Style { get; }
+    public StyleId Style { get; }
 
     /// <summary>x-height в миллиметрах (<c>XHeightPx / PxPerMm</c>).</summary>
     public double XHeightMm => XHeightPx / PxPerMm;
+
+    /// <summary>
+    /// Строит линейку из размеров в миллиметрах, отсчитанных от левого верхнего угла холста: пиксели получаются через
+    /// <see cref="SurfaceMapper.MmToSurface"/> (то есть умножением на <c>PxPerMm</c>, без DPI-масштаба Windows).
+    /// </summary>
+    /// <param name="mapper">Преобразователь текущего монитора и холста.</param>
+    /// <param name="style">Стиль письма.</param>
+    /// <param name="originXMm">Левая граница строки от угла холста, мм.</param>
+    /// <param name="baselineYMm">Базовая линия от верхнего края холста, мм.</param>
+    /// <param name="xHeightMm">x-height, мм; &gt; 0.</param>
+    /// <param name="lineSpacing">Межстрочный интервал в x-height.</param>
+    /// <param name="slantDeg">Наклон или <c>null</c>.</param>
+    public static GuideFrame FromMm(
+        SurfaceMapper mapper,
+        StyleId style,
+        double originXMm,
+        double baselineYMm,
+        double xHeightMm,
+        double lineSpacing,
+        double? slantDeg = null)
+    {
+        ArgumentNullException.ThrowIfNull(mapper);
+        RequirePositive(xHeightMm, nameof(xHeightMm));
+        (double x0, double baseline) = mapper.MmToSurface(originXMm, baselineYMm);
+        return new GuideFrame(x0, baseline, xHeightMm * mapper.PxPerMm, mapper.PxPerMm, lineSpacing, slantDeg, style);
+    }
+
+    /// <summary>
+    /// Строит линейку из размеров в DIP относительно угла холста (так задаётся разметка WPF): пиксели получаются через
+    /// <see cref="SurfaceMapper.DipToSurface"/> (умножением на DPI-масштаб монитора окна).
+    /// </summary>
+    /// <param name="mapper">Преобразователь текущего монитора и холста.</param>
+    /// <param name="style">Стиль письма.</param>
+    /// <param name="originXDip">Левая граница строки, DIP.</param>
+    /// <param name="baselineYDip">Базовая линия, DIP.</param>
+    /// <param name="xHeightDip">x-height, DIP; &gt; 0.</param>
+    /// <param name="lineSpacing">Межстрочный интервал в x-height.</param>
+    /// <param name="slantDeg">Наклон или <c>null</c>.</param>
+    public static GuideFrame FromDip(
+        SurfaceMapper mapper,
+        StyleId style,
+        double originXDip,
+        double baselineYDip,
+        double xHeightDip,
+        double lineSpacing,
+        double? slantDeg = null)
+    {
+        ArgumentNullException.ThrowIfNull(mapper);
+        RequirePositive(xHeightDip, nameof(xHeightDip));
+        (double x0, double baseline) = mapper.DipToSurface(originXDip, baselineYDip);
+        return new GuideFrame(x0, baseline, xHeightDip * mapper.DpiScale, mapper.PxPerMm, lineSpacing, slantDeg, style);
+    }
 
     private static void RequireFinite(double value, string name)
     {

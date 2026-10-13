@@ -102,28 +102,27 @@ public class SurfaceMapperTests
     }
 
     [Fact]
-    public void Window_moved_to_a_monitor_with_other_dpi_needs_a_new_mapper_and_keeps_dip_consistent()
+    public void Moving_the_window_to_a_monitor_with_other_dpi_needs_a_new_mapper_and_keeps_dip_consistent()
     {
         var primary = new FakeMonitor(0, 0, 1.0);
         var penMonitor = new FakeMonitor(1920, 0, 1.5);
 
         SurfaceMapper onPrimary = MapperFor(primary, 100, 100, 800, 600, 5.0);
-        SurfaceMapper onPen = onPrimary.WithSurface(MapperFor(penMonitor, 100, 100, 800, 600, 7.5).Surface);
-
-        // WithSurface не меняет PxPerMm и DPI — осознанно: смена монитора требует нового экземпляра.
-        Assert.Equal(1.0, onPen.DpiScale);
-        SurfaceMapper proper = MapperFor(penMonitor, 100, 100, 800, 600, 7.5);
-        Assert.Equal(1.5, proper.DpiScale);
+        SurfaceMapper onPen = MapperFor(penMonitor, 100, 100, 800, 600, 7.5);
 
         // Одна и та же DIP-точка холста (400, 300) на мониторах с разным DPI даёт разные физические px, но тот же DIP.
         (double sx1, double sy1) = primary.PointToScreen(100, 100, 400, 300);
         (double sx2, double sy2) = penMonitor.PointToScreen(100, 100, 400, 300);
-        AssertPoint((400, 300), onPrimary.SurfaceToDip(onPrimary.ScreenToSurface(sx1, sy1).X, onPrimary.ScreenToSurface(sx1, sy1).Y));
-        AssertPoint((600, 450), proper.ScreenToSurface(sx2, sy2));
-        AssertPoint((400, 300), proper.SurfaceToDip(proper.ScreenToSurface(sx2, sy2).X, proper.ScreenToSurface(sx2, sy2).Y));
+        (double x1, double y1) = onPrimary.ScreenToSurface(sx1, sy1);
+        (double x2, double y2) = onPen.ScreenToSurface(sx2, sy2);
+        AssertPoint((400, 300), (x1, y1));
+        AssertPoint((600, 450), (x2, y2));
+        AssertPoint((400, 300), onPrimary.SurfaceToDip(x1, y1));
+        AssertPoint((400, 300), onPen.SurfaceToDip(x2, y2));
 
         // Миллиметры берутся из PxPerMm монитора, а не из DPI.
-        AssertPoint((600 / 7.5, 450 / 7.5), proper.ScreenToMm(sx2, sy2));
+        AssertPoint((400 / 5.0, 300 / 5.0), onPrimary.ScreenToMm(sx1, sy1));
+        AssertPoint((600 / 7.5, 450 / 7.5), onPen.ScreenToMm(sx2, sy2));
     }
 
     [Fact]
