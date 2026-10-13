@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <IsDomainProject>true</IsDomainProject>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Description>Стиль-пакеты и глифы. В v0 зависит только от Core (Curriculum появится позже).</Description>
   </PropertyGroup>
 

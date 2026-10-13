@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-67 -230 282.4 390" width="451.84" height="624">
+<title>zaner-bloser/a.default</title>
+<rect x="-67" y="-230" width="282.4" height="390" fill="#ffffff"/>
+<g id="guides" stroke-width="1" fill="none">
+<g stroke="#e5e5e5">
+<line x1="-236.4" y1="100" x2="-127.21" y2="-200"/>
+<line x1="-186.4" y1="100" x2="-77.21" y2="-200"/>
+<line x1="-136.4" y1="100" x2="-27.21" y2="-200"/>
+<line x1="-86.4" y1="100" x2="22.79" y2="-200"/>
+<line x1="-36.4" y1="100" x2="72.79" y2="-200"/>
+<line x1="13.6" y1="100" x2="122.79" y2="-200"/>
+<line x1="63.6" y1="100" x2="172.79" y2="-200"/>
+<line x1="113.6" y1="100" x2="222.79" y2="-200"/>
+<line x1="163.6" y1="100" x2="272.79" y2="-200"/>
+<line x1="213.6" y1="100" x2="322.79" y2="-200"/>
+</g>
+<line id="line-ascender" x1="-67" y1="-200" x2="215.4" y2="-200" stroke="#c0bfbc" stroke-dasharray="6 4"/>
+<line id="line-xheight" x1="-67" y1="-100" x2="215.4" y2="-100" stroke="#c0bfbc" stroke-dasharray="6 4"/>
+<line id="line-baseline" x1="-67" y1="0" x2="215.4" y2="0" stroke="#5e5c64"/>
+<line id="line-descender" x1="-67" y1="100" x2="215.4" y2="100" stroke="#c0bfbc" stroke-dasharray="6 4"/>
+</g>
+<path id="leadIn" d="M-32 0 C4.7 -2 71.1 -58 102 -91" fill="none" stroke="#9a9996" stroke-width="3" stroke-dasharray="5 5" stroke-linecap="round"/>
+<path id="leadOut" d="M125.5 -15 C137.7 -22.2 163.8 -49 180.4 -67" fill="none" stroke="#9a9996" stroke-width="3" stroke-dasharray="5 5" stroke-linecap="round"/>
+<g id="strokes" fill="none" stroke="#1a5fb4" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+<path id="s1" d="M102 -91 C84 -114.2 38.9 -90.5 24.2 -50 C14.1 -22.4 23.9 0 46 0 C68.1 0 94.1 -22.4 104.2 -50 L122.4 -100 L96.2 -28 C89.6 -10 100 0 125.5 -15"/>
+</g>
+<g id="arrows" fill="#1a5fb4" stroke="#ffffff" stroke-width="1" stroke-linejoin="round">
+<polygon points="37.31 -74 50.16 -79.38 42 -87.12"/>
+<polygon points="82.27 -16.56 68.73 -13.24 75.6 -4.32"/>
+<polygon points="106.74 -56.96 116.38 -67.02 105.81 -70.86"/>
+</g>
+<g id="start-dots" fill="#26a269">
+<circle cx="-32" cy="0" r="5"/>
+</g>
+<g id="numbers" font-family="sans-serif" font-size="11" text-anchor="middle">
+<circle cx="107.1" cy="-124" r="8.5" fill="#ffffff" stroke="#613583" stroke-width="1.5"/>
+<text x="107.1" y="-120" fill="#613583">1</text>
+</g>
+<text x="-59" y="152" font-family="sans-serif" font-size="11" fill="#5e5c64">zaner-bloser/a.default | illustrative | not reviewed</text>
+</svg>
