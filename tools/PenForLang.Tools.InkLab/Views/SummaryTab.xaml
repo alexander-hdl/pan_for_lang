@@ -1,0 +1,74 @@
+<UserControl x:Class="PenForLang.Tools.InkLab.Views.SummaryTab"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid Margin="12">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+      <Button Content="Обновить сводку" Command="{Binding RefreshCommand}" Padding="18,8" Margin="0,0,8,0" FontSize="16" />
+      <Button Content="Сохранить corpus-summary.md" Command="{Binding SaveCommand}" Padding="18,8" Margin="0,0,16,0" FontSize="16" />
+      <TextBlock Text="{Binding Folder}" VerticalAlignment="Center" Foreground="#FF555555" />
+    </StackPanel>
+    <StackPanel Grid.Row="1" Margin="0,0,0,8">
+      <TextBlock Text="{Binding Status}" Foreground="#FF9A3412" />
+      <ItemsControl ItemsSource="{Binding Warnings}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding}" Foreground="#FFB91C1C" FontWeight="SemiBold" TextWrapping="Wrap" />
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+
+    <Grid Grid.Row="2">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="*" />
+        <RowDefinition Height="*" />
+        <RowDefinition Height="Auto" MaxHeight="130" />
+      </Grid.RowDefinitions>
+
+      <DataGrid Grid.Row="0" Grid.Column="0" ItemsSource="{Binding ByGroup}" AutoGenerateColumns="False" IsReadOnly="True" Margin="0,0,8,8" HeadersVisibility="Column">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="Вид" Binding="{Binding Name}" Width="*" />
+          <DataGridTextColumn Header="Записей" Binding="{Binding Recordings}" />
+          <DataGridTextColumn Header="Размечено" Binding="{Binding Valid}" />
+          <DataGridTextColumn Header="Брак" Binding="{Binding Rejected}" />
+          <DataGridTextColumn Header="Начато" Binding="{Binding Draft}" />
+          <DataGridTextColumn Header="Без разметки" Binding="{Binding None}" />
+        </DataGrid.Columns>
+      </DataGrid>
+
+      <DataGrid Grid.Row="1" Grid.Column="0" ItemsSource="{Binding BySubject}" AutoGenerateColumns="False" IsReadOnly="True" Margin="0,0,8,0" HeadersVisibility="Column">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="Субъект" Binding="{Binding Name}" Width="*" />
+          <DataGridTextColumn Header="Записей" Binding="{Binding Recordings}" />
+          <DataGridTextColumn Header="Размечено" Binding="{Binding Valid}" />
+          <DataGridTextColumn Header="Брак" Binding="{Binding Rejected}" />
+          <DataGridTextColumn Header="Начато" Binding="{Binding Draft}" />
+          <DataGridTextColumn Header="Без разметки" Binding="{Binding None}" />
+        </DataGrid.Columns>
+      </DataGrid>
+
+      <DataGrid Grid.Row="2" Grid.Column="0" ItemsSource="{Binding BySource}" AutoGenerateColumns="False" IsReadOnly="True" Margin="0,8,8,0" HeadersVisibility="Column">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="Источник пера" Binding="{Binding Name}" Width="*" />
+          <DataGridTextColumn Header="Записей" Binding="{Binding Recordings}" />
+          <DataGridTextColumn Header="Размечено" Binding="{Binding Valid}" />
+          <DataGridTextColumn Header="Брак" Binding="{Binding Rejected}" />
+          <DataGridTextColumn Header="Начато" Binding="{Binding Draft}" />
+          <DataGridTextColumn Header="Без разметки" Binding="{Binding None}" />
+        </DataGrid.Columns>
+      </DataGrid>
+
+      <TextBox Grid.Row="0" Grid.Column="1" Grid.RowSpan="3" Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="12" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
+    </Grid>
+  </Grid>
+</UserControl>

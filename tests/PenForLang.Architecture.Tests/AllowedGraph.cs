@@ -33,6 +33,12 @@ public static class AllowedGraph
             [
                 Prefix + "Core", Prefix + "Ink", Prefix + "Glyphs", Prefix + "Evaluation", Prefix + "Testing",
             ],
+            // InkLab (V0.9) — инструмент разработчика: может ссылаться на продуктовые сборки, продукт на него — нет.
+            // Вкладки «Глифы» и «Разбор» (T0.1 и далее) добавят Evaluation; пока он не нужен.
+            [Prefix + "Tools.InkLab"] =
+            [
+                Prefix + "Core", Prefix + "Ink", Prefix + "Glyphs", Prefix + "Platform.Windows", Prefix + "Wpf.Controls",
+            ],
         };
 
     /// <summary>Доменные проекты (R2): ARCHITECTURE.md §2.4. Перечислены и будущие: проверяются те, что уже существуют.</summary>
