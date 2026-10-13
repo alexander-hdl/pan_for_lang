@@ -2,10 +2,10 @@ namespace PenForLang.Evaluation;
 
 /// <summary>
 /// Версия оценщика. Записывается в каждую попытку, чтобы результаты разных версий не смешивались
-/// (ARCHITECTURE.md §1.4, «Детерминизм оценщика»).
+/// (ARCHITECTURE.md §1.4, «Детерминизм оценщика», §6.6). Повышается при любом изменении алгоритма или чисел.
 /// </summary>
 public static class EvaluatorVersion
 {
     /// <summary>Текущая версия алгоритма (меняется при любом изменении результатов).</summary>
-    public const string Current = "v0.0";
+    public const string Current = "v0.7.0";
 }

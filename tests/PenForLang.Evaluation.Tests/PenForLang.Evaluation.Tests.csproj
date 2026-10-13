@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PenForLang.Evaluation\PenForLang.Evaluation.csproj" />
+    <ProjectReference Include="..\..\tools\PenForLang.Testing\PenForLang.Testing.csproj" />
   </ItemGroup>
 
 </Project>

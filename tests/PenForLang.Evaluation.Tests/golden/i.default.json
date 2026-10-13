@@ -1,0 +1,376 @@
+{
+  "schema": "pfl.test.evaluation-golden/1",
+  "glyph": "zaner-bloser/i.default",
+  "note": "Evaluator golden: decisions, codes and places exact; numbers within tolerances. Inputs: SynthInk-lite, seeds in case names.",
+  "evaluatorVersion": "v0.7.0",
+  "tolerances": {
+    "form": 0.02,
+    "severity": 0.05,
+    "measured": 0.05,
+    "metric": 0.03
+  },
+  "cases": [
+    {
+      "name": "self",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 1,
+      "processOk": true,
+      "findings": [],
+      "deferred": [
+        {
+          "slot": "dot",
+          "status": "Present",
+          "timing": "AfterWord"
+        }
+      ],
+      "metrics": {
+        "dtwMean": 0.001,
+        "frechet": 0.0017,
+        "corridor": 1,
+        "coverage": 1,
+        "reach": 0.0272,
+        "strokes": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "name": "clean.seed1",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 1,
+      "processOk": true,
+      "findings": [],
+      "deferred": [
+        {
+          "slot": "dot",
+          "status": "Present",
+          "timing": "AfterWord"
+        }
+      ],
+      "metrics": {
+        "dtwMean": 0.0436,
+        "frechet": 0.0845,
+        "corridor": 1,
+        "coverage": 1,
+        "reach": 0.022,
+        "strokes": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "name": "clean.seed2",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.9814,
+      "processOk": true,
+      "findings": [],
+      "deferred": [
+        {
+          "slot": "dot",
+          "status": "Present",
+          "timing": "AfterWord"
+        }
+      ],
+      "metrics": {
+        "dtwMean": 0.0288,
+        "frechet": 0.127,
+        "corridor": 1,
+        "coverage": 1,
+        "reach": 0.176,
+        "strokes": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "name": "mutation.WrongStart.seed1",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.9047,
+      "processOk": false,
+      "findings": [
+        {
+          "code": "P1",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:LeadIn",
+          "severity": 0.4497,
+          "measured": 0.4997,
+          "threshold": 0.35
+        }
+      ],
+      "deferred": [
+        {
+          "slot": "dot",
+          "status": "Present",
+          "timing": "AfterWord"
+        }
+      ],
+      "metrics": {
+        "dtwMean": 0.065,
+        "frechet": 0.4997,
+        "corridor": 0.9104,
+        "coverage": 1,
+        "reach": 0.0438,
+        "strokes": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "name": "mutation.ReversedStroke.seed1",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 1,
+      "processOk": false,
+      "findings": [
+        {
+          "code": "P2",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:Body",
+          "severity": 0.7,
+          "measured": 0.0054,
+          "threshold": 0.8
+        }
+      ],
+      "deferred": [
+        {
+          "slot": "dot",
+          "status": "Present",
+          "timing": "AfterWord"
+        }
+      ],
+      "metrics": {
+        "dtwMean": 0.0196,
+        "frechet": 0.0425,
+        "corridor": 1,
+        "coverage": 1,
+        "reach": 0.0597,
+        "strokes": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "name": "mutation.ExtraStroke.seed1",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.9455,
+      "processOk": true,
+      "findings": [
+        {
+          "code": "P4",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": null,
+          "ink": 2,
+          "span": "s1:Body",
+          "severity": 0.5,
+          "measured": 1,
+          "threshold": 1
+        }
+      ],
+      "deferred": [
+        {
+          "slot": "dot",
+          "status": "Present",
+          "timing": "AfterWord"
+        }
+      ],
+      "metrics": {
+        "dtwMean": 0.0246,
+        "frechet": 0.0638,
+        "corridor": 1,
+        "coverage": 1,
+        "reach": 0.0459,
+        "strokes": 1,
+        "deferred": 0
+      }
+    },
+    {
+      "name": "mutation.MissingStroke.seed1",
+      "decision": "Target",
+      "confidence": "Low",
+      "form": 0,
+      "processOk": true,
+      "findings": [
+        {
+          "code": "P5",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": null,
+          "span": "s1:Body",
+          "severity": 0.8,
+          "measured": 1,
+          "threshold": 0
+        }
+      ],
+      "deferred": [
+        {
+          "slot": "dot",
+          "status": "Present",
+          "timing": "AfterWord"
+        }
+      ],
+      "metrics": {}
+    },
+    {
+      "name": "mutation.MissingDeferred.seed1",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.8182,
+      "processOk": true,
+      "findings": [
+        {
+          "code": "D1",
+          "kind": "Error",
+          "place": "Deferred",
+          "stroke": "dot",
+          "ink": null,
+          "span": "dot:Body",
+          "severity": 0.5,
+          "measured": null,
+          "threshold": null
+        }
+      ],
+      "deferred": [
+        {
+          "slot": "dot",
+          "status": "Missing",
+          "timing": "None"
+        }
+      ],
+      "metrics": {
+        "dtwMean": 0.0436,
+        "frechet": 0.0845,
+        "corridor": 1,
+        "coverage": 1,
+        "reach": 0.022,
+        "strokes": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "name": "mutation.DeferredImmediately.seed1",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.999,
+      "processOk": true,
+      "findings": [
+        {
+          "code": "D4",
+          "kind": "Info",
+          "place": "Deferred",
+          "stroke": "dot",
+          "ink": 0,
+          "span": "dot:Body",
+          "severity": 0,
+          "measured": null,
+          "threshold": null
+        }
+      ],
+      "deferred": [
+        {
+          "slot": "dot",
+          "status": "Present",
+          "timing": "Immediate"
+        }
+      ],
+      "metrics": {
+        "dtwMean": 0.0363,
+        "frechet": 0.1253,
+        "corridor": 1,
+        "coverage": 1,
+        "reach": 0.0446,
+        "strokes": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "name": "mutation.MisplacedDeferred.seed1",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.9091,
+      "processOk": true,
+      "findings": [
+        {
+          "code": "D2",
+          "kind": "Error",
+          "place": "Deferred",
+          "stroke": "dot",
+          "ink": 1,
+          "span": "dot:Body",
+          "severity": 0.4615,
+          "measured": 0.8038,
+          "threshold": 0.55
+        }
+      ],
+      "deferred": [
+        {
+          "slot": "dot",
+          "status": "Misplaced",
+          "timing": "AfterWord"
+        }
+      ],
+      "metrics": {
+        "dtwMean": 0.0297,
+        "frechet": 0.0917,
+        "corridor": 1,
+        "coverage": 1,
+        "reach": 0.0742,
+        "strokes": 0,
+        "deferred": 0.5
+      }
+    },
+    {
+      "name": "mutation.ExtraDeferred.seed1",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.9091,
+      "processOk": true,
+      "findings": [
+        {
+          "code": "D3",
+          "kind": "Error",
+          "place": "Deferred",
+          "stroke": null,
+          "ink": 2,
+          "span": "s1:Body",
+          "severity": 0.3,
+          "measured": null,
+          "threshold": null
+        }
+      ],
+      "deferred": [
+        {
+          "slot": "dot",
+          "status": "Present",
+          "timing": "AfterWord"
+        }
+      ],
+      "metrics": {
+        "dtwMean": 0.0297,
+        "frechet": 0.0917,
+        "corridor": 1,
+        "coverage": 1,
+        "reach": 0.0742,
+        "strokes": 0,
+        "deferred": 0.5
+      }
+    },
+    {
+      "name": "mutation.Scribble.seed1",
+      "decision": "Unrecognized",
+      "confidence": "Low",
+      "form": 0,
+      "processOk": null,
+      "findings": [],
+      "deferred": [],
+      "metrics": {}
+    }
+  ]
+}

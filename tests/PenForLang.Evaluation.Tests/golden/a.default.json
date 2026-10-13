@@ -1,0 +1,243 @@
+{
+  "schema": "pfl.test.evaluation-golden/1",
+  "glyph": "zaner-bloser/a.default",
+  "note": "Evaluator golden: decisions, codes and places exact; numbers within tolerances. Inputs: SynthInk-lite, seeds in case names.",
+  "evaluatorVersion": "v0.7.0",
+  "tolerances": {
+    "form": 0.02,
+    "severity": 0.05,
+    "measured": 0.05,
+    "metric": 0.03
+  },
+  "cases": [
+    {
+      "name": "self",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 1,
+      "processOk": true,
+      "findings": [],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.0011,
+        "frechet": 0.0021,
+        "corridor": 1,
+        "coverage": 1,
+        "closed": 0,
+        "reach": 0.0004,
+        "baseline": 0.0004,
+        "retrace": 1,
+        "strokes": 0
+      }
+    },
+    {
+      "name": "clean.seed1",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.9924,
+      "processOk": true,
+      "findings": [],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.029,
+        "frechet": 0.0819,
+        "corridor": 1,
+        "coverage": 1,
+        "closed": 0.0036,
+        "reach": 0.1338,
+        "baseline": 0.0057,
+        "retrace": 1,
+        "strokes": 0
+      }
+    },
+    {
+      "name": "clean.seed2",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 1,
+      "processOk": true,
+      "findings": [],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.0276,
+        "frechet": 0.0819,
+        "corridor": 1,
+        "coverage": 1,
+        "closed": 0.0088,
+        "reach": 0.0755,
+        "baseline": 0.0784,
+        "retrace": 1,
+        "strokes": 0
+      }
+    },
+    {
+      "name": "mutation.WrongStart.seed1",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.8946,
+      "processOk": false,
+      "findings": [
+        {
+          "code": "P1",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:LeadIn",
+          "severity": 0.8357,
+          "measured": 0.8857,
+          "threshold": 0.35
+        }
+      ],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.0685,
+        "frechet": 0.5756,
+        "corridor": 0.984,
+        "coverage": 1,
+        "closed": 0.0238,
+        "reach": 0.1144,
+        "baseline": 0.0296,
+        "retrace": 1,
+        "strokes": 0
+      }
+    },
+    {
+      "name": "mutation.ReversedStroke.seed1",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.9875,
+      "processOk": false,
+      "findings": [
+        {
+          "code": "P2",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:Body",
+          "severity": 0.7,
+          "measured": 0.0087,
+          "threshold": 0.8
+        }
+      ],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.0301,
+        "frechet": 0.0822,
+        "corridor": 1,
+        "coverage": 1,
+        "closed": 0.0192,
+        "reach": 0.1515,
+        "baseline": 0.0361,
+        "strokes": 0
+      }
+    },
+    {
+      "name": "mutation.ExtraStroke.seed1",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.9444,
+      "processOk": true,
+      "findings": [
+        {
+          "code": "P4",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": null,
+          "ink": 1,
+          "span": "s1:Body",
+          "severity": 0.5,
+          "measured": 1,
+          "threshold": 1
+        }
+      ],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.029,
+        "frechet": 0.0712,
+        "corridor": 1,
+        "coverage": 1,
+        "closed": 0,
+        "reach": 0.1069,
+        "baseline": 0.0246,
+        "retrace": 1,
+        "strokes": 1
+      }
+    },
+    {
+      "name": "mutation.ParallelRetrace.seed1",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.9133,
+      "processOk": true,
+      "findings": [
+        {
+          "code": "P6",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:Body",
+          "severity": 0.5,
+          "measured": 0.3462,
+          "threshold": 0.6
+        }
+      ],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.0572,
+        "frechet": 0.2197,
+        "corridor": 0.9462,
+        "coverage": 1,
+        "closed": 0,
+        "reach": 0.1269,
+        "baseline": 0.0058,
+        "retrace": 0.3462,
+        "strokes": 0
+      }
+    },
+    {
+      "name": "mutation.OpenOval.seed1",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.9129,
+      "processOk": true,
+      "findings": [
+        {
+          "code": "F2",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:Body",
+          "severity": 0.4691,
+          "measured": 0.2225,
+          "threshold": 0.15
+        }
+      ],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.0681,
+        "frechet": 0.2872,
+        "corridor": 0.9198,
+        "coverage": 0.9955,
+        "closed": 0.2225,
+        "reach": 0.072,
+        "baseline": 0.0058,
+        "retrace": 1,
+        "strokes": 0
+      }
+    },
+    {
+      "name": "mutation.Scribble.seed1",
+      "decision": "Unrecognized",
+      "confidence": "Low",
+      "form": 0,
+      "processOk": null,
+      "findings": [],
+      "deferred": [],
+      "metrics": {}
+    }
+  ]
+}

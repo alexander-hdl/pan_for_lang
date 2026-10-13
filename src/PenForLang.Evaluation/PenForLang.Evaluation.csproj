@@ -3,7 +3,8 @@
   <PropertyGroup>
     <IsDomainProject>true</IsDomainProject>
     <BanNumericIntrinsics>true</BanNumericIntrinsics>
-    <Description>Оценщик почерка. В v0 ссылается на Ink и Glyphs напрямую (Evaluation.Abstractions появится в M0).</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Description>Оценщик почерка: изолированная буква v0 (V0.7). В v0 ссылается на Ink и Glyphs напрямую (Evaluation.Abstractions появится в M0).</Description>
   </PropertyGroup>
 
   <ItemGroup>
