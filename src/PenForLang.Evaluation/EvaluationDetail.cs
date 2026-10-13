@@ -11,7 +11,8 @@ namespace PenForLang.Evaluation;
 /// <param name="InkStrokeIndex"><see cref="PenForLang.Ink.RulerStroke.Index"/> штриха рукописи.</param>
 /// <param name="Reversed">Обращённый эталон лучше прямого по стоимости DTW (штрих написан в обратную сторону, P2).</param>
 /// <param name="MatchCost">Стоимость DTW на точку рукописи (позиция² + направление) для выбранного направления.</param>
-/// <param name="StartErr">Расстояние первой точки до ближайшего допустимого старта (leadIn или начало тела; для обратного — конец эталона).</param>
+/// <param name="StartErr">Расстояние первой точки до ближайшего допустимого старта (подход leadIn, его продолжение влево или начало тела; для обратного — конец эталона).</param>
+/// <param name="StartArcOffset">Длина дуги вдоль тела эталона от его начала до места, с которого DTW «начинает» рукопись (0 — на подходе или в начале тела).</param>
 /// <param name="ReverseCostRatio">Отношение стоимости обращённого выравнивания к прямому (меньше 1 — обратное лучше).</param>
 /// <param name="FirstSegmentAngleDeg">Угол между первым участком рукописи (0,2 x-h) и допустимым направлением старта, градусы.</param>
 /// <param name="DtwMean">Среднее по точкам рукописи расстояние до выровненной точки эталона.</param>
@@ -23,13 +24,15 @@ namespace PenForLang.Evaluation;
 /// <param name="LoopOk">Нужная петля есть или <c>null</c>, если проверки нет.</param>
 /// <param name="RetraceShare">Доля ретрейса, лежащая по написанному, относительно эталона или <c>null</c>, если проверки нет или она неприменима.</param>
 /// <param name="StartOk">Старт в допуске.</param>
-/// <param name="DirectionOk">Направление верно.</param>
+/// <param name="DirectionOk">Направление верно (штрих в целом и обход овалов и петель).</param>
+/// <param name="RangeAreaRatio">Отношение ориентированных площадей участка (овал, петля) рукописи и эталона, если обход участка обратный (отрицательное), иначе <c>null</c>.</param>
 public sealed record StrokeMatch(
     string StrokeId,
     int InkStrokeIndex,
     bool Reversed,
     double MatchCost,
     double StartErr,
+    double StartArcOffset,
     double ReverseCostRatio,
     double FirstSegmentAngleDeg,
     double DtwMean,
@@ -41,7 +44,8 @@ public sealed record StrokeMatch(
     bool? LoopOk,
     double? RetraceShare,
     bool StartOk,
-    bool DirectionOk);
+    bool DirectionOk,
+    double? RangeAreaRatio);
 
 /// <summary>Сопоставление штриха рукописи со слотом отложенного штриха.</summary>
 /// <param name="SlotId">Идентификатор слота в глифе.</param>

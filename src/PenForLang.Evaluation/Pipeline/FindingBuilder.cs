@@ -26,18 +26,33 @@ internal static class FindingBuilder
             RefStroke stroke = pair.Ref;
             if (!pair.StartOk)
             {
-                bool atEnd = pair.Reversed;
+                // Либо точка старта далека от допустимых мест (подход, начало тела), либо рукопись «начинается» с середины тела.
+                bool midLetter = pair.StartErr <= config.Process.StartTolerance;
+                double measured = midLetter ? pair.StartArcOffset : pair.StartErr;
+                double threshold = midLetter ? config.Process.StartArcTolerance : config.Process.StartTolerance;
                 list.Add(new Finding(
                     ErrorCode.P1,
                     new FindingLocation(FindingPlace.Stroke, LetterIndex, stroke.Id, pair.Child.InkIndex),
-                    Severity(f, pair.StartErr, config.Process.StartTolerance),
-                    new TemplateSpan(stroke.Id, pair.NearestStart.Part, atEnd ? 1.0 - StartSpanEnd : 0.0, atEnd ? 1.0 : StartSpanEnd),
+                    Severity(f, measured, threshold),
+                    new TemplateSpan(stroke.Id, pair.NearestStart.Part, 0.0, StartSpanEnd),
                     FindingKind.Error,
-                    pair.StartErr,
-                    config.Process.StartTolerance));
+                    measured,
+                    threshold));
             }
 
-            if (!pair.DirectionOk)
+            if (pair.RangeAreaRatio is { } areaRatio && pair.RangeSpan is { } range)
+            {
+                // Овал или петля обойдены в обратную сторону (знак ориентированной площади участка): участок эталона — в TemplateSpan.
+                list.Add(new Finding(
+                    ErrorCode.P2,
+                    new FindingLocation(FindingPlace.Stroke, LetterIndex, stroke.Id, pair.Child.InkIndex),
+                    Fixed(f, ErrorCode.P2),
+                    new TemplateSpan(stroke.Id, TemplatePart.Body, range.FromT, range.ToT),
+                    FindingKind.Error,
+                    areaRatio,
+                    0.0));
+            }
+            else if (!pair.DirectionOk)
             {
                 list.Add(new Finding(
                     ErrorCode.P2,
@@ -140,19 +155,18 @@ internal static class FindingBuilder
             var where = new FindingLocation(FindingPlace.Deferred, LetterIndex, id, stroke.InkIndex);
             if (!slot.Near)
             {
-                list.Add(new Finding(
-                    ErrorCode.D2,
-                    where,
-                    Severity(f, slot.Distance!.Value, d.NearDistance),
-                    whole,
-                    FindingKind.Error,
-                    slot.Distance,
-                    d.NearDistance));
+                // Либо слишком далеко от ожидаемого места (эллиптический допуск; измеренное — в долях допуска), либо перекладина мимо ствола.
+                bool miss = slot.CrossFailed && slot.NormalizedDistance <= 1.0;
+                double measured = miss ? slot.CrossGap!.Value : slot.NormalizedDistance!.Value;
+                double threshold = miss ? d.BarCrossTolerance : 1.0;
+                list.Add(new Finding(ErrorCode.D2, where, Severity(f, measured, threshold), whole, FindingKind.Error, measured, threshold));
             }
 
             if (slot.WrongDirection)
             {
-                list.Add(new Finding(ErrorCode.P2, where, Fixed(f, ErrorCode.P2), whole));
+                // Перекладина справа налево: по умолчанию только информация (решение оркестратора, флаг в конфиге).
+                bool asError = config.Process.Direction.BarReverseIsError;
+                list.Add(new Finding(ErrorCode.P2, where, asError ? Fixed(f, ErrorCode.P2) : 0.0, whole, asError ? FindingKind.Error : FindingKind.Info));
             }
 
             if (slot.Timing == DeferredTiming.Immediate)
@@ -307,7 +321,20 @@ internal static class FindingBuilder
         }
 
         c = string.CompareOrdinal(x.Where.StrokeId, y.Where.StrokeId);
-        return c != 0 ? c : Nullable.Compare(x.Where.InkStrokeIndex, y.Where.InkStrokeIndex);
+        if (c != 0)
+        {
+            return c;
+        }
+
+        c = Nullable.Compare(x.Where.InkStrokeIndex, y.Where.InkStrokeIndex);
+        if (c != 0)
+        {
+            return c;
+        }
+
+        // Полный порядок: при одинаковых месте и приоритете решает код, затем вид (результат не зависит от алгоритма сортировки).
+        c = x.Code.CompareTo(y.Code);
+        return c != 0 ? c : x.Kind.CompareTo(y.Kind);
     }
 
     private static int Rank(ErrorCode code) => code switch

@@ -17,6 +17,9 @@ internal sealed record LoopRef(int FromIndex, int ToIndex, double FromT, double 
 /// <summary>Проверка ретрейса: сегмент возвращается по написанному. <c>RefShare</c> — доля у самого эталона (или <c>null</c>).</summary>
 internal sealed record RetraceRef(int FromIndex, int ToIndex, double FromT, double ToT, double? RefShare);
 
+/// <summary>Касание baseline (keypoint <c>baselineTouch</c>): индекс точки тела штриха и наименьшее v эталона в её окрестности.</summary>
+internal sealed record TouchRef(string StrokeId, int Index, double RefMin);
+
 /// <summary>Проверка достижения линии: экстремум v основных штрихов равен <c>Target</c>.</summary>
 internal sealed record ReachRef(ExtremeKind Extreme, double Target, bool IsBaseline);
 
@@ -59,6 +62,10 @@ internal sealed class RefStroke
     public required ImmutableArray<LoopRef> Loops { get; init; }
 
     public required ImmutableArray<RetraceRef> Retrace { get; init; }
+
+    /// <summary>Участки с проверяемым направлением обхода (овалы и петли): индексы в <see cref="Pos"/> и доли длины дуги тела.</summary>
+    public IEnumerable<(int FromIndex, int ToIndex, double FromT, double ToT)> OrientedRanges =>
+        Closed.Select(c => (c.FromIndex, c.ToIndex, c.FromT, c.ToT)).Concat(Loops.Select(l => (l.FromIndex, l.ToIndex, l.FromT, l.ToT)));
 
     public ReadOnlySpan<Vec2> Body => Pos.AsSpan(BodyStart, BodyEnd - BodyStart + 1);
 
@@ -109,6 +116,9 @@ internal sealed class LetterReference
 
     public required ImmutableArray<ReachRef> Reach { get; init; }
 
+    /// <summary>Касания baseline по keypoints глифа: нижние точки, по которым судится посадка на строку (F5) у любой буквы.</summary>
+    public required ImmutableArray<TouchRef> Touches { get; init; }
+
     /// <summary>Медиана наклона квазивертикалей эталона или <c>null</c>: участков нет или их углы расходятся (x).</summary>
     public required double? SlantDeg { get; init; }
 
@@ -139,6 +149,7 @@ internal sealed class LetterReference
 
         ImmutableArray<RefDeferred> deferred = BuildDeferred(glyph, ordered, step, filter);
         ImmutableArray<ReachRef> reach = BuildReach(glyph, lines);
+        ImmutableArray<TouchRef> touches = BuildTouches(glyph, strokes, config);
         SlantEstimate slant = SlantEstimator.Summarize(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(angles));
         ScaleConfig scale = config.Normalization.Scale;
         return new LetterReference
@@ -147,6 +158,7 @@ internal sealed class LetterReference
             Strokes = strokes.MoveToImmutable(),
             Deferred = deferred,
             Reach = reach,
+            Touches = touches,
             SlantDeg = slant.Count > 0 && slant.StdDevDegrees <= config.Normalization.Deslant.MaxSpreadDeg ? slant.MedianDegrees : null,
             CentroidU = PolylineTools.MeanU(allPositions),
             LowV = PolylineTools.PercentileV(allPositions, scale.LowPercentile),
@@ -193,7 +205,7 @@ internal sealed class LetterReference
 
         Vec2[] points = [.. combined];
         double totalLength = PolylineMath.Length(points);
-        Vec2[] pos = PolylineTools.ResampleSmooth(points, config.ResampleStep, filter);
+        Vec2[] pos = PolylineTools.ResampleSmooth(points, config.ResampleStep, filter, int.MaxValue);
         int last = pos.Length - 1;
         int bodyStart = leadInLength > 0.0 ? (int)Math.Round(leadInLength / totalLength * last, MidpointRounding.AwayFromZero) : 0;
         int bodyEnd = leadOutLength > 0.0 ? (int)Math.Round((totalLength - leadOutLength) / totalLength * last, MidpointRounding.AwayFromZero) : last;
@@ -257,7 +269,7 @@ internal sealed class LetterReference
         {
             int from = stroke.IndexOfBodyFraction(range.From);
             int to = stroke.IndexOfBodyFraction(range.To);
-            closed.Add(new ClosedRef(from, to, range.From, range.To, PolylineTools.GapToWindow(stroke.Pos, to, from)));
+            closed.Add(new ClosedRef(from, to, range.From, range.To, PolylineTools.ClosureGap(stroke.Pos, to, from, PolylineTools.PointsFor(config.Form.ClosureWindow, config.ResampleStep))));
         }
 
         var loops = ImmutableArray.CreateBuilder<LoopRef>();
@@ -310,7 +322,7 @@ internal sealed class LetterReference
         var result = ImmutableArray.CreateBuilder<RefDeferred>(glyph.Deferred.Length);
         foreach (DeferredStroke slot in glyph.Deferred)
         {
-            Vec2[] pos = PolylineTools.ResampleSmooth(slot.Path.Flatten(0.002), step, filter);
+            Vec2[] pos = PolylineTools.ResampleSmooth(slot.Path.Flatten(0.002), step, filter, int.MaxValue);
             GlyphStroke? anchorStroke = ordered.FirstOrDefault(s => s.Id == slot.Anchor.StrokeId);
             Vec2 anchorPoint = anchorStroke is null ? slot.Path.Start : anchorStroke.Path.PointAtFraction(slot.Anchor.T);
             result.Add(new RefDeferred
@@ -329,6 +341,31 @@ internal sealed class LetterReference
         }
 
         return result.MoveToImmutable();
+    }
+
+    private static ImmutableArray<TouchRef> BuildTouches(Glyph glyph, ImmutableArray<RefStroke>.Builder strokes, ScoringConfig config)
+    {
+        int half = PolylineTools.PointsFor(config.Form.BaselineTouchWindow, config.ResampleStep);
+        var list = ImmutableArray.CreateBuilder<TouchRef>();
+        foreach (GlyphKeyPoint key in glyph.KeyPoints.Where(k => k.Type == KeyPointType.BaselineTouch))
+        {
+            RefStroke? stroke = strokes.FirstOrDefault(s => s.Id == key.StrokeId);
+            if (stroke is null)
+            {
+                continue;
+            }
+
+            int index = stroke.IndexOfBodyFraction(key.T);
+            double min = double.PositiveInfinity;
+            for (int i = Math.Max(0, index - half); i <= Math.Min(stroke.Pos.Length - 1, index + half); i++)
+            {
+                min = Math.Min(min, stroke.Pos[i].Y);
+            }
+
+            list.Add(new TouchRef(stroke.Id, index, min));
+        }
+
+        return list.ToImmutable();
     }
 
     private static ImmutableArray<ReachRef> BuildReach(Glyph glyph, GuideLines lines)

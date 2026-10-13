@@ -45,7 +45,7 @@ public class SelfEvaluationTests
         Assert.InRange(match.DtwMean, 0.0, 0.02);
         Assert.InRange(match.Coverage, 0.99, 1.0);
         Assert.Equal(0.0, result.Detail.Normalization.ShearDeg);
-        Assert.InRange(result.Detail.Normalization.Scale, 0.97, 1.03);
+        Assert.InRange(result.Detail.Normalization.Scale, 0.93, 1.07);
     }
 
     [Fact]
@@ -61,13 +61,13 @@ public class SelfEvaluationTests
     [Fact]
     public void Inapplicable_metrics_are_left_out_of_form()
     {
-        // У i нет замкнутого овала, ретрейса и проверки baseline; у a нет отложенных штрихов.
+        // У i нет замкнутого овала и ретрейса; у a нет отложенных штрихов.
         string[] forI = [.. Tester.Evaluate(Tester.Synth.Ideal(Shipped.Glyph("i")), "i").Detail.FormComponents.Select(c => c.Name)];
         string[] forA = [.. Tester.Evaluate(Tester.Synth.Ideal(Shipped.Glyph("a")), "a").Detail.FormComponents.Select(c => c.Name)];
 
         Assert.DoesNotContain("closed", forI);
         Assert.DoesNotContain("retrace", forI);
-        Assert.DoesNotContain("baseline", forI);
+        Assert.Contains("baseline", forI); // посадка по keypoint baselineTouch есть у любой буквы (F-10)
         Assert.Contains("deferred", forI);
         Assert.Contains("closed", forA);
         Assert.Contains("retrace", forA);

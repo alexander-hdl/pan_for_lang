@@ -50,13 +50,20 @@ public sealed record Finding(
     double? Measured = null,
     double? Threshold = null);
 
-/// <summary>Процессные показатели изолированной буквы (ARCHITECTURE.md §6.4.13).</summary>
+/// <summary>
+/// Процессные показатели изолированной буквы (ARCHITECTURE.md §6.4.13). При <see cref="Decision.Unrecognized"/> процесс
+/// не оценивался, все значения — <c>null</c> (а не «всё верно»).
+/// </summary>
 /// <param name="StartOk">Старт каждого штриха в допуске (нет P1).</param>
-/// <param name="DirectionOk">Направление каждого штриха верно (нет P2).</param>
+/// <param name="DirectionOk">Направление каждого штриха и обход овалов и петель верны (нет P2).</param>
 /// <param name="OrderOk">Порядок основных штрихов верен (нет P3).</param>
 /// <param name="StrokeCountDelta">Число лишних и пропущенных основных штрихов.</param>
 /// <param name="RetraceOk">Ретрейс выполнен по написанному (нет P6).</param>
-public sealed record ProcessSummary(bool StartOk, bool DirectionOk, bool OrderOk, int StrokeCountDelta, bool RetraceOk);
+public sealed record ProcessSummary(bool? StartOk, bool? DirectionOk, bool? OrderOk, int? StrokeCountDelta, bool? RetraceOk)
+{
+    /// <summary>Процесс не оценивался (U0).</summary>
+    public static ProcessSummary NotEvaluated { get; } = new(null, null, null, null, null);
+}
 
 /// <summary>Итог по букве.</summary>
 /// <param name="Index">Индекс буквы в цели.</param>

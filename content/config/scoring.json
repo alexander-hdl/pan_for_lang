@@ -9,11 +9,12 @@
   },
   "resampleStep": 0.04,
   "smoothing": { "window": 7, "order": 2 },
-  "preprocess": { "spikeJumpMedianSteps": 8, "dotMaxLength": 0.02, "dotMaxDurationMs": 30, "minPointDistance": 0.015 },
+  "preprocess": { "spikeJumpMedianSteps": 8, "dotMaxLength": 0.02, "dotMaxDurationMs": 30, "minPointDistance": 0.015, "smoothHalfWindowMs": 25, "maxResamplePoints": 400 },
   "normalization": {
     "dominantStrokeShare": 0.5,
     "deslant": { "enabled": true, "deadbandDeg": 4, "maxDeg": 35, "minRunLength": 0.4, "maxDeviationDeg": 40, "maxSpreadDeg": 12 },
     "scale": { "enabled": true, "min": 0.6, "max": 1.7, "lowPercentile": 0.25, "highPercentile": 0.75 },
+    "baselineShiftMax": 2.5,
     "refine": { "enabled": true, "iterations": 3, "keepShare": 0.7, "scaleMin": 0.8, "scaleMax": 1.25, "maxShiftV": 0.6, "minChange": 0.01, "rounds": 2, "rerunAbove": 0.1 }
   },
   "dtw": { "positionWeight": 1.0, "directionWeight": 0.1 },
@@ -28,13 +29,18 @@
   },
   "process": {
     "startTolerance": 0.35,
-    "direction": { "reverseCostRatioMax": 0.8, "strongReverseCostRatio": 0.3, "firstSegmentAngleMaxDeg": 60, "firstSegmentLength": 0.2, "minStrokeLength": 0.4, "barMinDirectionalShare": 0.3 },
+    "startArcTolerance": 0.6,
+    "approach": { "extendLeft": true, "extendRight": 0.9, "tolerance": 0.22, "maxAngleDeg": 90 },
+    "direction": { "reverseCostRatioMax": 0.8, "strongReverseCostRatio": 0.3, "firstSegmentAngleMaxDeg": 60, "firstSegmentLength": 0.2, "minStrokeLength": 0.4, "barMinDirectionalShare": 0.3, "barReverseIsError": false, "rangeAreaMinShare": 0.3 },
     "strokeCount": { "extraForP4": 1, "extraForStop": 2 },
-    "retrace": { "tolerance": 0.12, "minShareOfReference": 0.6, "minPriorPoints": 5 }
+    "retrace": { "tolerance": 0.12, "minShareOfReference": 0.6, "minPriorPoints": 5, "minRangePoints": 4 }
   },
   "form": {
     "corridorTau": 0.15,
     "minLoopArea": 0.02,
+    "closureWindow": 0.15,
+    "baselineTouchWindow": 0.12,
+    "baselineTouchMaxMismatch": 0.45,
     "deferredPenalty": { "missing": 1.0, "misplaced": 0.5, "extra": 0.5 },
     "weights": {
       "dtwMean": 0.25,
@@ -67,7 +73,10 @@
   },
   "deferred": {
     "acceptTiming": "either",
-    "nearDistance": 0.55,
+    "nearU": 0.35,
+    "nearV": 0.25,
+    "barMustCrossStem": true,
+    "barCrossTolerance": 0.1,
     "assignMaxDistance": 1.5,
     "dotMaxLength": 0.25,
     "barMinLengthRatio": 0.4,

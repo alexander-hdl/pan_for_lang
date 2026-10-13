@@ -53,7 +53,19 @@ internal sealed class PairMetrics
 
     public required bool StartOk { get; init; }
 
+    /// <summary>Длина дуги вдоль тела эталона от его начала до места, с которого DTW «начинает» рукопись (0, если на подходе или в начале).</summary>
+    public required double StartArcOffset { get; init; }
+
     public required bool DirectionOk { get; init; }
+
+    /// <summary>
+    /// Отношение ориентированной площади участка рукописи (овал, петля) к эталонной, если направление обхода участка обратное
+    /// (отрицательное число), иначе <c>null</c>.
+    /// </summary>
+    public double? RangeAreaRatio { get; init; }
+
+    /// <summary>Участок тела эталона (доли длины дуги), обойдённый в обратную сторону, или <c>null</c>.</summary>
+    public (double FromT, double ToT)? RangeSpan { get; init; }
 }
 
 internal static class PairMetricsCalculator
@@ -82,21 +94,32 @@ internal static class PairMetricsCalculator
         bool reversed = longEnough
             && ratio <= process.Direction.ReverseCostRatioMax
             && (ratio <= process.Direction.StrongReverseCostRatio || forwardAngle >= process.Direction.FirstSegmentAngleMaxDeg);
-        IReadOnlyList<DtwCell> path = reversed ? alignment.ReversedPath : alignment.ForwardPath;
+        List<DtwCell> path = reversed ? alignment.ReversedPath : alignment.ForwardPath;
         DtwResult result = reversed ? alignment.Comparison.Reversed : alignment.Comparison.Forward;
 
-        // --- Старт (P1): для обращённого штриха «старт» — конец эталона ---
+        // --- Старт (P1): подход или начало тела; для обращённого штриха «старт» — конец эталона (P1 для него не выдаётся) ---
         double bestStart = double.PositiveInfinity;
         EndpointCandidate nearest = reference.Starts[0];
-        foreach (EndpointCandidate candidate in reversed ? reference.Ends : reference.Starts)
+        if (reversed)
         {
-            double d = Vec2.Distance(pos[0], candidate.Position);
-            if (d < bestStart)
+            foreach (EndpointCandidate candidate in reference.Ends)
             {
-                bestStart = d;
-                nearest = candidate;
+                double d = Vec2.Distance(pos[0], candidate.Position);
+                if (d < bestStart)
+                {
+                    bestStart = d;
+                    nearest = candidate;
+                }
             }
         }
+        else
+        {
+            (bestStart, nearest) = StartError(reference, pos[0], childDirection, process);
+        }
+
+        // Место на эталоне, с которого DTW с открытым началом «начинает» рукопись: старт с середины тела — P1, даже если точка
+        // случайно близка к подходу (например, старт снизу овала).
+        double startArc = reversed || path.Count == 0 ? 0.0 : Math.Max(0.0, path[0].J - reference.BodyStart) * config.ResampleStep;
 
         // --- Отклонение вдоль пути выравнивания ---
         var sums = new double[n];
@@ -133,13 +156,42 @@ internal static class PairMetricsCalculator
 
         int[] childOfRef = StrokeMatcher.ChildIndexOfRef(path, m);
 
-        // --- Проверки глифа: замкнутость, петли, ретрейс ---
+        // --- Проверки глифа: замкнутость, петли, направление обхода участков, ретрейс ---
+        int closureHalf = PolylineTools.PointsFor(config.Form.ClosureWindow, config.ResampleStep);
         double? closedGap = null;
         foreach (ClosedRef check in reference.Closed)
         {
-            double gap = PolylineTools.GapToWindow(pos, childOfRef[check.ToIndex], childOfRef[check.FromIndex]);
+            double gap = PolylineTools.ClosureGap(pos, childOfRef[check.ToIndex], childOfRef[check.FromIndex], closureHalf);
             double excess = Math.Max(0.0, gap - check.RefGap);
             closedGap = closedGap is null ? excess : Math.Max(closedGap.Value, excess);
+        }
+
+        // Направление обхода овала или петли (главная P2-ошибка методики: «овалы против часовой»): знак ориентированной площади
+        // участка рукописи против эталона. Не зависит от направления штриха в целом — ловит овал по часовой при верных подходе и стволе.
+        double? rangeRatio = null;
+        (double, double)? rangeSpan = null;
+        if (!reversed)
+        {
+            foreach ((int fromIndex, int toIndex, double fromT, double toT) in reference.OrientedRanges)
+            {
+                int a = Math.Min(childOfRef[fromIndex], childOfRef[toIndex]);
+                int b = Math.Max(childOfRef[fromIndex], childOfRef[toIndex]);
+                if (b - a + 1 < 3)
+                {
+                    continue;
+                }
+
+                double refArea = PolylineTools.SignedArea(reference.Pos.AsSpan(fromIndex, toIndex - fromIndex + 1));
+                double childArea = PolylineTools.SignedArea(pos.AsSpan(a, b - a + 1));
+                if (Math.Abs(refArea) > 1e-6
+                    && Math.Abs(childArea) >= process.Direction.RangeAreaMinShare * Math.Abs(refArea)
+                    && Math.Sign(childArea) != Math.Sign(refArea))
+                {
+                    rangeRatio = childArea / refArea;
+                    rangeSpan = (fromT, toT);
+                    break;
+                }
+            }
         }
 
         // Петля участка: самопересечение всего штриха, чья петля (середина её дуги) лежит на отмеченном участке.
@@ -175,8 +227,18 @@ internal static class PairMetricsCalculator
                     continue;
                 }
 
-                double childShare = PolylineTools.ShareOnPriorInk(pos, from, to, process.Retrace.Tolerance);
-                double relative = refShare > 1e-9 ? Math.Min(1.0, childShare / refShare) : 1.0;
+                // Участок, отображённый в слишком малое число точек, — ретрейса в рукописи нет (например, нет ствола: «o» вместо a).
+                double relative;
+                if (to - from + 1 < process.Retrace.MinRangePoints)
+                {
+                    relative = 0.0;
+                }
+                else
+                {
+                    double childShare = PolylineTools.ShareOnPriorInk(pos, from, to, process.Retrace.Tolerance);
+                    relative = refShare > 1e-9 ? Math.Min(1.0, childShare / refShare) : 1.0;
+                }
+
                 if (retraceShare is null || relative < retraceShare.Value)
                 {
                     retraceShare = relative;
@@ -205,9 +267,65 @@ internal static class PairMetricsCalculator
             LoopOk = loopOk,
             RetraceShare = retraceShare,
             RetraceSpan = retraceSpan,
-            StartOk = bestStart <= process.StartTolerance,
-            DirectionOk = !reversed,
+            StartArcOffset = startArc,
+            StartOk = reversed || rangeRatio is not null || (bestStart <= process.StartTolerance && startArc <= process.StartArcTolerance),
+            DirectionOk = !reversed && rangeRatio is null,
+            RangeAreaRatio = rangeRatio,
+            RangeSpan = rangeSpan,
         };
+    }
+
+    /// <summary>
+    /// Ошибка старта: расстояние до ближайшего допустимого старта. Допустимы начало тела и (при <c>startDot = leadIn</c>) любое
+    /// место подхода — ломаной входящего штриха и её продолжения влево вдоль линии начала — при ходе вперёд, то есть первый
+    /// участок рукописи не отклонён от хода подхода больше <c>process.approach.maxAngleDeg</c>.
+    /// </summary>
+    private static (double Error, EndpointCandidate Nearest) StartError(RefStroke reference, Vec2 start, Vec2 firstDirection, ProcessConfig process)
+    {
+        EndpointCandidate body = reference.Starts[^1];
+        double best = Vec2.Distance(start, body.Position);
+        EndpointCandidate nearest = body;
+        if (reference.Starts.Length < 2)
+        {
+            return (best, nearest);
+        }
+
+        ReadOnlySpan<Vec2> approach = reference.Pos.AsSpan(0, reference.BodyStart + 1);
+        int vertex = 0;
+        double onApproach = double.PositiveInfinity;
+        for (int i = 0; i < approach.Length; i++)
+        {
+            double d = Vec2.Distance(start, approach[i]);
+            if (d < onApproach)
+            {
+                onApproach = d;
+                vertex = i;
+            }
+        }
+
+        onApproach = Math.Min(onApproach, PolylineMath.DistanceToPolyline(start, approach));
+        Vec2 direction = reference.Dir[vertex];
+        Vec2 origin = approach[0];
+        bool onLine = start.X < origin.X ? process.Approach.ExtendLeft : start.X <= origin.X + process.Approach.ExtendRight;
+        if (onLine)
+        {
+            double along = Math.Abs(start.Y - origin.Y);
+            if (along < onApproach)
+            {
+                onApproach = along;
+                direction = new Vec2(1.0, 0.0);
+            }
+        }
+
+        // Ошибка выражается в единицах допуска старта: подход жёстче (process.approach.tolerance), чем начало тела.
+        double scaled = onApproach * process.StartTolerance / process.Approach.Tolerance;
+        if (scaled < best && PolylineTools.AngleDegrees(firstDirection, direction) <= process.Approach.MaxAngleDeg)
+        {
+            best = scaled;
+            nearest = reference.Starts[0];
+        }
+
+        return (best, nearest);
     }
 
     /// <summary>

@@ -14,6 +14,18 @@ internal sealed class DeferredAssignment
     /// <summary>Расстояние середины штриха рукописи до ожидаемого положения по реальному стволу.</summary>
     public double? Distance { get; init; }
 
+    /// <summary>
+    /// Эллиптическое расстояние до ожидаемого положения: смещение по u делится на <c>deferred.nearU</c>, по v — на <c>deferred.nearV</c>;
+    /// не больше 1 — на месте.
+    /// </summary>
+    public double? NormalizedDistance { get; init; }
+
+    /// <summary>Наименьшее расстояние перекладины до ствола рукописи (только для перекладины с привязкой к стволу).</summary>
+    public double? CrossGap { get; init; }
+
+    /// <summary>Перекладина не пересекает ствол (<c>deferred.barMustCrossStem</c>).</summary>
+    public bool CrossFailed { get; init; }
+
     public bool Near { get; init; }
 
     public DeferredTiming Timing { get; init; }
@@ -51,11 +63,13 @@ internal static class DeferredMatcher
         int cols = reference.Deferred.Length;
         var costs = new double[rows * cols];
         var anchored = new bool[cols];
+        var expectedCenters = new Vec2[cols];
         for (int j = 0; j < cols; j++)
         {
             RefDeferred slot = reference.Deferred[j];
             anchored[j] = pairs.Any(p => p.Ref.Id == slot.AnchorStrokeId);
             Vec2 expected = ExpectedCenter(slot, pairs);
+            expectedCenters[j] = expected;
             for (int i = 0; i < rows; i++)
             {
                 // Нет ствола, к которому привязан слот (P5): положение судить не по чему, назначается любой подходящий штрих.
@@ -97,6 +111,24 @@ internal static class DeferredMatcher
             assigned.Add(row);
             ChildStroke stroke = leftover[row];
             double distance = anchored[j] ? costs[(row * cols) + j] : 0.0;
+            double? normalized = null;
+            double? crossGap = null;
+            bool crossFailed = false;
+            bool near = true;
+            if (anchored[j])
+            {
+                Vec2 delta = stroke.NCenter - expectedCenters[j];
+                normalized = Math.Sqrt(Math.Pow(delta.X / d.NearU, 2) + Math.Pow(delta.Y / d.NearV, 2));
+                near = normalized <= 1.0;
+                if (d.BarMustCrossStem && slot.Kind != DeferredKind.Dot)
+                {
+                    PairMetrics stem = pairs.First(p => p.Ref.Id == slot.AnchorStrokeId);
+                    crossGap = stroke.NPos.Min(p => PolylineMath.DistanceToPolyline(p, stem.Child.NPos));
+                    crossFailed = crossGap > d.BarCrossTolerance;
+                    near &= !crossFailed;
+                }
+            }
+
             DeferredTiming timing = lastMainChrono < 0 || stroke.Chrono > lastMainChrono ? DeferredTiming.AfterWord : DeferredTiming.Immediate;
             bool wrongDirection = false;
             if (slot.Direction == DeferredDirection.LeftToRight && stroke.Pos.Length >= 2)
@@ -110,7 +142,10 @@ internal static class DeferredMatcher
                 Slot = slot,
                 Stroke = stroke,
                 Distance = anchored[j] ? distance : null,
-                Near = distance <= d.NearDistance,
+                NormalizedDistance = normalized,
+                CrossGap = crossGap,
+                CrossFailed = crossFailed,
+                Near = near,
                 Timing = timing,
                 WrongDirection = wrongDirection,
             });

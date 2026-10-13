@@ -14,7 +14,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PenForLang.Core\PenForLang.Core.csproj" />
+    <ProjectReference Include="..\..\src\PenForLang.Ink\PenForLang.Ink.csproj" />
     <ProjectReference Include="..\..\src\PenForLang.Glyphs\PenForLang.Glyphs.csproj" />
+    <ProjectReference Include="..\..\src\PenForLang.Evaluation\PenForLang.Evaluation.csproj" />
     <ProjectReference Include="..\PenForLang.Testing\PenForLang.Testing.csproj" />
   </ItemGroup>
 

@@ -2,7 +2,7 @@
   "schema": "pfl.test.evaluation-golden/1",
   "glyph": "zaner-bloser/i.default",
   "note": "Evaluator golden: decisions, codes and places exact; numbers within tolerances. Inputs: SynthInk-lite, seeds in case names.",
-  "evaluatorVersion": "v0.7.0",
+  "evaluatorVersion": "v0.7.1",
   "tolerances": {
     "form": 0.02,
     "severity": 0.05,
@@ -25,11 +25,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.001,
-        "frechet": 0.0017,
+        "dtwMean": 0.0139,
+        "frechet": 0.0437,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.0272,
+        "reach": 0.0411,
+        "baseline": 0.0028,
         "strokes": 0,
         "deferred": 0
       }
@@ -49,11 +50,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.0436,
-        "frechet": 0.0845,
+        "dtwMean": 0.041,
+        "frechet": 0.085,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.022,
+        "reach": 0.0055,
+        "baseline": 0.0737,
         "strokes": 0,
         "deferred": 0
       }
@@ -62,7 +64,7 @@
       "name": "clean.seed2",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9814,
+      "form": 0.9755,
       "processOk": true,
       "findings": [],
       "deferred": [
@@ -73,11 +75,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.0288,
-        "frechet": 0.127,
+        "dtwMean": 0.0271,
+        "frechet": 0.0631,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.176,
+        "reach": 0.2126,
+        "baseline": 0.0829,
         "strokes": 0,
         "deferred": 0
       }
@@ -86,7 +89,7 @@
       "name": "mutation.WrongStart.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9047,
+      "form": 0.8076,
       "processOk": false,
       "findings": [
         {
@@ -95,9 +98,9 @@
           "place": "Stroke",
           "stroke": "s1",
           "ink": 0,
-          "span": "s1:LeadIn",
-          "severity": 0.4497,
-          "measured": 0.4997,
+          "span": "s1:Body",
+          "severity": 1,
+          "measured": 1.528,
           "threshold": 0.35
         }
       ],
@@ -109,11 +112,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.065,
-        "frechet": 0.4997,
-        "corridor": 0.9104,
-        "coverage": 1,
-        "reach": 0.0438,
+        "dtwMean": 0.104,
+        "frechet": 0.6222,
+        "corridor": 0.8571,
+        "coverage": 0.796,
+        "reach": 0.021,
+        "baseline": 0.044,
         "strokes": 0,
         "deferred": 0
       }
@@ -133,7 +137,7 @@
           "ink": 0,
           "span": "s1:Body",
           "severity": 0.7,
-          "measured": 0.0054,
+          "measured": 0.0058,
           "threshold": 0.8
         }
       ],
@@ -145,11 +149,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.0196,
-        "frechet": 0.0425,
+        "dtwMean": 0.0162,
+        "frechet": 0.0359,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.0597,
+        "reach": 0.0264,
+        "baseline": 0.0428,
         "strokes": 0,
         "deferred": 0
       }
@@ -158,7 +163,7 @@
       "name": "mutation.ExtraStroke.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9455,
+      "form": 0.9478,
       "processOk": true,
       "findings": [
         {
@@ -181,11 +186,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.0246,
+        "dtwMean": 0.0224,
         "frechet": 0.0638,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.0459,
+        "reach": 0.0356,
+        "baseline": 0.0515,
         "strokes": 1,
         "deferred": 0
       }
@@ -195,7 +201,7 @@
       "decision": "Target",
       "confidence": "Low",
       "form": 0,
-      "processOk": true,
+      "processOk": false,
       "findings": [
         {
           "code": "P5",
@@ -222,7 +228,7 @@
       "name": "mutation.MissingDeferred.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.8182,
+      "form": 0.8261,
       "processOk": true,
       "findings": [
         {
@@ -245,11 +251,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.0436,
-        "frechet": 0.0845,
+        "dtwMean": 0.041,
+        "frechet": 0.085,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.022,
+        "reach": 0.0055,
+        "baseline": 0.0737,
         "strokes": 0,
         "deferred": 1
       }
@@ -258,7 +265,7 @@
       "name": "mutation.DeferredImmediately.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.999,
+      "form": 0.9993,
       "processOk": true,
       "findings": [
         {
@@ -281,11 +288,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.0363,
-        "frechet": 0.1253,
+        "dtwMean": 0.0365,
+        "frechet": 0.1239,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.0446,
+        "reach": 0.023,
+        "baseline": 0.0091,
         "strokes": 0,
         "deferred": 0
       }
@@ -294,7 +302,7 @@
       "name": "mutation.MisplacedDeferred.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9091,
+      "form": 0.913,
       "processOk": true,
       "findings": [
         {
@@ -304,9 +312,9 @@
           "stroke": "dot",
           "ink": 1,
           "span": "dot:Body",
-          "severity": 0.4615,
-          "measured": 0.8038,
-          "threshold": 0.55
+          "severity": 1,
+          "measured": 3.2812,
+          "threshold": 1
         }
       ],
       "deferred": [
@@ -317,11 +325,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.0297,
-        "frechet": 0.0917,
+        "dtwMean": 0.0273,
+        "frechet": 0.0689,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.0742,
+        "reach": 0.0579,
+        "baseline": 0.0356,
         "strokes": 0,
         "deferred": 0.5
       }
@@ -330,7 +339,7 @@
       "name": "mutation.ExtraDeferred.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9091,
+      "form": 0.913,
       "processOk": true,
       "findings": [
         {
@@ -353,11 +362,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.0297,
-        "frechet": 0.0917,
+        "dtwMean": 0.0273,
+        "frechet": 0.0689,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.0742,
+        "reach": 0.0579,
+        "baseline": 0.0356,
         "strokes": 0,
         "deferred": 0.5
       }

@@ -70,6 +70,7 @@ public class ScoringConfigTests
         // Порог старта из файла: с очень малым допуском даже верный образец получит P1.
         JsonNode strict = Original();
         strict["process"]!["startTolerance"] = 0.01;
+        strict["process"]!["approach"]!["tolerance"] = 0.01;
         var evaluator = new LetterEvaluator(Parse(strict));
         var glyph = Shipped.Glyph("t");
 
@@ -94,9 +95,9 @@ public class ScoringConfigTests
     public void Missing_keys_are_rejected_with_their_path()
     {
         JsonNode node = Original();
-        node["deferred"]!.AsObject().Remove("nearDistance");
+        node["deferred"]!.AsObject().Remove("nearU");
 
-        Assert.Contains(Reject(node).Issues, i => i.StartsWith("deferred.nearDistance", StringComparison.Ordinal) && i.Contains("missing", StringComparison.Ordinal));
+        Assert.Contains(Reject(node).Issues, i => i.StartsWith("deferred.nearU", StringComparison.Ordinal) && i.Contains("missing", StringComparison.Ordinal));
     }
 
     [Fact]

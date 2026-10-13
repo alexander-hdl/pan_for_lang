@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using PenForLang.Evaluation.Tests.HandFixtures;
 using PenForLang.Evaluation.Tests.Support;
 using PenForLang.Glyphs;
 using PenForLang.Ink;
@@ -67,6 +68,25 @@ public class GoldenTests
     }
 
     [Fact]
+    public void Hand_fixtures_match_the_golden_snapshot()
+    {
+        JsonObject actual = HandSnapshot();
+        string path = Repo.Path("tests", "PenForLang.Evaluation.Tests", "golden", "hand.json");
+        if (UpdateRequested)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, actual.ToJsonString(Pretty).ReplaceLineEndings("\n") + "\n");
+        }
+
+        Assert.True(File.Exists(path), $"Golden file {path} is missing. Create it by running the tests with {UpdateVariable}=1.");
+        var expected = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        var problems = new List<string>();
+        Compare(expected, actual, problems);
+
+        Assert.True(problems.Count == 0, $"hand fixtures differ from {path}:\n  " + string.Join("\n  ", problems) + $"\nIf the change is intended, run with {UpdateVariable}=1, review the diff and let the orchestrator accept it.");
+    }
+
+    [Fact]
     public void Comparison_flags_a_changed_code_a_moved_place_and_a_number_out_of_tolerance()
     {
         JsonObject golden = Snapshot("t");
@@ -126,6 +146,40 @@ public class GoldenTests
             ["schema"] = SchemaName,
             ["glyph"] = glyph.Id.ToString(),
             ["note"] = "Evaluator golden: decisions, codes and places exact; numbers within tolerances. Inputs: SynthInk-lite, seeds in case names.",
+            ["evaluatorVersion"] = EvaluatorVersion.Current,
+            ["tolerances"] = new JsonObject { ["form"] = 0.02, ["severity"] = 0.05, ["measured"] = 0.05, ["metric"] = 0.03 },
+            ["cases"] = cases,
+        };
+    }
+
+    /// <summary>Снимок решений на ручных фикстурах (независимых от глифов и SynthInk): ошибки, которых SynthInk не порождает.</summary>
+    private static JsonObject HandSnapshot()
+    {
+        EvaluationResult Run(string letter, RulerInk ink) => Tester.Evaluate(ink, Shipped.Glyph(letter));
+
+        var cases = new JsonArray
+        {
+            Describe("a.clockwise-oval", Run("a", HandInkBuilder.Build(Hand.AClockwise()))),
+            Describe("a.clockwise-oval-from-nine-oclock", Run("a", HandInkBuilder.Build(Hand.AClockwiseFromNineOClock()))),
+            Describe("a.approach-from-minus-1.6", Run("a", HandInkBuilder.Build(Hand.AApproach(-1.6)))),
+            Describe("a.approach-from-plus-0.3", Run("a", HandInkBuilder.Build(Hand.AApproach(0.3)))),
+            Describe("a.start-at-twelve-oclock", Run("a", HandInkBuilder.Build(Hand.AWithoutApproach(90)))),
+            Describe("a.lifted-by-1.0", Run("a", Hand.Lifted("a", 1.0))),
+            Describe("a.o-instead-of-a", Run("a", HandInkBuilder.Build(Hand.OInsteadOfA()))),
+            Describe("a.open-oval", Run("a", HandInkBuilder.Build(Hand.AOpenOval()))),
+            Describe("i.reversed", Run("i", HandInkBuilder.Build(Hand.I(reversed: true), Hand.Dot(0.45, 1.45).After(400)))),
+            Describe("i.dot-only", Run("i", HandInkBuilder.Build(Hand.Dot(0.45, 1.45)))),
+            Describe("i.slow-trembling", Run("i", Hand.SlowTrembling("i"))),
+            Describe("t.bar-at-0.45", Run("t", HandInkBuilder.Build(Hand.T(), Hand.Bar(0.45).After(400)))),
+            Describe("t.bar-right-to-left", Run("t", HandInkBuilder.Build(Hand.T(), Hand.Bar(rtl: true).After(400)))),
+            Describe("t.russian-t", Run("t", HandInkBuilder.Build(Hand.RussianT()))),
+        };
+
+        return new JsonObject
+        {
+            ["schema"] = SchemaName,
+            ["glyph"] = "hand-fixtures (zaner-bloser a, i, t)",
+            ["note"] = "Evaluator golden on hand-drawn formulas (not glyph-derived, not SynthInk): decisions, codes and places exact; numbers within tolerances.",
             ["evaluatorVersion"] = EvaluatorVersion.Current,
             ["tolerances"] = new JsonObject { ["form"] = 0.02, ["severity"] = 0.05, ["measured"] = 0.05, ["metric"] = 0.03 },
             ["cases"] = cases,

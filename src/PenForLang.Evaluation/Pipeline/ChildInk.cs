@@ -82,13 +82,14 @@ internal static class ChildInk
             RemoveSpikes(points, kept, config.Preprocess.SpikeJumpMedianSteps);
             long startUs = kept[0].TimeUs;
             long endUs = kept[^1].TimeUs;
+            PolylineTools.SmoothByTime(points, [.. kept.Select(p => p.TimeUs)], config.Preprocess.SmoothHalfWindowMs * 1000.0);
             double extent = Extent(points);
             List<Vec2> thinned = Decimate(points, config.Preprocess.MinPointDistance);
             double rawLength = thinned.Count < 2 ? 0.0 : PolylineMath.Length(CollectionsSpan(thinned));
             bool dot = rawLength < config.Preprocess.DotMaxLength && (endUs - startUs) < (long)(config.Preprocess.DotMaxDurationMs * 1000.0);
             Vec2[] pos = thinned.Count < 2 || !(rawLength > 0.0)
                 ? [Centroid(points)]
-                : PolylineTools.ResampleSmooth(CollectionsSpan(thinned), config.ResampleStep, filter);
+                : PolylineTools.ResampleSmooth(CollectionsSpan(thinned), config.ResampleStep, filter, config.Preprocess.MaxResamplePoints);
             double length = pos.Length < 2 ? 0.0 : PolylineMath.Length(pos);
             result.Add(new ChildStroke
             {
@@ -186,6 +187,9 @@ internal static class ChildInk
             scale = Math.Clamp(inkHeight / refHeight, n.Scale.Min, n.Scale.Max);
         }
 
+        // Сдвиг baseline b: нижний процентиль v рукописи против эталона (p_ink = s·p_ref + b); v' = (v − b) / s.
+        double baseline = n.Scale.Enabled && inkHeight > 1e-6 ? Math.Clamp(lo - (scale * reference.LowV), -n.BaselineShiftMax, n.BaselineShiftMax) : 0.0;
+
         double centroid = PolylineTools.MeanU(shearedDominant);
         for (int i = 0; i < strokes.Count; i++)
         {
@@ -195,14 +199,14 @@ internal static class ChildInk
             {
                 normalized[k] = new Vec2(
                     reference.CentroidU + ((source[k].X - centroid) / scale),
-                    source[k].Y / scale);
+                    (source[k].Y - baseline) / scale);
             }
 
             strokes[i].NPos = normalized;
             strokes[i].NDir = PolylineTools.Directions(normalized);
         }
 
-        return new NormalizationParams(shear, scale, reference.CentroidU - (centroid / scale), 0.0, inkSlantDeg, reference.SlantDeg);
+        return new NormalizationParams(shear, scale, reference.CentroidU - (centroid / scale), -baseline / scale, inkSlantDeg, reference.SlantDeg);
     }
 
     /// <summary>Применяет преобразование подобия к нормализованным точкам всех штрихов (направления не меняются).</summary>

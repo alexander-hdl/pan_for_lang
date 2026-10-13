@@ -2,7 +2,7 @@
   "schema": "pfl.test.evaluation-golden/1",
   "glyph": "zaner-bloser/a.default",
   "note": "Evaluator golden: decisions, codes and places exact; numbers within tolerances. Inputs: SynthInk-lite, seeds in case names.",
-  "evaluatorVersion": "v0.7.0",
+  "evaluatorVersion": "v0.7.1",
   "tolerances": {
     "form": 0.02,
     "severity": 0.05,
@@ -19,13 +19,13 @@
       "findings": [],
       "deferred": [],
       "metrics": {
-        "dtwMean": 0.0011,
-        "frechet": 0.0021,
+        "dtwMean": 0.0108,
+        "frechet": 0.0263,
         "corridor": 1,
         "coverage": 1,
-        "closed": 0,
-        "reach": 0.0004,
-        "baseline": 0.0004,
+        "closed": 0.003,
+        "reach": 0.0001,
+        "baseline": 0.0033,
         "retrace": 1,
         "strokes": 0
       }
@@ -34,18 +34,18 @@
       "name": "clean.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9924,
+      "form": 0.9898,
       "processOk": true,
       "findings": [],
       "deferred": [],
       "metrics": {
-        "dtwMean": 0.029,
-        "frechet": 0.0819,
+        "dtwMean": 0.0283,
+        "frechet": 0.0781,
         "corridor": 1,
         "coverage": 1,
-        "closed": 0.0036,
-        "reach": 0.1338,
-        "baseline": 0.0057,
+        "closed": 0,
+        "reach": 0.1453,
+        "baseline": 0.0469,
         "retrace": 1,
         "strokes": 0
       }
@@ -59,13 +59,13 @@
       "findings": [],
       "deferred": [],
       "metrics": {
-        "dtwMean": 0.0276,
-        "frechet": 0.0819,
+        "dtwMean": 0.024,
+        "frechet": 0.0563,
         "corridor": 1,
         "coverage": 1,
-        "closed": 0.0088,
-        "reach": 0.0755,
-        "baseline": 0.0784,
+        "closed": 0,
+        "reach": 0.0717,
+        "baseline": 0.0742,
         "retrace": 1,
         "strokes": 0
       }
@@ -74,7 +74,7 @@
       "name": "mutation.WrongStart.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.8946,
+      "form": 0.83,
       "processOk": false,
       "findings": [
         {
@@ -83,21 +83,32 @@
           "place": "Stroke",
           "stroke": "s1",
           "ink": 0,
-          "span": "s1:LeadIn",
-          "severity": 0.8357,
-          "measured": 0.8857,
+          "span": "s1:Body",
+          "severity": 1,
+          "measured": 1.9644,
           "threshold": 0.35
+        },
+        {
+          "code": "F5",
+          "kind": "Error",
+          "place": "Letter",
+          "stroke": null,
+          "ink": null,
+          "span": ":Body",
+          "severity": 0.937,
+          "measured": -0.564,
+          "threshold": 0.2
         }
       ],
       "deferred": [],
       "metrics": {
-        "dtwMean": 0.0685,
-        "frechet": 0.5756,
-        "corridor": 0.984,
+        "dtwMean": 0.077,
+        "frechet": 0.6556,
+        "corridor": 0.9221,
         "coverage": 1,
-        "closed": 0.0238,
-        "reach": 0.1144,
-        "baseline": 0.0296,
+        "closed": 0,
+        "reach": 0.1165,
+        "baseline": 0.564,
         "retrace": 1,
         "strokes": 0
       }
@@ -106,7 +117,7 @@
       "name": "mutation.ReversedStroke.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9875,
+      "form": 0.9868,
       "processOk": false,
       "findings": [
         {
@@ -117,19 +128,19 @@
           "ink": 0,
           "span": "s1:Body",
           "severity": 0.7,
-          "measured": 0.0087,
+          "measured": 0.0079,
           "threshold": 0.8
         }
       ],
       "deferred": [],
       "metrics": {
-        "dtwMean": 0.0301,
-        "frechet": 0.0822,
+        "dtwMean": 0.0284,
+        "frechet": 0.0989,
         "corridor": 1,
         "coverage": 1,
-        "closed": 0.0192,
-        "reach": 0.1515,
-        "baseline": 0.0361,
+        "closed": 0.024,
+        "reach": 0.1545,
+        "baseline": 0.0647,
         "strokes": 0
       }
     },
@@ -137,7 +148,7 @@
       "name": "mutation.ExtraStroke.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9444,
+      "form": 0.9423,
       "processOk": true,
       "findings": [
         {
@@ -154,13 +165,13 @@
       ],
       "deferred": [],
       "metrics": {
-        "dtwMean": 0.029,
-        "frechet": 0.0712,
+        "dtwMean": 0.026,
+        "frechet": 0.0785,
         "corridor": 1,
         "coverage": 1,
         "closed": 0,
-        "reach": 0.1069,
-        "baseline": 0.0246,
+        "reach": 0.1162,
+        "baseline": 0.0737,
         "retrace": 1,
         "strokes": 1
       }
@@ -169,7 +180,7 @@
       "name": "mutation.ParallelRetrace.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9133,
+      "form": 0.9051,
       "processOk": true,
       "findings": [
         {
@@ -180,20 +191,20 @@
           "ink": 0,
           "span": "s1:Body",
           "severity": 0.5,
-          "measured": 0.3462,
+          "measured": 0.3,
           "threshold": 0.6
         }
       ],
       "deferred": [],
       "metrics": {
-        "dtwMean": 0.0572,
-        "frechet": 0.2197,
-        "corridor": 0.9462,
+        "dtwMean": 0.0426,
+        "frechet": 0.2348,
+        "corridor": 0.9375,
         "coverage": 1,
         "closed": 0,
-        "reach": 0.1269,
-        "baseline": 0.0058,
-        "retrace": 0.3462,
+        "reach": 0.1453,
+        "baseline": 0.0508,
+        "retrace": 0.3,
         "strokes": 0
       }
     },
@@ -201,7 +212,7 @@
       "name": "mutation.OpenOval.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9129,
+      "form": 0.8015,
       "processOk": true,
       "findings": [
         {
@@ -211,20 +222,31 @@
           "stroke": "s1",
           "ink": 0,
           "span": "s1:Body",
-          "severity": 0.4691,
-          "measured": 0.2225,
+          "severity": 0.3742,
+          "measured": 0.1818,
           "threshold": 0.15
+        },
+        {
+          "code": "F1",
+          "kind": "Error",
+          "place": "Letter",
+          "stroke": null,
+          "ink": null,
+          "span": ":Body",
+          "severity": 0.368,
+          "measured": 0.1433,
+          "threshold": 0.12
         }
       ],
       "deferred": [],
       "metrics": {
-        "dtwMean": 0.0681,
-        "frechet": 0.2872,
-        "corridor": 0.9198,
-        "coverage": 0.9955,
-        "closed": 0.2225,
-        "reach": 0.072,
-        "baseline": 0.0058,
+        "dtwMean": 0.1433,
+        "frechet": 0.6248,
+        "corridor": 0.9444,
+        "coverage": 0.9943,
+        "closed": 0.1818,
+        "reach": 0.0923,
+        "baseline": 0.0789,
         "retrace": 1,
         "strokes": 0
       }

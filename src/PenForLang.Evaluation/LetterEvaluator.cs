@@ -12,18 +12,26 @@ namespace PenForLang.Evaluation;
 /// <summary>
 /// Оценщик изолированной буквы v0 (ARCHITECTURE.md §6.4.1–6.4.2, §6.4.8–6.4.10). Конвейер:
 /// <list type="number">
-/// <item>предобработка: выбросы, микроштрихи, ресэмплинг по длине дуги, сглаживание Савицкого–Голея;</item>
-/// <item>нормализация для выравнивания по линейкам (деслантинг, масштаб и baseline по процентилям v, сдвиг по u), не по bounding box;</item>
+/// <item>предобработка: выбросы, сглаживание по времени и прореживание дрожи отсчётов, микроштрихи, ресэмплинг по длине дуги (число точек ограничено), сглаживание Савицкого–Голея;</item>
+/// <item>нормализация для выравнивания по линейкам (деслантинг, масштаб и сдвиг baseline по процентилям v, сдвиг по u; затем робастная подгонка по соответствиям DTW), не по bounding box;</item>
 /// <item>сопоставление штрихов: DTW (позиция + направление, открытые концы, прямой и обращённый эталон) и Венгерский алгоритм с неназначением;</item>
-/// <item>процесс: старт (P1; допустимы начало входящего штриха и начало тела), направление (P2), порядок (P3), лишние и пропущенные штрихи (P4, P5), ретрейс (P6);</item>
+/// <item>процесс: старт (P1; допустимы подход и начало тела), направление (P2; штрих целиком и обход овалов и петель), порядок (P3), лишние и пропущенные штрихи (P4, P5), ретрейс (P6);</item>
 /// <item>отложенные штрихи: назначение по реальному стволу, D1, D2, D3, время (D4, информационно);</item>
 /// <item>форма: коридор, покрытие, Фреше, замкнутость, петли, достижение линий, подбаллы и <c>form</c>.</item>
 /// </list>
 /// Числа берутся из <see cref="ScoringConfig"/>. Идентичность буквы (L*) и контексты слова не поддержаны (V0.10+).
 /// <para>
-/// <b>Старт изолированной буквы (P1).</b> Допустимы оба настоящих старта: начало входящего штриха (<c>leadIn</c>, если
-/// <c>animation.startDot = leadIn</c>) и начало тела — ребёнок может начать с подхода от baseline, а может сразу с тела.
-/// Для штриха, написанного в обратную сторону (P2), «стартом» считается конец эталона, чтобы одна ошибка не давала P1 и P2.
+/// <b>Старт изолированной буквы (P1).</b> Допустимы начало тела и (при <c>animation.startDot = leadIn</c>) любое место подхода:
+/// вся ломаная входящего штриха и её продолжение вдоль линии начала подхода (подход бывает длиннее или короче эталонного),
+/// при ходе вперёд. Кроме того, рукопись не должна «начинаться» с середины тела: место, с которого DTW с открытым началом
+/// начинает рукопись, не дальше <c>process.startArcTolerance</c> по телу от его начала. Для штриха, написанного в обратную
+/// сторону (P2) или с обратным обходом овала (P2 по знаку площади), P1 не выдаётся: одна ошибка — одна находка.
+/// </para>
+/// <para>
+/// <b>Направление (P2).</b> Штрих в целом: обращённый эталон заметно лучше прямого. Овалы и петли (<c>checks.closed</c>,
+/// <c>checks.loops</c>): знак ориентированной площади участка рукописи против эталона — ловит овал по часовой при верных
+/// подходе и стволе; <c>TemplateSpan</c> указывает участок. Перекладина справа налево — информационная находка P2
+/// (флаг <c>process.direction.barReverseIsError</c>).
 /// </para>
 /// <para>
 /// <b>Время отложенных штрихов (D4).</b> «После слова» — позже последнего сопоставленного основного штриха, иначе «сразу».
@@ -185,6 +193,32 @@ public sealed class LetterEvaluator : ILetterEvaluator
 
                 reachErrors.Add(new ReachError(check, actual, actual - check.Target));
             }
+
+            // Посадка на строку у любой буквы: нижние точки у касаний baseline (keypoints), а не только reach-проверки baseline.
+            int touchHalf = PolylineTools.PointsFor(_config.Form.BaselineTouchWindow, _config.ResampleStep);
+            foreach (TouchRef touch in reference.Touches)
+            {
+                PairMetrics? pair = pairs.Find(p => p.Ref.Id == touch.StrokeId);
+                if (pair is null)
+                {
+                    continue;
+                }
+
+                int center = pair.ChildOfRef[touch.Index];
+                RefStroke touched = pair.Ref;
+                if (Vec2.Distance(pair.Child.NPos[center], touched.Pos[touch.Index]) > _config.Form.BaselineTouchMaxMismatch)
+                {
+                    continue; // нужной части буквы в этом штрихе нет (например, ствол написан отдельным штрихом)
+                }
+
+                double lowest = double.PositiveInfinity;
+                for (int i = Math.Max(0, center - touchHalf); i <= Math.Min(pair.Child.Pos.Length - 1, center + touchHalf); i++)
+                {
+                    lowest = Math.Min(lowest, pair.Child.Pos[i].Y);
+                }
+
+                reachErrors.Add(new ReachError(new ReachRef(ExtremeKind.Min, touch.RefMin, true), lowest, lowest - touch.RefMin));
+            }
         }
 
         var analysis = new LetterAnalysis
@@ -289,7 +323,7 @@ public sealed class LetterEvaluator : ILetterEvaluator
             Decision.Unrecognized,
             symbol,
             Confidence.Low,
-            [new LetterSummary(0, symbol, symbol, LetterContext.Isolated, null, 0.0, null, false, new ProcessSummary(true, true, true, 0, true))],
+            [new LetterSummary(0, symbol, symbol, LetterContext.Isolated, null, 0.0, null, false, ProcessSummary.NotEvaluated)],
             [],
             []);
         ImmutableSortedDictionary<string, double>.Builder diagnostics = ImmutableSortedDictionary.CreateBuilder<string, double>(StringComparer.Ordinal);
@@ -336,7 +370,9 @@ public sealed class LetterEvaluator : ILetterEvaluator
     {
         string symbol = request.Glyph.Symbol;
         bool orderOk = a.OrderViolation is null;
-        bool processOk = a.StartOk && a.DirectionOk && orderOk && a.StrokeCountDelta < _config.Process.StrokeCount.ExtraForStop;
+
+        // Нет ни одного сопоставленного основного штриха (например, только точка): процесс не верен (P5).
+        bool processOk = a.Pairs.Count > 0 && a.StartOk && a.DirectionOk && orderOk && a.StrokeCountDelta < _config.Process.StrokeCount.ExtraForStop;
         var process = new ProcessSummary(a.StartOk, a.DirectionOk, orderOk, a.StrokeCountDelta, a.RetraceOk);
 
         var deferredSummary = ImmutableArray.CreateBuilder<DeferredSummary>(a.Deferred.Slots.Count);
@@ -369,6 +405,7 @@ public sealed class LetterEvaluator : ILetterEvaluator
                 p.Reversed,
                 p.MatchCost,
                 p.StartErr,
+                p.StartArcOffset,
                 p.ReverseRatio,
                 p.FirstSegmentAngleDeg,
                 p.DtwMean,
@@ -380,7 +417,8 @@ public sealed class LetterEvaluator : ILetterEvaluator
                 p.LoopOk,
                 p.RetraceShare,
                 p.StartOk,
-                p.DirectionOk));
+                p.DirectionOk,
+                p.RangeAreaRatio));
         }
 
         ImmutableSortedDictionary<string, double>.Builder diagnostics = ImmutableSortedDictionary.CreateBuilder<string, double>(StringComparer.Ordinal);

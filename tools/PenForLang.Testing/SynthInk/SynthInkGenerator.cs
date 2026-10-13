@@ -24,6 +24,7 @@ public sealed class SynthInkGenerator
     private const double ApproachStep = 0.03;
     private const double ApproachStepMs = 20.0;
     private const double GapMs = 400.0;
+    private const double ApproachBaselineReach = 0.9;
 
     private readonly StyleManifest _style;
     private readonly SynthOptions _options;
@@ -209,7 +210,7 @@ public sealed class SynthInkGenerator
                         return null;
                     }
 
-                    OpenClosure(glyph, stroke, closed, rng, 0.32);
+                    OpenClosure(glyph, stroke, closed, rng, -0.65);
                     expected = [new ExpectedFinding(ErrorCode.F2, stroke.Id)];
                     forbidden = [ErrorCode.P1, ErrorCode.P2, ErrorCode.P5];
                     break;
@@ -256,26 +257,40 @@ public sealed class SynthInkGenerator
 
     private static void MoveStart(Glyph glyph, IdealStroke stroke, int mainIndex, Pcg32 rng)
     {
-        var allowed = new List<Vec2>();
         GlyphStroke source = glyph.Strokes.OrderBy(s => s.Order).ElementAt(mainIndex);
-        allowed.Add(source.Path.Start);
-        if (mainIndex == 0 && glyph.LeadIn is not null)
+        Vec2 bodyStart = source.Path.Start;
+        Vec2[] approach = mainIndex == 0 && glyph.LeadIn is not null ? glyph.LeadIn.Flatten(0.02) : [];
+
+        // Расстояние до допустимых мест старта оценщика: начало тела, подход и его продолжение вдоль линии начала подхода.
+        double Clearance(Vec2 candidate)
         {
-            allowed.Add(glyph.LeadIn.Start);
+            double best = Vec2.Distance(bodyStart, candidate);
+            if (approach.Length > 0)
+            {
+                best = Math.Min(best, PolylineMath.DistanceToPolyline(candidate, approach));
+                if (candidate.X <= approach[0].X + ApproachBaselineReach)
+                {
+                    best = Math.Min(best, Math.Abs(candidate.Y - approach[0].Y));
+                }
+            }
+
+            return best;
         }
 
         Vec2 p0 = stroke.Points[0];
-        double radius = 0.75 + (0.25 * rng.NextDouble()); // в единицах эталона: после нормализации масштаба смещение остаётся 0,75–1 x-height
+        double radius = 0.7 + (0.2 * rng.NextDouble()); // в единицах эталона: после нормализации масштаба смещение остаётся 0,75–1 x-height
         double angle0 = rng.NextDouble() * 2.0 * Math.PI;
         Vec2 start = p0;
+        double bestClearance = double.NegativeInfinity;
         for (int attempt = 0; attempt < 16; attempt++)
         {
             double angle = angle0 + (attempt * Math.PI / 8.0);
             Vec2 candidate = p0 + new Vec2(Math.Cos(angle) * radius, Math.Sin(angle) * radius);
-            if (allowed.All(a => Vec2.Distance(a, candidate) >= 0.6))
+            double clearance = Clearance(candidate);
+            if (clearance > bestClearance)
             {
+                bestClearance = clearance;
                 start = candidate;
-                break;
             }
         }
 
@@ -397,7 +412,7 @@ public sealed class SynthInkGenerator
         _ = glyph;
         _ = rng;
 
-        // Начало овала смещено, а возврат на прежнее место — нет: перо «не попадает» в точку, с которой началось.
+        // Начало овала смещено внутрь (влево), а возврат идёт по прежнему месту (по стволу): перо «не попадает» в точку старта.
         double centre = stroke.BodyStartDistance + (closed.From * stroke.BodyLength);
         double half = 0.5;
         OffsetByDistance(stroke, centre - half, centre + half, amount);

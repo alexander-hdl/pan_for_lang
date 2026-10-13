@@ -233,7 +233,7 @@ public static class StyleCommands
         return true;
     }
 
-    private static string? FindContentRoot()
+    internal static string? FindContentRoot()
     {
         for (var dir = new DirectoryInfo(Directory.GetCurrentDirectory()); dir is not null; dir = dir.Parent)
         {

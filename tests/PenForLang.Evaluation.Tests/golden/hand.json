@@ -1,0 +1,511 @@
+{
+  "schema": "pfl.test.evaluation-golden/1",
+  "glyph": "hand-fixtures (zaner-bloser a, i, t)",
+  "note": "Evaluator golden on hand-drawn formulas (not glyph-derived, not SynthInk): decisions, codes and places exact; numbers within tolerances.",
+  "evaluatorVersion": "v0.7.1",
+  "tolerances": {
+    "form": 0.02,
+    "severity": 0.05,
+    "measured": 0.05,
+    "metric": 0.03
+  },
+  "cases": [
+    {
+      "name": "a.clockwise-oval",
+      "decision": "Target",
+      "confidence": "Medium",
+      "form": 0.6939,
+      "processOk": false,
+      "findings": [
+        {
+          "code": "P2",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:Body",
+          "severity": 0.7,
+          "measured": -1.0091,
+          "threshold": 0
+        },
+        {
+          "code": "F2",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:Body",
+          "severity": 0.3147,
+          "measured": 0.1563,
+          "threshold": 0.15
+        },
+        {
+          "code": "F1",
+          "kind": "Error",
+          "place": "Letter",
+          "stroke": null,
+          "ink": null,
+          "span": ":Body",
+          "severity": 0.7397,
+          "measured": 0.2708,
+          "threshold": 0.12
+        }
+      ],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.2708,
+        "frechet": 0.7262,
+        "corridor": 1,
+        "coverage": 1,
+        "closed": 0.1563,
+        "reach": 0.0027,
+        "baseline": 0.086,
+        "retrace": 0.95,
+        "strokes": 0
+      }
+    },
+    {
+      "name": "a.clockwise-oval-from-nine-oclock",
+      "decision": "Target",
+      "confidence": "Medium",
+      "form": 0.5923,
+      "processOk": false,
+      "findings": [
+        {
+          "code": "P2",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:Body",
+          "severity": 0.7,
+          "measured": -0.403,
+          "threshold": 0
+        },
+        {
+          "code": "F2",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:Body",
+          "severity": 1,
+          "measured": 0.4923,
+          "threshold": 0.15
+        },
+        {
+          "code": "F1",
+          "kind": "Error",
+          "place": "Letter",
+          "stroke": null,
+          "ink": null,
+          "span": ":Body",
+          "severity": 0.6515,
+          "measured": 0.2405,
+          "threshold": 0.12
+        }
+      ],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.2405,
+        "frechet": 0.431,
+        "corridor": 0.9854,
+        "coverage": 0.5199,
+        "closed": 0.4923,
+        "reach": 0.0013,
+        "baseline": 0.0857,
+        "retrace": 1,
+        "strokes": 0
+      }
+    },
+    {
+      "name": "a.approach-from-minus-1.6",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.7493,
+      "processOk": true,
+      "findings": [
+        {
+          "code": "F1",
+          "kind": "Error",
+          "place": "Letter",
+          "stroke": null,
+          "ink": null,
+          "span": ":Body",
+          "severity": 0.3883,
+          "measured": 0.1503,
+          "threshold": 0.12
+        }
+      ],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.1503,
+        "frechet": 0.8693,
+        "corridor": 0.7923,
+        "coverage": 0.8325,
+        "closed": 0.0918,
+        "reach": 0.0028,
+        "baseline": 0.0855,
+        "retrace": 1,
+        "strokes": 0
+      }
+    },
+    {
+      "name": "a.approach-from-plus-0.3",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.9336,
+      "processOk": true,
+      "findings": [],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.0819,
+        "frechet": 0.2772,
+        "corridor": 0.9858,
+        "coverage": 1,
+        "closed": 0.1162,
+        "reach": 0.002,
+        "baseline": 0.0859,
+        "retrace": 1,
+        "strokes": 0
+      }
+    },
+    {
+      "name": "a.start-at-twelve-oclock",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.9552,
+      "processOk": false,
+      "findings": [
+        {
+          "code": "P1",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:Body",
+          "severity": 0.386,
+          "measured": 0.436,
+          "threshold": 0.35
+        },
+        {
+          "code": "F2",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:Body",
+          "severity": 0.3578,
+          "measured": 0.1748,
+          "threshold": 0.15
+        }
+      ],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.0511,
+        "frechet": 0.2397,
+        "corridor": 1,
+        "coverage": 1,
+        "closed": 0.1748,
+        "reach": 0.0001,
+        "baseline": 0.086,
+        "retrace": 0.9474,
+        "strokes": 0
+      }
+    },
+    {
+      "name": "a.lifted-by-1.0",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.8466,
+      "processOk": true,
+      "findings": [
+        {
+          "code": "F4",
+          "kind": "Error",
+          "place": "Letter",
+          "stroke": null,
+          "ink": null,
+          "span": ":Body",
+          "severity": 1,
+          "measured": 0.9973,
+          "threshold": 0.25
+        },
+        {
+          "code": "F5",
+          "kind": "Error",
+          "place": "Letter",
+          "stroke": null,
+          "ink": null,
+          "span": ":Body",
+          "severity": 1,
+          "measured": 1.0855,
+          "threshold": 0.2
+        }
+      ],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.0567,
+        "frechet": 0.1523,
+        "corridor": 1,
+        "coverage": 0.9917,
+        "closed": 0.1071,
+        "reach": 0.9973,
+        "baseline": 1.0855,
+        "retrace": 1,
+        "strokes": 0
+      }
+    },
+    {
+      "name": "a.o-instead-of-a",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.8307,
+      "processOk": true,
+      "findings": [
+        {
+          "code": "P6",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:Body",
+          "severity": 0.5,
+          "measured": 0,
+          "threshold": 0.6
+        }
+      ],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.0697,
+        "frechet": 0.4062,
+        "corridor": 0.9231,
+        "coverage": 0.8724,
+        "closed": 0.0329,
+        "reach": 0.0028,
+        "baseline": 0,
+        "retrace": 0,
+        "strokes": 0
+      }
+    },
+    {
+      "name": "a.open-oval",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.8518,
+      "processOk": true,
+      "findings": [
+        {
+          "code": "P6",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:Body",
+          "severity": 0.5,
+          "measured": 0.45,
+          "threshold": 0.6
+        },
+        {
+          "code": "F2",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:Body",
+          "severity": 0.4503,
+          "measured": 0.2144,
+          "threshold": 0.15
+        }
+      ],
+      "deferred": [],
+      "metrics": {
+        "dtwMean": 0.0753,
+        "frechet": 0.262,
+        "corridor": 0.8671,
+        "coverage": 0.9253,
+        "closed": 0.2144,
+        "reach": 0.0026,
+        "baseline": 0.0867,
+        "retrace": 0.45,
+        "strokes": 0
+      }
+    },
+    {
+      "name": "i.reversed",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.9943,
+      "processOk": false,
+      "findings": [
+        {
+          "code": "P2",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": 0,
+          "span": "s1:Body",
+          "severity": 0.7,
+          "measured": 0.0445,
+          "threshold": 0.8
+        }
+      ],
+      "deferred": [
+        {
+          "slot": "dot",
+          "status": "Present",
+          "timing": "AfterWord"
+        }
+      ],
+      "metrics": {
+        "dtwMean": 0.0467,
+        "frechet": 0.1517,
+        "corridor": 1,
+        "coverage": 0.9547,
+        "reach": 0.0779,
+        "baseline": 0.0887,
+        "strokes": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "name": "i.dot-only",
+      "decision": "Target",
+      "confidence": "Low",
+      "form": 0,
+      "processOk": false,
+      "findings": [
+        {
+          "code": "P5",
+          "kind": "Error",
+          "place": "Stroke",
+          "stroke": "s1",
+          "ink": null,
+          "span": "s1:Body",
+          "severity": 0.8,
+          "measured": 1,
+          "threshold": 0
+        }
+      ],
+      "deferred": [
+        {
+          "slot": "dot",
+          "status": "Present",
+          "timing": "AfterWord"
+        }
+      ],
+      "metrics": {}
+    },
+    {
+      "name": "i.slow-trembling",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.9716,
+      "processOk": true,
+      "findings": [],
+      "deferred": [
+        {
+          "slot": "dot",
+          "status": "Present",
+          "timing": "AfterWord"
+        }
+      ],
+      "metrics": {
+        "dtwMean": 0.0521,
+        "frechet": 0.1593,
+        "corridor": 1,
+        "coverage": 0.8681,
+        "reach": 0.0318,
+        "baseline": 0.0931,
+        "strokes": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "name": "t.bar-at-0.45",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.8416,
+      "processOk": true,
+      "findings": [
+        {
+          "code": "D2",
+          "kind": "Error",
+          "place": "Deferred",
+          "stroke": "bar",
+          "ink": 1,
+          "span": "bar:Body",
+          "severity": 0.6934,
+          "measured": 2.1239,
+          "threshold": 1
+        }
+      ],
+      "deferred": [
+        {
+          "slot": "bar",
+          "status": "Misplaced",
+          "timing": "AfterWord"
+        }
+      ],
+      "metrics": {
+        "dtwMean": 0.0521,
+        "frechet": 0.2547,
+        "corridor": 0.8763,
+        "coverage": 0.7865,
+        "reach": 0.077,
+        "baseline": 0.0857,
+        "retrace": 1,
+        "strokes": 0,
+        "deferred": 0.5
+      }
+    },
+    {
+      "name": "t.bar-right-to-left",
+      "decision": "Target",
+      "confidence": "High",
+      "form": 0.9229,
+      "processOk": true,
+      "findings": [
+        {
+          "code": "P2",
+          "kind": "Info",
+          "place": "Deferred",
+          "stroke": "bar",
+          "ink": 1,
+          "span": "bar:Body",
+          "severity": 0,
+          "measured": null,
+          "threshold": null
+        }
+      ],
+      "deferred": [
+        {
+          "slot": "bar",
+          "status": "Present",
+          "timing": "AfterWord"
+        }
+      ],
+      "metrics": {
+        "dtwMean": 0.0521,
+        "frechet": 0.2547,
+        "corridor": 0.8763,
+        "coverage": 0.7865,
+        "reach": 0.077,
+        "baseline": 0.0857,
+        "retrace": 1,
+        "strokes": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "name": "t.russian-t",
+      "decision": "Unrecognized",
+      "confidence": "Low",
+      "form": 0,
+      "processOk": null,
+      "findings": [],
+      "deferred": [],
+      "metrics": {}
+    }
+  ]
+}

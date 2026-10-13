@@ -46,7 +46,15 @@ public sealed record SmoothingConfig(int Window, int Order);
 /// <param name="DotMaxLength">Микроштрих: длина меньше (x-height) ...</param>
 /// <param name="DotMaxDurationMs">... и длительность меньше (мс) — <c>dotCandidate</c>.</param>
 /// <param name="MinPointDistance">Прореживание: точки ближе этого к последней оставленной отбрасываются (подавляет дрожание на уровне отсчётов).</param>
-public sealed record PreprocessConfig(double SpikeJumpMedianSteps, double DotMaxLength, double DotMaxDurationMs, double MinPointDistance);
+/// <param name="SmoothHalfWindowMs">Полуширина скользящего среднего по времени до прореживания, мс (0 — без сглаживания); концы штриха не сдвигаются. Подавляет дрожание отсчётов у медленного письма.</param>
+/// <param name="MaxResamplePoints">Наибольшее число точек штриха после ресэмплинга (длинные штрихи ресэмплируются реже).</param>
+public sealed record PreprocessConfig(
+    double SpikeJumpMedianSteps,
+    double DotMaxLength,
+    double DotMaxDurationMs,
+    double MinPointDistance,
+    double SmoothHalfWindowMs,
+    int MaxResamplePoints);
 
 /// <summary>Деслантинг рукописи к наклону эталона.</summary>
 /// <param name="Enabled">Включён.</param>
@@ -69,11 +77,13 @@ public sealed record ScaleConfig(bool Enabled, double Min, double Max, double Lo
 /// <param name="DominantStrokeShare">Штрихи длиннее этой доли самого длинного определяют наклон, масштаб и сдвиг.</param>
 /// <param name="Deslant">Деслантинг.</param>
 /// <param name="Scale">Масштаб.</param>
+/// <param name="BaselineShiftMax">Наибольший сдвиг baseline, оцениваемый в проходе 1 (по нижнему процентилю v против эталона), x-height.</param>
 /// <param name="Refine">Уточнение масштаба и сдвига по соответствиям выравнивания.</param>
 public sealed record NormalizationConfig(
     double DominantStrokeShare,
     DeslantConfig Deslant,
     ScaleConfig Scale,
+    double BaselineShiftMax,
     RefineConfig Refine);
 
 /// <summary>
@@ -121,14 +131,18 @@ public sealed record ProfileConfig(double ToleranceScale);
 /// <param name="FirstSegmentAngleMaxDeg">... и первый участок рукописи отклонён от допустимого направления старта больше (градусы).</param>
 /// <param name="FirstSegmentLength">Длина первого участка, x-height.</param>
 /// <param name="MinStrokeLength">Штрих короче этого направление не проверяется (точка, короткая черта), x-height.</param>
-/// <param name="BarMinDirectionalShare">Отложенная перекладина <c>ltr</c> написана справа налево (P2), если чистый сдвиг назад больше этой доли длины.</param>
+/// <param name="BarMinDirectionalShare">Отложенная перекладина <c>ltr</c> написана справа налево, если чистый сдвиг назад больше этой доли длины.</param>
+/// <param name="BarReverseIsError">Перекладина справа налево — ошибка P2 (учитывается в направлении и <c>process_ok</c>); иначе только информационная находка P2.</param>
+/// <param name="RangeAreaMinShare">Направление обхода овала или петли (checks.closed, checks.loops) судится по знаку ориентированной площади участка, если площадь рукописи не меньше этой доли эталонной.</param>
 public sealed record DirectionConfig(
     double ReverseCostRatioMax,
     double StrongReverseCostRatio,
     double FirstSegmentAngleMaxDeg,
     double FirstSegmentLength,
     double MinStrokeLength,
-    double BarMinDirectionalShare);
+    double BarMinDirectionalShare,
+    bool BarReverseIsError,
+    double RangeAreaMinShare);
 
 /// <summary>Число основных штрихов (P4).</summary>
 /// <param name="ExtraForP4">Лишних штрихов для находки P4.</param>
@@ -139,14 +153,27 @@ public sealed record StrokeCountConfig(int ExtraForP4, int ExtraForStop);
 /// <param name="Tolerance">Расстояние до написанного, в пределах которого точка считается лежащей по написанному, x-height.</param>
 /// <param name="MinShareOfReference">Доля ретрейса по написанному должна быть не меньше этой доли от эталонной.</param>
 /// <param name="MinPriorPoints">Если до ретрейса написано меньше точек, проверка неприменима (написано нечего повторять).</param>
-public sealed record RetraceConfig(double Tolerance, double MinShareOfReference, int MinPriorPoints);
+/// <param name="MinRangePoints">Если участок ретрейса отображается меньше чем в это число точек рукописи, ретрейса нет (доля 0, P6).</param>
+public sealed record RetraceConfig(double Tolerance, double MinShareOfReference, int MinPriorPoints, int MinRangePoints);
 
 /// <summary>Процессные пороги.</summary>
 /// <param name="StartTolerance">Допуск старта (P1), x-height.</param>
+/// <param name="StartArcTolerance">Допуск места, где DTW с открытым началом «начинает» рукопись на эталоне: дальше этого вдоль тела от его начала (длина дуги, x-height) — старт с середины буквы (P1), даже если точка случайно близка к подходу.</param>
+/// <param name="Approach">Подход к телу буквы как допустимое место старта.</param>
 /// <param name="Direction">Направление.</param>
 /// <param name="StrokeCount">Число штрихов.</param>
 /// <param name="Retrace">Ретрейс.</param>
-public sealed record ProcessConfig(double StartTolerance, DirectionConfig Direction, StrokeCountConfig StrokeCount, RetraceConfig Retrace);
+public sealed record ProcessConfig(double StartTolerance, double StartArcTolerance, ApproachConfig Approach, DirectionConfig Direction, StrokeCountConfig StrokeCount, RetraceConfig Retrace);
+
+/// <summary>
+/// Допустимый старт изолированной буквы при <c>animation.startDot = leadIn</c>: вся ломаная входящего штриха плюс её продолжение
+/// влево вдоль baseline (подход бывает длиннее или короче эталонного) — при ходе вперёд; либо начало тела.
+/// </summary>
+/// <param name="ExtendLeft">Продолжать подход влево от его начала лучом вдоль линии v начала.</param>
+/// <param name="ExtendRight">Допустимый старт вдоль той же линии и вправо от начала подхода на столько, x-height (короткий подход, начатый ближе к телу).</param>
+/// <param name="Tolerance">Допуск расстояния до подхода, x-height; жёстче допуска старта тела, потому что подход тянется вдоль овала и старт снизу овала близок к нему (ошибка выражается в единицах <c>startTolerance</c>).</param>
+/// <param name="MaxAngleDeg">Старт на подходе засчитывается, если первый участок рукописи отклонён от хода подхода не больше (градусы).</param>
+public sealed record ApproachConfig(bool ExtendLeft, double ExtendRight, double Tolerance, double MaxAngleDeg);
 
 /// <summary>Единицы штрафа отложенных штрихов в подбалле <c>deferred</c> (вход функции <c>form.scores.deferred</c>).</summary>
 /// <param name="Missing">Слот пуст (D1).</param>
@@ -158,18 +185,27 @@ public sealed record DeferredPenaltyConfig(double Missing, double Misplaced, dou
 /// <param name="CorridorTau">Полуширина коридора для <c>corridorShare</c> и <c>coverage</c>, x-height.</param>
 /// <param name="MinLoopArea">Наименьшая площадь петли, засчитываемой как петля (F3), x-height².</param>
 /// <param name="DeferredPenalty">Единицы штрафа метрики <c>deferred</c>.</param>
+/// <param name="ClosureWindow">Полуокно измерения замкнутости овала (участок вокруг старта и вокруг возврата), x-height.</param>
+/// <param name="BaselineTouchWindow">Полуокно поиска нижней точки у касаний baseline (keypoints <c>baselineTouch</c>), x-height.</param>
+/// <param name="BaselineTouchMaxMismatch">Касание судится, только если соответствующая точка рукописи (нормализованная) лежит не дальше этого от точки касания эталона, x-height: иначе нужной части буквы нет (она в другом штрихе).</param>
 /// <param name="Weights">Веса метрик в <c>form</c> (ненормированные); порядок ключей — порядок в файле.</param>
 /// <param name="Scores">Функции подбаллов по ключам метрик.</param>
 public sealed record FormConfig(
     double CorridorTau,
     double MinLoopArea,
+    double ClosureWindow,
+    double BaselineTouchWindow,
+    double BaselineTouchMaxMismatch,
     DeferredPenaltyConfig DeferredPenalty,
     ImmutableArray<KeyValuePair<string, double>> Weights,
     ImmutableDictionary<string, ScoreFunction> Scores);
 
 /// <summary>Отложенные штрихи (§6.4.8).</summary>
 /// <param name="AcceptTiming">Какое время принимается.</param>
-/// <param name="NearDistance">Дальше этого от ожидаемого положения — D2, x-height.</param>
+/// <param name="NearU">Допуск положения отложенного штриха по горизонтали от ожидаемого (по реальному стволу), x-height; допуск эллиптический вместе с <paramref name="NearV"/>.</param>
+/// <param name="NearV">То же по вертикали (точка над i и перекладина чувствительны к высоте).</param>
+/// <param name="BarMustCrossStem">Перекладина, не пересекающая ствол, — D2.</param>
+/// <param name="BarCrossTolerance">Расстояние от перекладины до ствола, до которого она считается пересекающей, x-height.</param>
 /// <param name="AssignMaxDistance">Дальше этого штрих не считается этим слотом вообще (D1 и лишний штрих).</param>
 /// <param name="DotMaxLength">Штрих короче этого считается точкой.</param>
 /// <param name="BarMinLengthRatio">Штрих короче этой доли эталонной перекладины в слот не подходит.</param>
@@ -179,7 +215,10 @@ public sealed record FormConfig(
 /// <param name="StrictTimingSeverity">Тяжесть D4 в режиме <see cref="DeferredAcceptPolicy.AfterWord"/>.</param>
 public sealed record DeferredConfig(
     DeferredAcceptPolicy AcceptTiming,
-    double NearDistance,
+    double NearU,
+    double NearV,
+    bool BarMustCrossStem,
+    double BarCrossTolerance,
     double AssignMaxDistance,
     double DotMaxLength,
     double BarMinLengthRatio,

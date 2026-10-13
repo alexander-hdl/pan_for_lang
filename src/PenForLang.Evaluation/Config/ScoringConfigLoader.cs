@@ -177,7 +177,7 @@ public static class ScoringConfigLoader
         PreprocessConfig? pre = null;
         if (o.Obj("preprocess") is { } pp)
         {
-            pre = new PreprocessConfig(pp.Double("spikeJumpMedianSteps", 1, 1000), pp.Double("dotMaxLength", 0, 1), pp.Double("dotMaxDurationMs", 0, 10000), pp.Double("minPointDistance", 0, 0.5));
+            pre = new PreprocessConfig(pp.Double("spikeJumpMedianSteps", 1, 1000), pp.Double("dotMaxLength", 0, 1), pp.Double("dotMaxDurationMs", 0, 10000), pp.Double("minPointDistance", 0, 0.5), pp.Double("smoothHalfWindowMs", 0, 500), pp.Int("maxResamplePoints", 20, 100000));
             pp.Done();
         }
 
@@ -260,9 +260,10 @@ public static class ScoringConfigLoader
             r.Done();
         }
 
+        double baselineMax = n.Double("baselineShiftMax", 0, 10);
         n.Done();
         _ = issues;
-        return deslant is null || scale is null || refine is null ? null : new NormalizationConfig(share, deslant, scale, refine);
+        return deslant is null || scale is null || refine is null ? null : new NormalizationConfig(share, deslant, scale, baselineMax, refine);
     }
 
     private static ImmutableDictionary<ToleranceProfile, ProfileConfig> ReadProfiles(ConfigObject? p, List<string> issues)
@@ -296,6 +297,7 @@ public static class ScoringConfigLoader
         }
 
         double start = p.Double("startTolerance", 0.01, 10);
+        double startArc = p.Double("startArcTolerance", 0, 50);
         DirectionConfig? direction = null;
         if (p.Obj("direction") is { } d)
         {
@@ -305,7 +307,9 @@ public static class ScoringConfigLoader
                 d.Double("firstSegmentAngleMaxDeg", 0, 180),
                 d.Double("firstSegmentLength", 0.01, 5),
                 d.Double("minStrokeLength", 0, 10),
-                d.Double("barMinDirectionalShare", 0, 1));
+                d.Double("barMinDirectionalShare", 0, 1),
+                d.Bool("barReverseIsError"),
+                d.Double("rangeAreaMinShare", 0, 1));
             d.Done();
         }
 
@@ -319,12 +323,19 @@ public static class ScoringConfigLoader
         RetraceConfig? retrace = null;
         if (p.Obj("retrace") is { } r)
         {
-            retrace = new RetraceConfig(r.Double("tolerance", 0.001, 5), r.Double("minShareOfReference", 0, 1), r.Int("minPriorPoints", 0, 1000));
+            retrace = new RetraceConfig(r.Double("tolerance", 0.001, 5), r.Double("minShareOfReference", 0, 1), r.Int("minPriorPoints", 0, 1000), r.Int("minRangePoints", 0, 1000));
             r.Done();
         }
 
+        ApproachConfig? approach = null;
+        if (p.Obj("approach") is { } ap)
+        {
+            approach = new ApproachConfig(ap.Bool("extendLeft"), ap.Double("extendRight", 0, 5), ap.Double("tolerance", 0.01, 10), ap.Double("maxAngleDeg", 0, 180));
+            ap.Done();
+        }
+
         p.Done();
-        return direction is null || count is null || retrace is null ? null : new ProcessConfig(start, direction, count, retrace);
+        return direction is null || count is null || retrace is null || approach is null ? null : new ProcessConfig(start, startArc, approach, direction, count, retrace);
     }
 
     private static FormConfig? ReadForm(ConfigObject? f, List<string> issues)
@@ -336,6 +347,9 @@ public static class ScoringConfigLoader
 
         double tau = f.Double("corridorTau", 0.001, 5);
         double loopArea = f.Double("minLoopArea", 0, 5);
+        double closureWindow = f.Double("closureWindow", 0.01, 2);
+        double touchWindow = f.Double("baselineTouchWindow", 0.01, 2);
+        double touchMismatch = f.Double("baselineTouchMaxMismatch", 0, 5);
         DeferredPenaltyConfig? penalty = null;
         if (f.Obj("deferredPenalty") is { } dp)
         {
@@ -383,7 +397,7 @@ public static class ScoringConfigLoader
             }
         }
 
-        return penalty is null ? null : new FormConfig(tau, loopArea, penalty, weights.ToImmutable(), scores.ToImmutable());
+        return penalty is null ? null : new FormConfig(tau, loopArea, closureWindow, touchWindow, touchMismatch, penalty, weights.ToImmutable(), scores.ToImmutable());
     }
 
     private static ScoreFunction? ReadScoreFunction(ConfigObject fn, string path, List<string> issues)
@@ -446,7 +460,10 @@ public static class ScoringConfigLoader
 
         var result = new DeferredConfig(
             policy,
-            d.Double("nearDistance", 0, 10),
+            d.Double("nearU", 0.01, 10),
+            d.Double("nearV", 0.01, 10),
+            d.Bool("barMustCrossStem"),
+            d.Double("barCrossTolerance", 0, 5),
             d.Double("assignMaxDistance", 0, 10),
             d.Double("dotMaxLength", 0, 5),
             d.Double("barMinLengthRatio", 0, 1),

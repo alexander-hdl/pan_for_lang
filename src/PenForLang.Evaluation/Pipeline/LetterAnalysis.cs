@@ -98,7 +98,7 @@ internal sealed class LetterAnalysis
 
     public bool StartOk => Pairs.All(p => p.StartOk);
 
-    public bool DirectionOk => Pairs.All(p => p.DirectionOk) && Deferred.Slots.All(s => !s.WrongDirection);
+    public bool DirectionOk => Pairs.All(p => p.DirectionOk) && (!Config.Process.Direction.BarReverseIsError || Deferred.Slots.All(s => !s.WrongDirection));
 
     public bool RetraceOk => Pairs.All(p => p.RetraceShare is not { } share || share >= Config.Process.Retrace.MinShareOfReference);
 
