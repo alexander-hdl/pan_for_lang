@@ -376,7 +376,8 @@ content/styles/zaner-bloser/
   "language": "en",
   "displayName": { "ru": "Американская пропись", "en": "American cursive" },
   "lines": { "ascender": 2.0, "cap": 2.0, "xHeight": 1.0, "baseline": 0.0, "descender": -1.0 }, // ЗАГЛУШКА до сверки с прописью
-  "slantDeg": null,                          // ЗАГЛУШКА; null = оценивается только консистентность
+  "slantDeg": 20.0,                          // рабочее допущение для геометрии и линеек, не сверено с прописью
+  "slantScoring": "consistency",             // consistency | absolute: пока наклон не сверен, оценщик проверяет только его постоянство
   "letterSpacing": 0.15,
   "wordSpacing": 0.9,
   "joins": {
@@ -403,7 +404,10 @@ content/styles/zaner-bloser/
   "motorFamilies": [ ["m", "n"], ["u", "w"], ["e", "l"] ],   // подмены внутри семьи — класс L2m (§6.4.6)
   "capitals": { "joinMode": "break" },       // в ядре заглавная всегда отрывается (М D7, Q5); соединение — уровень 2
   "deferred": { "teachTiming": "afterWord" }, // как показывает анимация; что принимается — в config/scoring.json
-  "animation": { "speedXhPerSec": 1.6, "cuspPauseMs": 120, "joinSlowdown": 0.6 }
+  "animation": {
+    "speedXhPerSec": 1.6, "cuspPauseMs": 120, "joinSlowdown": 0.6,
+    "strokeGapMs": 400, "deferredGapMs": 500, "startHoldMs": 300, "endHoldMs": 600, "dotMs": 180
+  }
 }
 ```
 
@@ -418,6 +422,17 @@ content/styles/zaner-bloser/
 
 Новая форма — единственный случай, когда новый стиль требует кода.
 
+**Наклон.** `slantDeg` — градусы от вертикали вправо; он задаёт геометрию глифов и косые линии линейки. `slantScoring` решает, что с ним делает оценщик:
+- `consistency` — проверяется только постоянство наклона (F6: `slantSd`), абсолютное значение не штрафуется. Обязательно, пока наклон не сверен с прописью (сейчас так);
+- `absolute` — штрафуется отклонение от `slantDeg`; допустимо только при числовом `slantDeg` и после ревью стиля.
+
+**Анимация.** Блок `animation` и все его поля обязательны (значений по умолчанию в коде нет — единственная точка истины это `style.json`):
+- `speedXhPerSec` — скорость пера, x-height/с по длине дуги; `joinSlowdown` — множитель скорости на `leadIn`/`leadOut`;
+- `cuspPauseMs` — пауза в точке возврата и в изломе от 60°;
+- `strokeGapMs`, `deferredGapMs` — пауза между основными штрихами и перед отложенным; `startHoldMs`, `endHoldMs` — выдержки в начале и конце; `dotMs` — постановка точки.
+
+**Расстановка по горизонтали.** `letterSpacing` — зазор между соседними глифами слова: следующий глиф ставится в `u = advance + letterSpacing` предыдущего (§3.2.4).
+
 #### 3.2.3. Политика отложенных штрихов (решение заказчика, М D18, FR-5)
 
 - **Чему учим:** `style.json → deferred.teachTiming` — анимация модели слова ставит точки и перекладины после слова.
@@ -430,161 +445,198 @@ content/styles/zaner-bloser/
 
 | Поле | Тип | Смысл |
 |---|---|---|
-| `schema`, `id` | string | `"pfl.glyph/1"`, `"<styleId>/<char>.<variant>"` |
+| `schema`, `id` | string | `"pfl.glyph/1"`, `"<styleId>/<char>.<variant>"`; `char` и `variant` обязаны совпадать с `id`, имя файла — `<char>.<variant>.json` |
 | `char`, `case`, `variant` | string | символ; `lower`/`upper`; вариант |
-| `advance` | number | ширина тела без соединений, x-height |
-| `entry` | `{class, point[2], tangent[2], height?}` | класс входа (М §3.1), точка и касательная начала тела |
-| `exit` | `{class, point[2], tangent[2]}` | класс, точка и касательная конца тела |
+| `advance` | number | ширина тела без соединений, x-height; `exit.point[0] ≈ advance` (допуск 0,1) |
+| `entry` | `{class, point[2], tangent[2], height?}` | класс входа (М §3.1), точка начала тела, **направление прихода** в эту точку (конец `leadIn`; единичный вектор, при загрузке нормируется), `height` — высота входа, если не x-height (t: 1,5) |
+| `exit` | `{class, point[2], tangent[2]}` | класс, точка конца тела, направление ухода (начало `leadOut`; единичный вектор) |
 | `leadIn`, `leadOut` | `{segments[]}` или `null` | входящий и выходящий штрихи изолированной буквы |
-| `strokes[]` | массив | основные штрихи в порядке написания: `id`, `order`, `segments[]` |
-| `segments[]` | `{c:[4 точки]}` или `{l:[2 точки]}` | Безье или отрезок. Атрибуты: `retrace`, `label`, `tempo`, `pauseBeforeMs` |
+| `strokes[]` | массив | основные штрихи в порядке написания: `id`, `order` (с 1 без пропусков), `segments[]` |
+| `segments[]` | `{c:[4 точки]}` или `{l:[2 точки]}` | Безье или отрезок. Атрибуты: `retrace`, `label`, `tempo` (множитель скорости анимации), `pauseBeforeMs` |
 | `deferred[]` | массив | `id`, `kind` (`dot`/`bar`/`cross`), `segments`, `direction` (`ltr`/`any`), `anchor {stroke, t, offset[2]}` |
 | `keypoints[]` | `{type, stroke, t}` | `start`, `end`, `ymax`, `ymin`, `cusp`, `loopTop`, `humpTop`, `baselineTouch` — мягкие якоря |
 | `features[]` | string[] | `retrace`, `upperLoop`, `lowerLoop`, `closedOval`, `ascender`, `descender`, `deferred`, `humps:N` (для m, n, u, w) |
-| `checks` | объект | `reach[]`, `closed[]`, `loops[]`, `retrace[]` — допуски по умолчанию в `scoring.json`, в глифе только исключения |
-| `animation` | объект | `startDot`, `numbers[]`, `arrows[]` |
-| `meta` | объект | `author`, `source`, `reviewed`, `reviewer`, `notes` |
+| `checks` | объект | `reach[] {extreme, line?, target?}` (нужен `line` или `target`), `closed[] {stroke, from, to}`, `loops[]`, `retrace[] {stroke, segment}` — допуски по умолчанию в `scoring.json`, в глифе только исключения |
+| `animation` | объект | `startDot` (`leadIn`/`body`/`none`), `numbers[] {stroke, at}`, `arrows[] {stroke, t}` |
+| `meta` | объект | `author`, `source`, `reviewed`, `reviewer`, `license`, `notes` |
+
+**Соглашения формата** (проверяет загрузчик, `pfl validate`):
+- **Координаты** — линейка (§3.1): `u` вдоль строки, `v` вверх, baseline = 0, x-height = 1.
+- **`t`** везде — доля длины дуги штриха (`keypoints`, `arrows`, `closed`, `anchor`), не параметр кривой Безье.
+- **Горизонтальная расстановка.** `u = 0` — левый край тела глифа (допуск 0,05); следующий глиф слова ставится в `u = advance + letterSpacing` (`letterSpacing` — из `style.json`). `advance` согласован с выходом: `|exit.point[0] − advance| ≤ 0,1`; точка входа лежит в `[−0,5; advance]`.
+- **Вход и выход.** `entry.tangent` — направление **прихода** (конец `leadIn`, ≤ 15°); `exit.tangent` — направление ухода (конец тела и начало `leadOut`, ≤ 15°). Тело переходит в `leadOut` без излома (G1, ≤ 10°, кроме `X-NONE`).
+- **G1 только внутри тела.** Между сегментами штриха излом допустим лишь в точке `cusp` (ключевая точка с тем же `t`; 10°). **Острый вход в точке входа разрешён:** `leadIn` приходит под одним углом, тело начинается с другого (перекат `E-C`, разворот на вершине `E-UP`).
+- **Ретрейс** — наложение на предыдущие чернила того же касания, включая `leadIn`/соединение. Флаг `retrace` стоит только на сегментах, которые реально идут по уже написанному: сегмент режется в точке расхождения (у `a` ствол вниз по подъёму, у `t` ствол вниз по `leadIn`).
+- **`anchor.offset`** — вектор от точки привязки (штрих `stroke` при `t`) до **середины по длине дуги** отложенного штриха; загрузчик допускает расхождение 0,05.
+- **Замкнутость.** `closed {from, to}`: в `t = to` перо возвращается в точку, где было при `t = from` (≤ 0,05).
+- **Нумерация производная.** Номера штрихов — порядок написания (основные по `order`, затем отложенные в порядке перечисления); `animation.numbers[]` задаёт только положение значка (у начала анимируемого штриха; для первого — у начала `leadIn`). Номера либо у всех штрихов, либо ни у одного.
+- **Анимация:** путь первого основного штриха начинается с `leadIn`, путь последнего основного заканчивается `leadOut`; точка (`dot`) не получает значка старта. Настройки скорости и пауз — в `style.json → animation`.
 
 #### 3.2.5. Примеры глифов
 
-> **Координаты ниже иллюстративные.** Они показывают формат, а не эталон ZB. Настоящие формы, высоты и наклон создаются по прописи (М D29) на вкладке «Глифы» в InkLab и проходят ревью методиста.
+> **Примеры — реальные файлы пакета `content/styles/zaner-bloser/glyphs/`** (`meta.source = "illustrative"`, `reviewed = false`). Формы — рабочее допущение до сверки с прописью (М D29) на вкладке «Глифы» в InkLab и ревью методиста; наклон 20° не сверен (`slantScoring = consistency`).
 
-**a** — вход E-C, выход X-BASE, овал против часовой и ретрейс ствола:
+**a** — вход E-C (перекат), выход X-BASE; овал против часовой замыкается на линии ствола, ствол вниз — ретрейс по подъёму:
 
-```jsonc
+```json
 {
   "schema": "pfl.glyph/1",
   "id": "zaner-bloser/a.default",
   "char": "a", "case": "lower", "variant": "default",
-  "advance": 0.95,
-  "entry": { "class": "E-C",    "point": [0.80, 0.90], "tangent": [-0.95, 0.30] },
-  "exit":  { "class": "X-BASE", "point": [0.98, 0.05], "tangent": [0.70, 0.71] },
-  "leadIn":  { "segments": [ { "c": [[0.05,0.00],[0.35,0.10],[0.62,0.70],[0.80,0.90]] } ] },
-  "leadOut": { "segments": [ { "c": [[0.98,0.05],[1.08,0.00],[1.22,0.12],[1.32,0.35]] } ] },
+  "advance": 1.052,
+  "entry": { "class": "E-C", "point": [0.989, 0.91], "tangent": [0.7, 0.714] },
+  "exit": { "class": "X-BASE", "point": [1.052, 0.15], "tangent": [0.693, 0.721] },
+  "leadIn": { "segments": [
+    { "c": [[-0.522, 0.0], [-0.155, 0.02], [0.607, 0.52], [0.989, 0.91]], "label": "a.rollUp" }
+  ] },
+  "leadOut": { "segments": [
+    { "c": [[1.052, 0.15], [1.151, 0.253], [1.436, 0.49], [1.601, 0.67]], "label": "a.tail" }
+  ] },
   "strokes": [
     {
       "id": "s1", "order": 1,
       "segments": [
-        { "c": [[0.80,0.90],[0.45,1.12],[0.02,0.62],[0.18,0.15]], "label": "a.rollBackAround" },
-        { "c": [[0.18,0.15],[0.30,-0.05],[0.72,0.05],[0.90,1.00]], "label": "a.roundUp" },
-        { "l": [[0.90,1.00],[0.80,0.08]], "retrace": true, "label": "a.downSameLine", "pauseBeforeMs": 120 },
-        { "c": [[0.80,0.08],[0.84,0.00],[0.92,0.00],[0.98,0.05]], "label": "a.tail" }
+        { "c": [[0.989, 0.91], [0.994, 0.98], [0.862, 1.0], [0.622, 1.0]], "label": "a.backAround", "pauseBeforeMs": 80 },
+        { "c": [[0.622, 1.0], [0.401, 1.0], [0.14, 0.776], [0.04, 0.5]], "label": "a.backAround" },
+        { "c": [[0.04, 0.5], [-0.061, 0.224], [0.037, 0.0], [0.258, 0.0]], "label": "a.backAround" },
+        { "c": [[0.258, 0.0], [0.478, 0.0], [0.739, 0.224], [0.84, 0.5]], "label": "a.up" },
+        { "l": [[0.84, 0.5], [1.022, 1.0]], "label": "a.up" },
+        { "l": [[1.022, 1.0], [0.759, 0.28]], "retrace": true, "label": "a.downSameLine", "pauseBeforeMs": 120 },
+        { "c": [[0.759, 0.28], [0.69, 0.09], [0.746, -0.168], [1.052, 0.15]], "label": "a.tail" }
       ]
     }
   ],
   "deferred": [],
   "keypoints": [
-    { "type": "start", "stroke": "s1", "t": 0.00 },
-    { "type": "ymax",  "stroke": "s1", "t": 0.06 },
-    { "type": "ymin",  "stroke": "s1", "t": 0.33 },
-    { "type": "cusp",  "stroke": "s1", "t": 0.64 },
-    { "type": "baselineTouch", "stroke": "s1", "t": 0.90 }
+    { "type": "start", "stroke": "s1", "t": 0.0 },
+    { "type": "ymax", "stroke": "s1", "t": 0.088 },
+    { "type": "ymin", "stroke": "s1", "t": 0.407 },
+    { "type": "cusp", "stroke": "s1", "t": 0.7 },
+    { "type": "baselineTouch", "stroke": "s1", "t": 0.939 },
+    { "type": "end", "stroke": "s1", "t": 1.0 }
   ],
   "features": ["closedOval", "retrace"],
   "checks": {
-    "reach":   [ { "line": "xHeight", "extreme": "max" }, { "line": "baseline", "extreme": "min" } ],
-    "closed":  [ { "stroke": "s1", "from": 0.00, "to": 0.62 } ],
-    "retrace": [ { "stroke": "s1", "segment": 2 } ]
+    "reach": [ { "line": "xHeight", "extreme": "max" }, { "line": "baseline", "extreme": "min" } ],
+    "closed": [ { "stroke": "s1", "from": 0.0, "to": 0.679 } ],
+    "retrace": [ { "stroke": "s1", "segment": 5 } ]
   },
   "animation": {
     "startDot": "leadIn",
-    "numbers": [ { "stroke": "s1", "at": [0.86, 1.08] } ],
-    "arrows":  [ { "stroke": "s1", "t": 0.12 }, { "stroke": "s1", "t": 0.45 }, { "stroke": "s1", "t": 0.75 } ]
+    "numbers": [{ "stroke": "s1", "at": [-0.622, 0.22] }],
+    "arrows": [{ "stroke": "s1", "t": 0.179 }, { "stroke": "s1", "t": 0.489 }, { "stroke": "s1", "t": 0.783 }]
   },
-  "meta": { "author": "agent:V0.4", "source": "illustrative", "reviewed": false, "license": "project data" }
+  "meta": { "author": "agent:V0.4", "source": "illustrative", "reviewed": false, "license": "project data", "notes": "Illustrative shape, not checked against the Zaner-Bloser copybook. Slant 20 deg." }
 }
 ```
 
 **i** — вход E-UP, выход X-BASE, отложенная точка:
 
-```jsonc
+```json
 {
   "schema": "pfl.glyph/1",
   "id": "zaner-bloser/i.default",
   "char": "i", "case": "lower", "variant": "default",
-  "advance": 0.45,
-  "entry": { "class": "E-UP",   "point": [0.30, 1.00], "tangent": [0.45, 0.89] },
-  "exit":  { "class": "X-BASE", "point": [0.45, 0.05], "tangent": [0.70, 0.71] },
-  "leadIn":  { "segments": [ { "c": [[0.00,0.00],[0.15,0.05],[0.25,0.60],[0.30,1.00]] } ] },
-  "leadOut": { "segments": [ { "c": [[0.45,0.05],[0.55,0.00],[0.65,0.12],[0.75,0.35]] } ] },
+  "advance": 0.319,
+  "entry": { "class": "E-UP", "point": [0.289, 1.0], "tangent": [0.497, 0.868] },
+  "exit": { "class": "X-BASE", "point": [0.319, 0.15], "tangent": [0.693, 0.721] },
+  "leadIn": { "segments": [
+    { "c": [[-0.615, 0.0], [-0.328, 0.02], [0.014, 0.52], [0.289, 1.0]], "label": "i.up" }
+  ] },
+  "leadOut": { "segments": [
+    { "c": [[0.319, 0.15], [0.418, 0.253], [0.703, 0.49], [0.868, 0.67]], "label": "i.undercurveOut" }
+  ] },
   "strokes": [
     {
       "id": "s1", "order": 1,
       "segments": [
-        { "l": [[0.30,1.00],[0.22,0.10]], "label": "i.slantDown" },
-        { "c": [[0.22,0.10],[0.25,0.00],[0.38,0.00],[0.45,0.05]], "label": "i.undercurveOut" }
+        { "l": [[0.289, 1.0], [0.026, 0.28]], "label": "i.slantDown" },
+        { "c": [[0.026, 0.28], [-0.043, 0.09], [0.013, -0.168], [0.319, 0.15]], "label": "i.undercurveOut" }
       ]
     }
   ],
   "deferred": [
     {
       "id": "dot", "kind": "dot", "direction": "any",
-      "segments": [ { "l": [[0.34,1.45],[0.35,1.46]] } ],
-      "anchor": { "stroke": "s1", "t": 0.0, "offset": [0.04, 0.45] }
+      "segments": [
+        { "l": [[0.44, 1.45], [0.464, 1.45]], "label": "i.dot" }
+      ],
+      "anchor": { "stroke": "s1", "t": 0.0, "offset": [0.164, 0.45] }
     }
   ],
   "keypoints": [
     { "type": "start", "stroke": "s1", "t": 0.0 },
-    { "type": "baselineTouch", "stroke": "s1", "t": 0.85 }
+    { "type": "baselineTouch", "stroke": "s1", "t": 0.796 },
+    { "type": "end", "stroke": "s1", "t": 1.0 }
   ],
   "features": ["deferred"],
-  "checks": { "reach": [ { "line": "xHeight", "extreme": "max" } ] },
+  "checks": {
+    "reach": [ { "line": "xHeight", "extreme": "max" } ]
+  },
   "animation": {
     "startDot": "leadIn",
-    "numbers": [ { "stroke": "s1", "at": [0.40, 1.05] }, { "stroke": "dot", "at": [0.48, 1.50] } ],
-    "arrows":  [ { "stroke": "s1", "t": 0.30 } ]
+    "numbers": [{ "stroke": "s1", "at": [-0.715, 0.22] }, { "stroke": "dot", "at": [0.652, 1.5] }],
+    "arrows": [{ "stroke": "s1", "t": 0.306 }, { "stroke": "s1", "t": 0.764 }]
   },
-  "meta": { "author": "agent:V0.4", "source": "illustrative", "reviewed": false }
+  "meta": { "author": "agent:V0.4", "source": "illustrative", "reviewed": false, "license": "project data", "notes": "Illustrative shape, not checked against the Zaner-Bloser copybook. Slant 20 deg." }
 }
 ```
 
-**t** — вход E-UP с повышенной высотой, ретрейс, отложенная перекладина слева направо:
+**t** — вход E-UP с повышенной высотой (1,5), ретрейс по `leadIn`, отложенная перекладина слева направо (0,5 x-height):
 
-```jsonc
+```json
 {
   "schema": "pfl.glyph/1",
   "id": "zaner-bloser/t.default",
   "char": "t", "case": "lower", "variant": "default",
-  "advance": 0.60,
-  "entry": { "class": "E-UP", "height": 1.5, "point": [0.45, 1.50], "tangent": [0.35, 0.94] },
-  "exit":  { "class": "X-BASE", "point": [0.62, 0.05], "tangent": [0.70, 0.71] },
-  "leadIn":  { "segments": [ { "c": [[0.00,0.00],[0.20,0.05],[0.38,0.90],[0.45,1.50]] } ] },
-  "leadOut": { "segments": [ { "c": [[0.62,0.05],[0.72,0.00],[0.82,0.12],[0.92,0.35]] } ] },
+  "advance": 0.548,
+  "entry": { "class": "E-UP", "height": 1.5, "point": [0.459, 1.5], "tangent": [0.388, 0.922] },
+  "exit": { "class": "X-BASE", "point": [0.548, 0.15], "tangent": [0.811, 0.585] },
+  "leadIn": { "segments": [
+    { "c": [[-0.587, 0.0], [-0.319, 0.02], [0.165, 0.8], [0.459, 1.5]], "label": "t.up" }
+  ] },
+  "leadOut": { "segments": [
+    { "c": [[0.548, 0.15], [0.664, 0.234], [0.932, 0.49], [1.097, 0.67]], "label": "t.undercurveOut" }
+  ] },
   "strokes": [
     {
       "id": "s1", "order": 1,
       "segments": [
-        { "l": [[0.45,1.50],[0.30,0.10]], "retrace": true, "label": "t.downSameLine" },
-        { "c": [[0.30,0.10],[0.33,0.00],[0.52,0.00],[0.62,0.05]], "label": "t.undercurveOut" }
+        { "l": [[0.459, 1.5], [0.332, 1.15]], "retrace": true, "label": "t.downSameLine" },
+        { "l": [[0.332, 1.15], [0.015, 0.28]], "label": "t.downSameLine" },
+        { "c": [[0.015, 0.28], [-0.054, 0.09], [0.108, -0.168], [0.548, 0.15]], "label": "t.undercurveOut" }
       ]
     }
   ],
   "deferred": [
     {
       "id": "bar", "kind": "bar", "direction": "ltr",
-      "segments": [ { "l": [[0.15,1.00],[0.62,1.00]] } ],
-      "anchor": { "stroke": "s1", "t": 0.35, "offset": [0.0, 0.0] }
+      "segments": [
+        { "l": [[0.027, 1.0], [0.527, 1.0]], "label": "t.bar" }
+      ],
+      "anchor": { "stroke": "s1", "t": 0.255, "offset": [0.0, 0.0] }
     }
   ],
   "keypoints": [
     { "type": "start", "stroke": "s1", "t": 0.0 },
-    { "type": "baselineTouch", "stroke": "s1", "t": 0.85 }
+    { "type": "baselineTouch", "stroke": "s1", "t": 0.813 },
+    { "type": "end", "stroke": "s1", "t": 1.0 }
   ],
   "features": ["retrace", "deferred"],
   "checks": {
-    "reach":   [ { "line": "xHeight", "extreme": "max", "target": 1.5 } ],
+    "reach": [ { "extreme": "max", "target": 1.5 } ],
     "retrace": [ { "stroke": "s1", "segment": 0 } ]
   },
   "animation": {
     "startDot": "leadIn",
-    "numbers": [ { "stroke": "s1", "at": [0.55, 1.55] }, { "stroke": "bar", "at": [0.05, 1.08] } ],
-    "arrows":  [ { "stroke": "s1", "t": 0.40 }, { "stroke": "bar", "t": 0.5 } ]
+    "numbers": [{ "stroke": "s1", "at": [-0.687, 0.22] }, { "stroke": "bar", "at": [-0.143, 1.0] }],
+    "arrows": [{ "stroke": "s1", "t": 0.375 }, { "stroke": "s1", "t": 0.776 }, { "stroke": "bar", "t": 0.8 }]
   },
-  "meta": { "author": "agent:V0.4", "source": "illustrative", "reviewed": false }
+  "meta": { "author": "agent:V0.4", "source": "illustrative", "reviewed": false, "license": "project data", "notes": "Illustrative shape, not checked against the Zaner-Bloser copybook. Slant 20 deg. t height 1.5 x-height." }
 }
 ```
 
-Словесные метки (`labels/ru.json`) — ключ → текст: `"a.rollBackAround": { "text": "перекат наверх — назад по кругу" }`. Русской озвучки в v1 нет (М D27), поле `audio` необязательно. Целую фразу метки буквы `AnimationScriptBuilder` собирает из меток сегментов.
+Словесные метки (`labels/ru.json`) — ключ → текст: `"a.backAround": { "text": "назад по кругу" }`. Русской озвучки в v1 нет (М D27), поле `audio` необязательно. Целую фразу метки буквы собирает `StylePack.BuildPhrase` (потом `AnimationScriptBuilder`) из меток сегментов: `leadIn`, основные штрихи, отложенные; подряд идущие одинаковые ключи сливаются, части разделены тире. Для `a`: «перекат наверх — назад по кругу — вверх — вниз по той же линии — хвостик».
 
 
 #### 3.2.6. Печатный стиль и пакет ловушек
@@ -2858,3 +2910,4 @@ flowchart LR
 | Сеть разрешена только в инструменте: правило R3 уточнено (белый список — `Tools.Cli.Images`), продукт по-прежнему офлайн | §1.4, §2.4, §11.2, ADR-020 | рантайм офлайн, архитектурный тест сохраняется |
 | Школа: `school_english_json` (класс, УМК, урок, транскрипция), настройка `school_hint`, памятка `teacherMemo` по М прил. D | §3.5, §7.9, §8.3, A12 | М v1.2 §1.3 |
 | Закрыты вопросы: учебник (Верещагина), ОС (Windows 10), картинки (вручную или Perplexity), произношение (RP) | §13.2 | решения заказчика |
+| **v1.2.1 (V0.4):** §3.2.2 — `slantScoring`, обязательный блок `animation` (+5 полей), правило расстановки `u = advance + letterSpacing`; §3.2.4 — соглашения формата (направление прихода, `t` = доля длины дуги, `anchor.offset` до середины, острый вход разрешён, ретрейс, замкнутость, производная нумерация, `reach.line` необязателен при `target`); §3.2.5 — примеры заменены реальными файлами пакета | §3.2.2, §3.2.4, §3.2.5 | ревью V0.4: формат приведён к реализации загрузчика |

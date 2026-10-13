@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:pfl:schema:labels:1",
+  "title": "pfl.labels/1",
+  "description": "Verbal labels of glyph segments, labels/<language>.json (ARCHITECTURE.md 3.2.5): key -> text. Every label key used by a glyph must exist in labels/ru.json and labels/en.json.",
+  "type": "object",
+  "propertyNames": { "pattern": "^[A-Za-z0-9]+(\\.[A-Za-z0-9]+)+$" },
+  "additionalProperties": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["text"],
+    "properties": {
+      "text": { "type": "string", "minLength": 1 },
+      "audio": { "type": "string", "minLength": 1 }
+    }
+  }
+}

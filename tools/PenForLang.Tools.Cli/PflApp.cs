@@ -12,7 +12,13 @@ public static class PflApp
     public const string Description = "pfl - developer tool of PenForLang (content validation, rendering, evaluation, simulation).";
 
     /// <summary>Создаёт корневую команду. Стандартные <c>--version</c>, <c>--help</c> добавляет System.CommandLine.</summary>
-    public static RootCommand CreateRootCommand() => new(Description);
+    public static RootCommand CreateRootCommand()
+    {
+        var root = new RootCommand(Description);
+        root.Subcommands.Add(StyleCommands.CreateValidateCommand());
+        root.Subcommands.Add(StyleCommands.CreateRenderCommand());
+        return root;
+    }
 
     /// <summary>Выполняет утилиту; возвращает код завершения процесса.</summary>
     public static int Run(string[] args, TextWriter output, TextWriter error)
