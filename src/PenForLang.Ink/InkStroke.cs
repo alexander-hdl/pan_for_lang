@@ -1,30 +1,43 @@
+using System.Collections.Immutable;
+
 namespace PenForLang.Ink;
 
 /// <summary>
-/// Штрих: непрерывная последовательность точек от касания до отрыва пера.
-/// Точки упорядочены по времени неубывающе.
+/// Штрих: непрерывная последовательность точек от касания до отрыва пера (ARCHITECTURE.md §3.7).
+/// Точки упорядочены по времени неубывающе. Экземпляр неизменяем.
 /// </summary>
-public sealed class InkStroke
+/// <remarks>
+/// Ловушка равенства: у записей с <see cref="ImmutableArray{T}"/> равенство по значению сравнивает ссылку на внутренний массив,
+/// а не элементы. Два штриха с одинаковыми точками, собранными независимо, не равны по <c>==</c>/<c>Equals</c>;
+/// сравнивайте содержимое через <c>Samples.SequenceEqual(...)</c>. То же относится к <see cref="InkAttempt"/> и <see cref="RulerInk"/>.
+/// </remarks>
+public sealed record InkStroke
 {
-    private readonly PenSample[] _samples;
-
+    /// <summary>Создаёт штрих.</summary>
+    /// <param name="index">Порядковый номер штриха в попытке (с 0).</param>
+    /// <param name="samples">Точки; пустой массив допустим.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Индекс отрицателен.</exception>
     /// <exception cref="ArgumentException">Точки не упорядочены по времени.</exception>
-    public InkStroke(IEnumerable<PenSample> samples)
+    public InkStroke(int index, ImmutableArray<PenSample> samples)
     {
-        ArgumentNullException.ThrowIfNull(samples);
-        _samples = samples.ToArray();
-        for (int i = 1; i < _samples.Length; i++)
+        ArgumentOutOfRangeException.ThrowIfNegative(index);
+        Index = index;
+        Samples = samples.IsDefault ? [] : samples;
+        for (int i = 1; i < Samples.Length; i++)
         {
-            if (_samples[i].TimeMicros < _samples[i - 1].TimeMicros)
+            if (Samples[i].TimeUs < Samples[i - 1].TimeUs)
             {
                 throw new ArgumentException("Samples must be ordered by time.", nameof(samples));
             }
         }
     }
 
+    /// <summary>Порядковый номер штриха в попытке (с 0).</summary>
+    public int Index { get; }
+
     /// <summary>Точки штриха.</summary>
-    public IReadOnlyList<PenSample> Samples => _samples;
+    public ImmutableArray<PenSample> Samples { get; }
 
     /// <summary>Длительность штриха в микросекундах (0 для пустого или одноточечного штриха).</summary>
-    public long DurationMicros => _samples.Length < 2 ? 0 : _samples[^1].TimeMicros - _samples[0].TimeMicros;
+    public long DurationUs => Samples.Length < 2 ? 0 : Samples[^1].TimeUs - Samples[0].TimeUs;
 }

@@ -2,6 +2,8 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- Нужно генератору LibraryImport (SYSLIB1062); собственного небезопасного кода в сборке нет. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Description>P/Invoke и WPF-интероп: источники пера, мониторы, DPI. P/Invoke разрешён только здесь (R4).</Description>
   </PropertyGroup>
 

@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <IsDomainProject>true</IsDomainProject>
-    <Description>Сырой ввод пера: PenSample, InkStroke.</Description>
+    <Description>Сырой ввод пера: PenSample, InkStroke, IPenInputSource, SurfaceMapper, RulerProjection, penlog, ReplayPenSource.</Description>
   </PropertyGroup>
 
   <ItemGroup>
