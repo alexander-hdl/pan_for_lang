@@ -5,8 +5,13 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Своя точка входа: параметры командной строки (mouse, wpf-stylus и др.) нужны до создания Application. -->
+    <StartupObject>PenForLang.App.Wpf.Program</StartupObject>
+    <!-- WPF в режиме инвариантной глобализации падает при первом тексте (MS.Internal.FontCache.MajorLanguages требует культуру en) — выключаем для приложения. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
     <Description>Корень композиции и оболочка приложения (WPF). Per-Monitor V2 DPI задан в app.manifest.</Description>
   </PropertyGroup>
+
 
   <ItemGroup>
     <ProjectReference Include="..\PenForLang.Core\PenForLang.Core.csproj" />
@@ -15,6 +20,15 @@
     <ProjectReference Include="..\PenForLang.Evaluation\PenForLang.Evaluation.csproj" />
     <ProjectReference Include="..\PenForLang.Platform.Windows\PenForLang.Platform.Windows.csproj" />
     <ProjectReference Include="..\PenForLang.Wpf.Controls\PenForLang.Wpf.Controls.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      ADR-003 / ARCHITECTURE.md §7.1: отключаем WISP/стилус WPF, чтобы WM_POINTER пера доходили до хука окна, а не забирались
+      RealTimeStylus (в этом случае окно получает контакт только мышиными сообщениями). Попадает в PenForLang.App.Wpf.runtimeconfig.json;
+      флаг командной строки wpf-stylus переопределяет значение (см. Program.cs). Работает ли на целевом железе — [не проверено, V0.5/S1].
+    -->
+    <RuntimeHostConfigurationOption Include="Switch.System.Windows.Input.Stylus.DisableStylusAndTouchSupport" Value="true" />
   </ItemGroup>
 
 </Project>

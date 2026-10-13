@@ -10,8 +10,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Манифест проверяется как файл репозитория. -->
+    <!-- Манифест и проект проверяются как файлы репозитория. -->
     <None Include="..\..\src\PenForLang.App.Wpf\app.manifest" Link="app.manifest" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\PenForLang.App.Wpf\PenForLang.App.Wpf.csproj" Link="PenForLang.App.Wpf.csproj" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
