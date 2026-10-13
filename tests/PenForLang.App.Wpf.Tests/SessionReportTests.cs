@@ -9,7 +9,7 @@ public class SessionReportTests
     private static readonly MonitorDescription Main = new(1, @"\\.\DISPLAY1", new MonitorRect(0, 0, 2560, 1440), true, 597, 336, 1.0);
     private static readonly MonitorDescription PenPanel = new(2, @"\\.\DISPLAY2", new MonitorRect(2560, 0, 4480, 1080), false, 256, 144, 1.5);
 
-    private static ReportInput Input(
+    internal static ReportInput Input(
         PointerDiagnostics? pointer = null,
         PenStats? stats = null,
         long wpfMouseDowns = 0,
@@ -75,7 +75,7 @@ public class SessionReportTests
 
         foreach (string section in new[]
         {
-            "# PenForLang V0.5", "## Краткие выводы", "## Среда", "## Мониторы и устройства", "## Сообщения и события",
+            "# PenForLang V0.6", "## Краткие выводы", "## Среда", "## Мониторы и устройства", "## Сообщения и события",
             "## Частота в контакте", "## Давление и наклон", "## Кнопки пера и тестовая кнопка", "## Мишени точности",
             "## Снимки (клавиша S)", "## Ошибки и предупреждения",
         })
