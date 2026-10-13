@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- Исполняемый файл называется `pfl` (ARCHITECTURE.md §2.2). -->
+    <AssemblyName>pfl</AssemblyName>
+    <RootNamespace>PenForLang.Tools.Cli</RootNamespace>
+    <Description>Консольная утилита разработчика pfl: validate, render, synth, eval, simulate и т.д.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PenForLang.Core\PenForLang.Core.csproj" />
+    <ProjectReference Include="..\PenForLang.Testing\PenForLang.Testing.csproj" />
+  </ItemGroup>
+
+</Project>

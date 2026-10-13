@@ -1,0 +1,9 @@
+# Дополнительные запреты для Evaluation и Core.Geometry (ARCHITECTURE.md §2.4, A19):
+# результаты вычислений не должны зависеть от набора SIMD-инструкций процессора.
+
+N:System.Runtime.Intrinsics;SIMD intrinsics make results machine-dependent
+N:System.Runtime.Intrinsics.X86;SIMD intrinsics make results machine-dependent
+N:System.Runtime.Intrinsics.Arm;SIMD intrinsics make results machine-dependent
+N:System.Runtime.Intrinsics.Wasm;SIMD intrinsics make results machine-dependent
+T:System.Numerics.Vector`1;Vector<T> width depends on the CPU
+T:System.Numerics.Vector;Vector helpers depend on the CPU

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsDomainProject>true</IsDomainProject>
+    <BanNumericIntrinsics>true</BanNumericIntrinsics>
+    <Description>Общее ядро: ID, порты IClock/IRandomSource, геометрия.</Description>
+  </PropertyGroup>
+
+</Project>

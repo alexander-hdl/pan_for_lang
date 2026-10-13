@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\tools\PenForLang.Tools.Cli\PenForLang.Tools.Cli.csproj" />
+  </ItemGroup>
+
+</Project>

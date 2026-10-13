@@ -1,0 +1,44 @@
+# Запрещённые API в доменных сборках (ARCHITECTURE.md §2.4, R2, R3).
+# Формат: Microsoft.CodeAnalysis.BannedApiAnalyzers. Нарушение = RS0030 = ошибка сборки.
+# Доменный код получает время и случайность только через Core.IClock / Core.IRandomSource.
+
+# --- Системные часы ---
+P:System.DateTime.Now;Use Core.IClock instead of the system clock
+P:System.DateTime.UtcNow;Use Core.IClock instead of the system clock
+P:System.DateTime.Today;Use Core.IClock instead of the system clock
+P:System.DateTimeOffset.Now;Use Core.IClock instead of the system clock
+P:System.DateTimeOffset.UtcNow;Use Core.IClock instead of the system clock
+P:System.TimeProvider.System;Use Core.IClock instead of the system clock
+P:System.Environment.TickCount;Use Core.IClock instead of tick counters
+P:System.Environment.TickCount64;Use Core.IClock instead of tick counters
+T:System.Diagnostics.Stopwatch;Use Core.IClock instead of Stopwatch
+
+# --- Случайность ---
+T:System.Random;Use Core.IRandomSource (seeded PCG) instead of System.Random
+T:System.Security.Cryptography.RandomNumberGenerator;Use Core.IRandomSource
+M:System.Guid.NewGuid();Ids come from the caller or from Core.IRandomSource
+
+# --- Параллелизм (оценщик и домен однопоточны и детерминированы) ---
+T:System.Threading.Tasks.Parallel;No parallelism in the domain
+# Task.Run: BannedApiAnalyzers требует перечислять перегрузки явно.
+M:System.Threading.Tasks.Task.Run(System.Action);No Task.Run in the domain; scheduling belongs to the application layer
+M:System.Threading.Tasks.Task.Run(System.Action,System.Threading.CancellationToken);No Task.Run in the domain; scheduling belongs to the application layer
+M:System.Threading.Tasks.Task.Run(System.Func{System.Threading.Tasks.Task});No Task.Run in the domain; scheduling belongs to the application layer
+M:System.Threading.Tasks.Task.Run(System.Func{System.Threading.Tasks.Task},System.Threading.CancellationToken);No Task.Run in the domain; scheduling belongs to the application layer
+M:System.Threading.Tasks.Task.Run``1(System.Func{``0});No Task.Run in the domain; scheduling belongs to the application layer
+M:System.Threading.Tasks.Task.Run``1(System.Func{``0},System.Threading.CancellationToken);No Task.Run in the domain; scheduling belongs to the application layer
+M:System.Threading.Tasks.Task.Run``1(System.Func{System.Threading.Tasks.Task{``0}});No Task.Run in the domain; scheduling belongs to the application layer
+M:System.Threading.Tasks.Task.Run``1(System.Func{System.Threading.Tasks.Task{``0}},System.Threading.CancellationToken);No Task.Run in the domain; scheduling belongs to the application layer
+
+# --- Ввод-вывод: домен читает данные через IContentSource ---
+T:System.IO.File;Use Core.IContentSource
+T:System.IO.Directory;Use Core.IContentSource
+T:System.IO.FileInfo;Use Core.IContentSource
+T:System.IO.DirectoryInfo;Use Core.IContentSource
+T:System.Console;No console I/O in the domain
+
+# --- Сеть (R3: в продукте нет сетевого кода) ---
+N:System.Net.Http;The product is offline
+N:System.Net.Sockets;The product is offline
+T:System.Net.WebRequest;The product is offline
+T:System.Net.WebClient;The product is offline

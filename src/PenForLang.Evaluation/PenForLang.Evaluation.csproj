@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsDomainProject>true</IsDomainProject>
+    <BanNumericIntrinsics>true</BanNumericIntrinsics>
+    <Description>Оценщик почерка. В v0 ссылается на Ink и Glyphs напрямую (Evaluation.Abstractions появится в M0).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PenForLang.Core\PenForLang.Core.csproj" />
+    <ProjectReference Include="..\PenForLang.Ink\PenForLang.Ink.csproj" />
+    <ProjectReference Include="..\PenForLang.Glyphs\PenForLang.Glyphs.csproj" />
+  </ItemGroup>
+
+</Project>

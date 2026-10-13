@@ -1,0 +1,36 @@
+<Project>
+
+  <!-- Общие свойства всех проектов (ARCHITECTURE.md §2.1). Платформенный TFM задаёт сам проект. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RootNamespace>$(MSBuildProjectName)</RootNamespace>
+    <AssemblyName>$(MSBuildProjectName)</AssemblyName>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- Версия продукта. SourceRevisionId в версию не попадает: вывод `pfl version` детерминирован. -->
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+    <Authors>pan_for_lang</Authors>
+    <Product>PenForLang</Product>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <!-- Уведомления аудита NuGet (уязвимости в пакетах) не должны ронять сборку из-за внешней базы. -->
+  <PropertyGroup>
+    <NuGetAudit>true</NuGetAudit>
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+  </PropertyGroup>
+
+
+</Project>

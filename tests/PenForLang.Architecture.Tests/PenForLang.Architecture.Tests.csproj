@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Архитектурные тесты (ARCHITECTURE.md §2.4): R1-R5. Сборки продукта подключены ссылками,
+    чтобы проверять их скомпилированный вид (NetArchTest + рефлексия); .csproj разбираются как XML.
+    Сам тестовый проект net10.0-windows только потому, что ссылается на WPF-сборки.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PenForLang.Core\PenForLang.Core.csproj" />
+    <ProjectReference Include="..\..\src\PenForLang.Ink\PenForLang.Ink.csproj" />
+    <ProjectReference Include="..\..\src\PenForLang.Glyphs\PenForLang.Glyphs.csproj" />
+    <ProjectReference Include="..\..\src\PenForLang.Evaluation\PenForLang.Evaluation.csproj" />
+    <ProjectReference Include="..\..\src\PenForLang.Platform.Windows\PenForLang.Platform.Windows.csproj" />
+    <ProjectReference Include="..\..\src\PenForLang.Wpf.Controls\PenForLang.Wpf.Controls.csproj" />
+    <ProjectReference Include="..\..\src\PenForLang.App.Wpf\PenForLang.App.Wpf.csproj" />
+    <ProjectReference Include="..\..\tools\PenForLang.Testing\PenForLang.Testing.csproj" />
+    <ProjectReference Include="..\..\tools\PenForLang.Tools.Cli\PenForLang.Tools.Cli.csproj" />
+    <ProjectReference Include="..\PenForLang.Architecture.Fixtures\PenForLang.Architecture.Fixtures.csproj" />
+  </ItemGroup>
+
+</Project>
