@@ -4,6 +4,7 @@ using PenForLang.Wpf.Controls.Tests.Support;
 
 namespace PenForLang.Wpf.Controls.Tests;
 
+[Collection(AllocationSensitive.Name)]
 public class InkSurfaceTests
 {
     private static uint At(InkSurface s, int x, int y) => s.Pixels[(y * s.WidthPx) + x];
@@ -296,6 +297,22 @@ public class InkSurfaceTests
     }
 
     [Fact]
+    public void Allocation_probe_sees_real_allocations_so_the_zero_result_means_something()
+    {
+        object?[] sink = new object?[200];
+
+        long allocated = Allocation.MeasureQuiet(() =>
+        {
+            for (int i = 0; i < sink.Length; i++)
+            {
+                sink[i] = new byte[100];
+            }
+        });
+
+        Assert.True(allocated >= 200 * 100, $"the probe must report the allocations it provokes (got {allocated})");
+    }
+
+    [Fact]
     public void Hot_path_does_not_allocate_over_1000_batches()
     {
         var surface = new InkSurface(1920, 1080) { PressureEnabled = true };
@@ -308,19 +325,25 @@ public class InkSurfaceTests
             surface.Add(batch, i);
         }
 
-        surface.Clear();
-        surface.TryTakeDirty(out _);
-
-        long before = GC.GetAllocatedBytesForCurrentThread();
+        // Второй прогрев — целое окно измерения (все пути, включая очистку и первое касание после неё).
         for (int i = 0; i < 1000; i++)
         {
             FillBatch(batch, i);
             surface.Add(batch, i);
         }
 
-        long after = GC.GetAllocatedBytesForCurrentThread();
+        // Окно: очистка (она тоже не должна выделять) и 1000 пачек. Требуется ровно 0 байт в окне без сборок мусора.
+        long allocated = Allocation.MeasureQuiet(() =>
+        {
+            surface.Clear();
+            for (int i = 0; i < 1000; i++)
+            {
+                FillBatch(batch, i);
+                surface.Add(batch, i);
+            }
+        });
 
-        Assert.Equal(0, after - before);
+        Assert.Equal(0, allocated);
         Assert.True(surface.SegmentCount > 3000, "the batches really were drawn");
     }
 

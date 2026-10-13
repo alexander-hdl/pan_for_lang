@@ -6,6 +6,7 @@ using PenForLang.Wpf.Controls.Tests.Support;
 
 namespace PenForLang.Wpf.Controls.Tests;
 
+[Collection(AllocationSensitive.Name)]
 public class LiveInkLayerTests
 {
     private sealed class RecordingGcMode : IGcLatencyMode
@@ -357,18 +358,27 @@ public class LiveInkLayerTests
                 layer.AddSamples(batch);
             }
 
-            layer.FrameTick();
-            layer.Clear();
-            layer.FrameTick();
-
-            long before = GC.GetAllocatedBytesForCurrentThread();
+            // Второй прогрев — целое окно измерения, включая очистку и путь кадра (flush в WriteableBitmap, задержка, маркер).
             for (int i = 0; i < 1000; i++)
             {
                 Fill(batch, i, clock);
                 layer.AddSamples(batch);
             }
 
-            delta = GC.GetAllocatedBytesForCurrentThread() - before;
+            layer.FrameTick();
+            layer.Clear();
+            layer.FrameTick();
+
+            // Окно: очистка и 1000 пачек; ровно 0 байт в окне без сборок мусора (см. Allocation).
+            delta = Allocation.MeasureQuiet(() =>
+            {
+                layer.Clear();
+                for (int i = 0; i < 1000; i++)
+                {
+                    Fill(batch, i, clock);
+                    layer.AddSamples(batch);
+                }
+            });
         });
 
         Assert.Equal(0, delta);
