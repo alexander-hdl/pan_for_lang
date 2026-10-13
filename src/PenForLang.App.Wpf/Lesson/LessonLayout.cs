@@ -6,8 +6,8 @@ using PenForLang.Platform.Windows;
 namespace PenForLang.App.Wpf.Lesson;
 
 /// <summary>
-/// Раскладка урока V0.8 и заголовок penlog его попыток. Линейки те же, что в песочнице (<see cref="SandboxLayout.Frames"/>): эталон слева
-/// (линейка показа), письмо справа (линейка письма) на одной базовой линии — рука правши не закрывает эталон копии.
+/// Раскладка урока V0.8 и заголовок penlog его попыток. Две строки одного размера: эталон над строкой (линейка эталона, METHODOLOGY.md §4.1:
+/// «не под пером и не там, где его закроет рука») и строка письма под ним; обе на одной горизонтальной позиции.
 /// </summary>
 public static class LessonLayout
 {
@@ -30,9 +30,35 @@ public static class LessonLayout
     public static double FitXHeightMm(double requestedMm, double canvasHeightMm, StyleManifest style)
     {
         ArgumentNullException.ThrowIfNull(style);
-        double units = Math.Max(style.Lines.Ascender, style.Lines.Cap) - style.Lines.Descender;
+        double units = Math.Max(style.Lines.Ascender, style.Lines.Cap) - style.Lines.Descender + SandboxLayout.LineSpacing;
         double fit = (canvasHeightMm - (2 * MarginMm)) / units;
         return double.IsFinite(fit) ? Math.Max(MinXHeightMm, Math.Min(requestedMm, fit)) : requestedMm;
+    }
+
+    /// <summary>
+    /// Линейка эталона (над строкой) и линейка письма (под ней): строка письма прижата к низу холста, базовая линия эталона выше на
+    /// <see cref="SandboxLayout.LineSpacing"/> x-height; по горизонтали обе начинаются на трёх x-height от левого края.
+    /// </summary>
+    /// <param name="mapper">Преобразователь текущего холста.</param>
+    /// <param name="style">Стиль письма.</param>
+    /// <param name="xHeightMm">x-height, мм; &gt; 0.</param>
+    public static (GuideFrame Model, GuideFrame Writing) Frames(SurfaceMapper mapper, StyleManifest style, double xHeightMm)
+    {
+        ArgumentNullException.ThrowIfNull(mapper);
+        ArgumentNullException.ThrowIfNull(style);
+        if (!double.IsFinite(xHeightMm) || xHeightMm <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(xHeightMm), xHeightMm, "x-height must be positive.");
+        }
+
+        double heightMm = mapper.Surface.HeightPx / mapper.PxPerMm;
+        double descender = -style.Lines.Descender * xHeightMm;
+        double writingBaseline = heightMm - descender - MarginMm;
+        double modelBaseline = writingBaseline - (SandboxLayout.LineSpacing * xHeightMm);
+        double origin = (3 * xHeightMm) + MarginMm;
+        return (
+            GuideFrame.FromMm(mapper, style.Id, origin, modelBaseline, xHeightMm, SandboxLayout.LineSpacing),
+            GuideFrame.FromMm(mapper, style.Id, origin, writingBaseline, xHeightMm, SandboxLayout.LineSpacing));
     }
 
     /// <summary>Заголовок penlog попытки урока: разработчик (взрослый), без согласия и без имени (запись ребёнка без согласия запрещена, §3.4).</summary>
@@ -68,7 +94,13 @@ public static class LessonLayout
             step.Code,
             "glyph:" + letter,
             step.Level.ToString(),
-            step.Kind == StepKind.Trace ? "trace" : "copy",
+            step.Kind switch
+            {
+                StepKind.Demo => "demo",
+                StepKind.Trace => "trace",
+                StepKind.Copy => "copy",
+                _ => "memory",
+            },
             "right");
         return new PenLogHeader(appVersion, os, device, screen, guides, task, new PenLogSubject("dev", null, PenSubjectKind.Adult), null, qpcFrequency);
     }

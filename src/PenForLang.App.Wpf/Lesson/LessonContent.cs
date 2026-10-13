@@ -40,6 +40,11 @@ public sealed class LessonContent
     /// <exception cref="KeyNotFoundException">Такой буквы в уроке нет.</exception>
     public Glyph GetGlyph(string letter) => _sandbox.Pack.GetGlyph(letter);
 
+    /// <summary>
+    /// Словесная метка буквы на языке (из ключей меток сегментов глифа: <c>a.rollUp</c>, <c>a.backAround</c> …), части через тире; показывается на E01.
+    /// </summary>
+    public string Phrase(string letter, string language) => _sandbox.Pack.BuildPhrase(GetGlyph(letter), language);
+
     /// <summary>Сценарий анимации буквы.</summary>
     public AnimationScript GetScript(string letter) => _sandbox.GetScript(letter);
 

@@ -19,7 +19,7 @@ public class MiniFeedbackTests
         { ErrorCode.F2, FeedbackKeys.Closed, HighlightKind.Span, FeedbackAction.None },
         { ErrorCode.D1, FeedbackKeys.DeferredMissing, HighlightKind.Span, FeedbackAction.None },
         { ErrorCode.D2, FeedbackKeys.DeferredPlace, HighlightKind.Span, FeedbackAction.None },
-        { ErrorCode.D3, FeedbackKeys.ExtraStroke, HighlightKind.Span, FeedbackAction.None },
+        { ErrorCode.D3, FeedbackKeys.ExtraLine, HighlightKind.Span, FeedbackAction.None },
         { ErrorCode.F4, FeedbackKeys.Size, HighlightKind.Whole, FeedbackAction.None },
         { ErrorCode.F5, FeedbackKeys.Baseline, HighlightKind.Whole, FeedbackAction.None },
         { ErrorCode.F1, FeedbackKeys.Shape, HighlightKind.Whole, FeedbackAction.None },
@@ -165,15 +165,65 @@ public class MiniFeedbackTests
     }
 
     [Fact]
-    public void Low_confidence_is_treated_like_U0_and_never_gives_a_negative_hint()
+    public void Low_confidence_with_a_target_decision_counts_the_attempt_with_no_hint_no_praise_and_no_rewrite_request()
     {
         EvaluationSummary low = Summary([Find(ErrorCode.P1), Find(ErrorCode.F1)], Decision.Target, Confidence.Low, processOk: false);
 
         FeedbackPlan plan = MiniFeedback.Plan(low, Context());
 
-        Assert.Equal(FeedbackKeys.Unrecognized, plan.HintKey);
+        Assert.Null(plan.HintKey);
+        Assert.Null(plan.PraiseKey);
         Assert.Null(plan.Code);
-        Assert.Equal(FeedbackTone.Neutral, plan.Tone);
+        Assert.Null(plan.Highlight);
+        Assert.True(plan.CountsAsAttempt); // не просим переписать
+        Assert.Equal(FeedbackReason.LowConfidence, plan.Reason);
+        Assert.False(plan.HasMessage);
+
+        // Низкая уверенность не засчитывается как процессная ошибка и не хвалится даже после подсказки.
+        HintHistory history = HintHistory.Empty.Add(MiniFeedback.Record(MiniFeedback.Plan(Summary([Find(ErrorCode.P1)], processOk: false), Context()), Context()));
+        Assert.Null(MiniFeedback.Plan(low, Context(history, 2)).PraiseKey);
+    }
+
+    [Fact]
+    public void A_fixed_hint_with_only_younger_findings_left_gets_praise_and_a_green_highlight_and_the_younger_finding_is_recorded_as_faded()
+    {
+        EvaluationSummary p1 = Summary([Find(ErrorCode.P1, from: 0, to: 0.15)], processOk: false);
+        FeedbackContext first = Context();
+        FeedbackPlan hint = MiniFeedback.Plan(p1, first);
+        HintHistory history = HintHistory.Empty.Add(MiniFeedback.Record(hint, first));
+
+        // Старт исправлен; остались форма (F1) и нет перекладины (D1): оба младше P1 и не стоп-коды.
+        EvaluationSummary rest = Summary([Find(ErrorCode.D1, strokeId: "bar"), Find(ErrorCode.F1)], processOk: true);
+        FeedbackContext second = Context(history, 2);
+        FeedbackPlan plan = MiniFeedback.Plan(rest, second);
+
+        Assert.Null(plan.HintKey);
+        Assert.Equal(FeedbackKeys.PraiseStart, plan.PraiseKey);
+        Assert.Equal(FeedbackTone.Positive, plan.Tone);
+        Assert.Equal(hint.Highlight, plan.Highlight); // зелёным то место, что исправлено
+        Assert.Equal(FeedbackReason.Praise, plan.Reason);
+        Assert.Equal(ErrorCode.D1, plan.FadedCode); // младшая находка записана, не показана
+        Assert.True(plan.CountsAsAttempt);
+        Assert.False(MiniFeedback.Record(plan, second).ProcessError); // D1 — не процессная ошибка
+
+        // Процессная младшая (P5) в истории считается ошибкой процесса, хотя и не показана.
+        HintHistory h2 = HintHistory.Empty.Add(MiniFeedback.Record(MiniFeedback.Plan(Summary([Find(ErrorCode.P1)], processOk: false), Context()), Context()));
+        FeedbackPlan younger = MiniFeedback.Plan(Summary([Find(ErrorCode.P5)], processOk: false), Context(h2, 2));
+        Assert.Equal(FeedbackKeys.PraiseStart, younger.PraiseKey);
+        Assert.Equal(ErrorCode.P5, younger.FadedCode);
+        Assert.True(MiniFeedback.Record(younger, Context(h2, 2)).ProcessError);
+    }
+
+    [Fact]
+    public void Praise_is_not_given_when_the_old_code_is_still_there_or_an_equal_or_stop_finding_remains()
+    {
+        EvaluationSummary p3 = Summary([Find(ErrorCode.P3)], processOk: false);
+        FeedbackContext first = Context();
+        HintHistory history = HintHistory.Empty.Add(MiniFeedback.Record(MiniFeedback.Plan(p3, first), first));
+
+        Assert.Equal(FeedbackKeys.Order, MiniFeedback.Plan(p3, Context(history, 2)).HintKey); // код прошлой подсказки на месте
+        Assert.Equal(FeedbackKeys.Start, MiniFeedback.Plan(Summary([Find(ErrorCode.P1)], processOk: false), Context(history, 2)).HintKey); // старше и стоп
+        Assert.Equal(FeedbackKeys.MissingStroke, MiniFeedback.Plan(Summary([Find(ErrorCode.P5)], processOk: false), Context(history, 2)).HintKey); // тот же приоритет 4
     }
 
     [Fact]
@@ -269,8 +319,10 @@ public class MiniFeedbackTests
         HintHistory history = HintHistory.Empty;
         foreach (ErrorCode code in new[] { ErrorCode.P4, ErrorCode.P5 })
         {
-            FeedbackContext context = Context(history);
+            // «Освоена», 1-я и 2-я попытки серии: процессные ошибки не показаны (затухли), но в историю записаны.
+            FeedbackContext context = Context(history, attemptNo: history.Records.Count + 1, status: ElementStatus.Mastered);
             FeedbackPlan plan = MiniFeedback.Plan(Summary([Find(code)], processOk: false), context);
+            Assert.Equal(FeedbackReason.Faded, plan.Reason);
             history = history.Add(MiniFeedback.Record(plan, context));
         }
 
@@ -302,8 +354,11 @@ public class MiniFeedbackTests
     [InlineData(ErrorCode.P3, FeedbackKeys.PraiseOrder)]
     [InlineData(ErrorCode.P5, FeedbackKeys.PraiseStrokes)]
     [InlineData(ErrorCode.D1, FeedbackKeys.PraiseStrokes)]
-    [InlineData(ErrorCode.F2, FeedbackKeys.PraiseShape)]
-    [InlineData(ErrorCode.F4, FeedbackKeys.PraiseShape)]
+    [InlineData(ErrorCode.P6, FeedbackKeys.PraiseRetrace)]
+    [InlineData(ErrorCode.F2, FeedbackKeys.PraiseClosed)]
+    [InlineData(ErrorCode.F4, FeedbackKeys.PraiseLines)]
+    [InlineData(ErrorCode.F5, FeedbackKeys.PraiseLines)]
+    [InlineData(ErrorCode.F1, FeedbackKeys.PraiseShape)]
     public void Fixed_error_praise_names_what_was_fixed(ErrorCode code, string praise)
     {
         FeedbackContext first = Context();

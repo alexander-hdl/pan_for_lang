@@ -35,20 +35,49 @@ internal static class LessonTestSupport
         }
     }
 
-    /// <summary>Тот же холст и раскладка, что у экрана пера: 1920×900 px, 7,5 px/мм, x-height 15 мм.</summary>
-    public static (GuideFrame Demo, GuideFrame Writing) Frames()
+    /// <summary>Тот же холст и раскладка, что у экрана пера: 1920×900 px, 7,5 px/мм, x-height 15 мм; эталон над строкой письма.</summary>
+    public static (GuideFrame Model, GuideFrame Writing) Frames()
     {
         var mapper = new SurfaceMapper(new PenSurface(0, 0, 1920, 900), 7.5, 1.0);
-        return SandboxLayout.Frames(mapper, Content.Style, SandboxLayout.DefaultXHeightMm);
+        return LessonLayout.Frames(mapper, Content.Style, SandboxLayout.DefaultXHeightMm);
     }
 
-    /// <summary>Урок на воспроизведении: оценка синхронно, раскладка задана.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LessonViewModel, FakeMonotonicClock> Clocks = new();
+
+    /// <summary>Урок на воспроизведении: оценка синхронно, время фаз — на управляемых часах (<see cref="Advance"/>), раскладка задана.</summary>
     public static LessonViewModel NewLesson(string letter = "a", string language = "ru", LessonRuntime? runtime = null)
     {
-        var vm = new LessonViewModel(Content, runtime ?? LessonRuntime.Inline(), language, letter);
+        var clock = new FakeMonotonicClock();
+        var vm = new LessonViewModel(Content, runtime ?? LessonRuntime.Inline(null, clock), language, letter);
+        Clocks.Add(vm, clock);
         (GuideFrame demo, GuideFrame writing) = Frames();
         vm.SetFrames(demo, writing);
         return vm;
+    }
+
+    /// <summary>Часы урока из <see cref="NewLesson"/> сдвигаются на <paramref name="ms"/>, затем вызывается <see cref="LessonViewModel.Tick"/>.</summary>
+    public static void Advance(LessonViewModel vm, double ms)
+    {
+        if (Clocks.TryGetValue(vm, out FakeMonotonicClock? clock))
+        {
+            clock.Advance(TimeSpan.FromMilliseconds(ms));
+        }
+
+        vm.Tick();
+    }
+
+    /// <summary>Показ досмотрен и нажато «Дальше»: начинается первая попытка обводки.</summary>
+    public static void Begin(LessonViewModel vm)
+    {
+        vm.DemoPlaybackFinished();
+        vm.Next();
+    }
+
+    /// <summary>Письмо по памяти: вспышка эталона и пауза проходят, перо принимается.</summary>
+    public static void PassMemoryPause(LessonViewModel vm)
+    {
+        Advance(vm, vm.Step.FlashMs + 1);
+        Advance(vm, vm.Step.DelayMs + 1);
     }
 
     /// <summary>Генератор без случайных вариаций «детской руки»: попытка лежит на эталоне (кроме внесённой мутации).</summary>
@@ -130,6 +159,11 @@ internal static class LessonTestSupport
     /// <summary>Одна попытка до подсказки: письмо, «Готово», результат.</summary>
     public static async Task<FeedbackPlan> AttemptAsync(LessonViewModel vm, RulerInk ink)
     {
+        if (vm.Phase is LessonPhase.Look or LessonPhase.Delay)
+        {
+            PassMemoryPause(vm);
+        }
+
         Assert.Equal(LessonPhase.Writing, vm.Phase);
         await WriteAsync(vm, ink);
         await vm.DoneAsync();

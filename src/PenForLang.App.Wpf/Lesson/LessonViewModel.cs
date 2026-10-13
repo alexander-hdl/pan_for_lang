@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using PenForLang.Core;
 using PenForLang.Core.Geometry;
@@ -15,13 +16,19 @@ public enum LessonPhase
     /// <summary>Показ (E01): анимация, письма нет.</summary>
     Demo,
 
+    /// <summary>Письмо по памяти (E04): эталон виден (вспышка), перо не принимается.</summary>
+    Look,
+
+    /// <summary>Письмо по памяти: эталон скрыт, пауза, видны только линейки, перо не принимается.</summary>
+    Delay,
+
     /// <summary>Ребёнок пишет попытку.</summary>
     Writing,
 
     /// <summary>Попытка оценивается в фоне.</summary>
     Evaluating,
 
-    /// <summary>Показана одна подсказка с наложением; ждём «Дальше».</summary>
+    /// <summary>Показана одна подсказка с наложением; ждём «Дальше» (касание пером строки или пауза у молчаливой попытки тоже ведут дальше).</summary>
     Feedback,
 
     /// <summary>Урок закончен.</summary>
@@ -31,7 +38,10 @@ public enum LessonPhase
 /// <summary>Почему анимация показывается снова.</summary>
 public enum ReplayReason
 {
-    /// <summary>Кнопка «Показать ещё».</summary>
+    /// <summary>Автоповтор показа (E01 проигрывается сам несколько раз).</summary>
+    Auto,
+
+    /// <summary>Кнопка «Покажи ещё раз».</summary>
     Button,
 
     /// <summary>Действие подсказки (процессная ошибка).</summary>
@@ -53,14 +63,16 @@ public sealed record AttemptOutcome(string StepCode, int AttemptNo, EvaluationSu
 
 /// <summary>Среда выполнения урока: где считать оценку, часы и время источника.</summary>
 /// <param name="RunBackground">Выполняет оценку вне потока UI; результат возвращается в контекст вызова (UI-поток в приложении).</param>
-/// <param name="Clock">Монотонные часы для пересчёта времени живого источника; <c>null</c> для воспроизведения.</param>
+/// <param name="Clock">Монотонные часы: время фаз (вспышка, пауза, автопереход) и пересчёт времени живого источника; <c>null</c> — системные.</param>
 /// <param name="TimeBase">Основа времени точек источника.</param>
 /// <param name="Device">Описание устройства для записи попытки.</param>
+/// <param name="EvaluationTimeout">Сколько ждать оценку; <c>null</c> — по конфигурации.</param>
 public sealed record LessonRuntime(
     Func<Func<EvaluationResult>, Task<EvaluationResult>> RunBackground,
     IMonotonicClock? Clock,
     PenTimeBase TimeBase,
-    PenDeviceInfo Device)
+    PenDeviceInfo Device,
+    TimeSpan? EvaluationTimeout = null)
 {
     private static readonly PenDeviceInfo UnknownDevice = new("unknown", PenSourceKind.Replay, null, null, null, false, PenTimestampKind.Qpc);
 
@@ -69,21 +81,23 @@ public sealed record LessonRuntime(
         new(work => Task.Run(work), clock ?? throw new ArgumentNullException(nameof(clock)), PenTimeBase.MonotonicAbsolute, device ?? UnknownDevice);
 
     /// <summary>Воспроизведение или тест: оценка синхронно (≤ 5 мс по заданию V0.7), время точек уже от начала задания.</summary>
-    public static LessonRuntime Inline(PenDeviceInfo? device = null) =>
-        new(work => Task.FromResult(work()), null, PenTimeBase.TaskRelative, device ?? UnknownDevice);
+    public static LessonRuntime Inline(PenDeviceInfo? device = null, IMonotonicClock? clock = null) =>
+        new(work => Task.FromResult(work()), clock, PenTimeBase.TaskRelative, device ?? UnknownDevice);
 }
 
 /// <summary>
-/// Состояние и логика фиксированного урока V0.8 для одной буквы (a, i или t): E01 (показ) → E03 ×3 (обводка) → E04 ×2 (копия).
-/// Без окна: ввод приходит через <see cref="OnSamples"/> (живой источник или <see cref="ReplayPenSource"/>), оценка идёт в фоне
-/// (<see cref="LessonRuntime.RunBackground"/>), после каждой попытки показывается одна подсказка (<see cref="MiniFeedback"/>) и ждётся «Дальше».
-/// Все тексты берутся из каталога выбранного языка по ключам.
+/// Состояние и логика фиксированного урока V0.8 для одной буквы (a, i или t) по методике §4.1, §4.2, §6.2: E01 показ (L4) →
+/// E02 обводка (L4, 1–2 попытки) → E03 копия ×3 (L3, эталон над строкой) → E04 по памяти ×2 (L2, затем L1: вспышка эталона, скрытие,
+/// пауза, письмо). Без окна: ввод приходит через <see cref="OnSamples"/> (живой источник или <see cref="ReplayPenSource"/>), время фаз —
+/// через <see cref="Tick"/>, оценка идёт в фоне (<see cref="LessonRuntime.RunBackground"/>), после каждой попытки показывается одна
+/// подсказка (<see cref="MiniFeedback"/>). Все тексты берутся из каталога выбранного языка по ключам.
 /// </summary>
 public sealed class LessonViewModel : INotifyPropertyChanged
 {
     private readonly LessonContent _content;
     private readonly LessonRuntime _runtime;
     private readonly List<AttemptOutcome> _outcomes = [];
+    private readonly int[] _stepDone;
 
     private string _language;
     private string _letter;
@@ -94,11 +108,18 @@ public sealed class LessonViewModel : INotifyPropertyChanged
     private StrokeAssembler _assembler = new();
     private AttemptTimeRebaser? _rebaser;
     private ImmutableArray<InkEvent>.Builder _events = ImmutableArray.CreateBuilder<InkEvent>();
+    private long _lastSampleUs;
     private int _restarts;
     private int _cues;
     private int _raisedAidsLeft;
     private bool _aidActive;
     private bool _demoRequested;
+    private int _demoFinished;
+    private int _autoRepeatsLeft;
+    private int _correctInStep;
+    private bool _lastHadProcessError;
+    private bool _autoAdvance;
+    private double _phaseStartMs;
     private int _generation;
     private GuideFrame? _writingFrame;
     private GuideFrame? _demoFrame;
@@ -120,6 +141,7 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         _language = Normalize(language);
         _letter = letter;
         _content.GetGlyph(letter); // нет такой буквы — сразу ошибка
+        _stepDone = new int[content.Config.Steps.Length];
         EnterStep(0);
     }
 
@@ -135,7 +157,7 @@ public sealed class LessonViewModel : INotifyPropertyChanged
     /// <summary>Мягкий сигнал неверного старта: точка старта (линейка) мигает.</summary>
     public event Action<Vec2>? LiveCueRaised;
 
-    /// <summary>Началась попытка письма (шаг, номер попытки в шаге; повторная попытка после U0 — тот же номер).</summary>
+    /// <summary>Началась попытка (шаг, номер попытки в шаге; повторная попытка после U0 — тот же номер).</summary>
     public event Action<LessonStep, int>? AttemptStarted;
 
     /// <summary>В попытке нажато «Заново» (холст очищен, попытка продолжается).</summary>
@@ -143,6 +165,9 @@ public sealed class LessonViewModel : INotifyPropertyChanged
 
     /// <summary>Попытка принята кнопкой «Готово» (до оценки): запись пера закрывается.</summary>
     public event Action? AttemptFinished;
+
+    /// <summary>Эталон по памяти показан (<c>true</c>) или скрыт (<c>false</c>): события <c>stimulus-start</c> и <c>stimulus-end</c> в penlog.</summary>
+    public event Action<bool>? StimulusChanged;
 
     /// <summary>Буквы урока.</summary>
     public static IReadOnlyList<string> Letters => SandboxContent.Letters;
@@ -168,11 +193,52 @@ public sealed class LessonViewModel : INotifyPropertyChanged
     /// <summary>Номер попытки в шаге, с 1; у показа — 0.</summary>
     public int AttemptInStep => _attemptInStep;
 
-    /// <summary>Сколько попыток письма всего в сценарии.</summary>
-    public int TotalAttempts => _content.Config.Steps.Sum(s => s.Attempts);
+    /// <summary>
+    /// Сколько попыток письма в сценарии с учётом пропусков: у законченных шагов — сколько было, у текущего — с учётом второй попытки обводки
+    /// (она нужна, только если в первой была процессная ошибка), у будущих — наименьшее число.
+    /// </summary>
+    public int TotalAttempts
+    {
+        get
+        {
+            int total = 0;
+            ImmutableArray<LessonStep> steps = _content.Config.Steps;
+            for (int i = 0; i < steps.Length; i++)
+            {
+                LessonStep step = steps[i];
+                if (step.Attempts == 0)
+                {
+                    continue;
+                }
+
+                if (_phase == LessonPhase.Finished || i < _stepIndex)
+                {
+                    total += _stepDone[i];
+                }
+                else if (i == _stepIndex)
+                {
+                    bool inProgress = _phase is LessonPhase.Look or LessonPhase.Delay or LessonPhase.Writing or LessonPhase.Evaluating
+                        || _plan is { CountsAsAttempt: false };
+                    int need = Math.Max(step.MinAttempts, _stepDone[i] + (inProgress ? 1 : 0));
+                    if (!inProgress && step.Kind == StepKind.Trace && _lastHadProcessError && _stepDone[i] < step.Attempts)
+                    {
+                        need = Math.Max(need, _stepDone[i] + 1);
+                    }
+
+                    total += Math.Min(need, step.Attempts);
+                }
+                else
+                {
+                    total += step.MinAttempts;
+                }
+            }
+
+            return total;
+        }
+    }
 
     /// <summary>Сколько попыток засчитано.</summary>
-    public int CompletedAttempts => _outcomes.Count(o => o.Plan.CountsAsAttempt);
+    public int CompletedAttempts => _stepDone.Sum();
 
     /// <summary>Оценённые попытки по порядку (включая повторные после U0).</summary>
     public IReadOnlyList<AttemptOutcome> Outcomes => _outcomes;
@@ -186,7 +252,7 @@ public sealed class LessonViewModel : INotifyPropertyChanged
     /// <summary>Подсветка на эталоне для текущей обратной связи.</summary>
     public ResolvedHighlight? Highlight => _highlight;
 
-    /// <summary>Подсветка рисуется на эталоне под пером (линейка письма), иначе — на эталоне рядом (линейка показа).</summary>
+    /// <summary>Подсветка рисуется на эталоне под пером (линейка письма), иначе — на эталоне над строкой (линейка эталона).</summary>
     public bool HighlightOnWritingFrame => ModelUnderPen;
 
     /// <summary>Сколько раз подан мягкий сигнал за всё время урока.</summary>
@@ -198,19 +264,30 @@ public sealed class LessonViewModel : INotifyPropertyChanged
     /// <summary>Сколько раз нажато «Заново» в текущей попытке.</summary>
     public int Restarts => _restarts;
 
-    /// <summary>Чернила сейчас принимаются (идёт попытка).</summary>
+    /// <summary>Чернила сейчас принимаются (идёт попытка; вспышка эталона и пауза — нет).</summary>
     public bool AcceptsInk => _phase == LessonPhase.Writing;
 
-    /// <summary>Эталон бледно под пером на линейке письма: обводка или добавленная опора.</summary>
+    /// <summary>Эталон бледно под пером на линейке письма: обводка или добавленная опора копии.</summary>
     public bool ModelUnderPen =>
-        _phase is LessonPhase.Writing or LessonPhase.Evaluating or LessonPhase.Feedback
-        && (Step.Kind == StepKind.Trace || (Step.Kind == StepKind.Copy && _aidActive));
+        InAttemptView && (Step.Kind == StepKind.Trace || (Step.Kind == StepKind.Copy && _aidActive));
 
-    /// <summary>Эталон рядом (на линейке показа): копия.</summary>
-    public bool ModelBeside => (_phase is LessonPhase.Writing or LessonPhase.Evaluating or LessonPhase.Feedback) && Step.Kind == StepKind.Copy;
+    /// <summary>
+    /// Эталон над строкой (линейка эталона): копия; вспышка в письме по памяти и сравнение после попытки; письмо по памяти с добавленной
+    /// опорой (следующая попытка как копия).
+    /// </summary>
+    public bool ModelAbove =>
+        _phase == LessonPhase.Look
+        || (InAttemptView && (Step.Kind == StepKind.Copy || (Step.Kind == StepKind.Memory && (_aidActive || _phase != LessonPhase.Writing))));
 
-    /// <summary>Слой анимации виден: показ, копия, либо по просьбе (кнопка, подсказка).</summary>
-    public bool DemoVisible => _phase == LessonPhase.Demo || ModelBeside || _demoRequested;
+    /// <summary>Точка старта на строке письма (письмо по памяти на L2: на строке видна только она).</summary>
+    public bool StartDotOnWritingRow => _phase == LessonPhase.Writing && Step.Kind == StepKind.Memory && Step.StartDot && !_aidActive;
+
+    /// <summary>Стрелки на эталоне видны (в копии они скрываются после <see cref="LessonStep.HideArrowsAfterCorrect"/> верных попыток).</summary>
+    public bool ArrowsVisible =>
+        !(Step.Kind == StepKind.Copy && Step.HideArrowsAfterCorrect > 0 && _correctInStep >= Step.HideArrowsAfterCorrect);
+
+    /// <summary>Слой анимации виден: показ, эталон над строкой либо по просьбе (кнопка, подсказка).</summary>
+    public bool DemoVisible => _phase == LessonPhase.Demo || ModelAbove || _demoRequested;
 
     /// <summary>Можно ли показать анимацию ещё раз.</summary>
     public bool CanShowAgain => _phase is LessonPhase.Demo or LessonPhase.Writing or LessonPhase.Feedback;
@@ -221,11 +298,20 @@ public sealed class LessonViewModel : INotifyPropertyChanged
     /// <summary>«Готово» доступно, пока идёт попытка.</summary>
     public bool CanDone => _phase == LessonPhase.Writing;
 
-    /// <summary>«Дальше» доступно после показа и после обратной связи.</summary>
-    public bool CanNext => _phase is LessonPhase.Demo or LessonPhase.Feedback;
+    /// <summary>«Дальше» доступно после первого полного показа и после обратной связи.</summary>
+    public bool CanNext => (_phase == LessonPhase.Demo && _demoFinished >= 1) || _phase == LessonPhase.Feedback;
 
     /// <summary>Букву можно сменить: в начале урока и после его конца.</summary>
     public bool CanSelectLetter => (_phase == LessonPhase.Demo && _stepIndex == 0) || _phase == LessonPhase.Finished;
+
+    /// <summary>Последняя ошибка оценщика (для журнала), если была.</summary>
+    public string? LastError { get; private set; }
+
+    /// <summary>Линейка эталона (над строкой).</summary>
+    public GuideFrame? DemoFrame => _demoFrame;
+
+    /// <summary>Линейка письма.</summary>
+    public GuideFrame? WritingFrame => _writingFrame;
 
     /// <summary>Заголовок урока.</summary>
     public string Title => Text("ui.letter", ("letter", _letter));
@@ -240,20 +326,43 @@ public sealed class LessonViewModel : INotifyPropertyChanged
                 return Text("ui.finished");
             }
 
-            return Step.Kind switch
+            switch (Step.Kind)
             {
-                StepKind.Demo => Text("ui.step.demo"),
-                StepKind.Trace => Text("ui.step.trace", ("n", Number(_attemptInStep)), ("total", Number(Step.Attempts))),
-                _ => Text(_aidActive ? "ui.step.copyAided" : "ui.step.copy", ("n", Number(_attemptInStep)), ("total", Number(Step.Attempts))),
-            };
+                case StepKind.Demo:
+                    return Text("ui.step.demo");
+                case StepKind.Trace:
+                    return Text("ui.step.trace");
+                case StepKind.Copy:
+                    return Text("ui.step.copy", ("n", Number(_attemptInStep)), ("total", Number(Step.Attempts)));
+                default:
+                    if (_phase is LessonPhase.Look or LessonPhase.Delay)
+                    {
+                        return Text("ui.step.memoryLook");
+                    }
+
+                    if (_phase is LessonPhase.Evaluating or LessonPhase.Feedback)
+                    {
+                        return Text("ui.step.memoryCompare");
+                    }
+
+                    return Text(_aidActive ? "ui.step.memoryAided" : (Step.StartDot ? "ui.step.memoryWriteDot" : "ui.step.memoryWrite"));
+            }
         }
     }
 
-    /// <summary>Подсказка (одна) или нейтральное сообщение.</summary>
+    /// <summary>
+    /// Подсказка (одна) или нейтральное сообщение; на показе — словесная метка буквы из меток сегментов глифа (<c>a.rollUp</c>,
+    /// <c>a.backAround</c> …).
+    /// </summary>
     public string HintText
     {
         get
         {
+            if (_phase == LessonPhase.Demo)
+            {
+                return _content.Phrase(_letter, _language);
+            }
+
             if (_phase == LessonPhase.Evaluating)
             {
                 return Text("ui.evaluating");
@@ -281,6 +390,8 @@ public sealed class LessonViewModel : INotifyPropertyChanged
     /// <summary>Похвала процесса (одна) или пусто.</summary>
     public string PraiseText => _phase == LessonPhase.Feedback && _plan?.PraiseKey is { } key ? Text(key) : string.Empty;
 
+    private bool InAttemptView => _phase is LessonPhase.Writing or LessonPhase.Evaluating or LessonPhase.Feedback;
+
     /// <summary>Строка из каталога выбранного языка.</summary>
     public string T(string key) => Text(key);
 
@@ -291,7 +402,7 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         Changed();
     }
 
-    /// <summary>Задаёт полотно: линейка показа (слева) и письма (справа). Смена линейки при начатой попытке отменяет её.</summary>
+    /// <summary>Задаёт полотно: линейка эталона (над строкой) и письма. Смена линейки при начатой попытке отменяет её.</summary>
     public void SetFrames(GuideFrame demo, GuideFrame writing)
     {
         ArgumentNullException.ThrowIfNull(demo);
@@ -308,12 +419,6 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         Changed();
     }
 
-    /// <summary>Линейка показа.</summary>
-    public GuideFrame? DemoFrame => _demoFrame;
-
-    /// <summary>Линейка письма.</summary>
-    public GuideFrame? WritingFrame => _writingFrame;
-
     /// <summary>Выбирает букву и начинает урок сначала.</summary>
     public void SelectLetter(string letter)
     {
@@ -328,15 +433,17 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         RestartLesson();
     }
 
-    /// <summary>Начинает урок сначала (история подсказок и журнал очищаются).</summary>
+    /// <summary>Начинает урок сначала (история подсказок и журнал очищаются; идущая оценка отбрасывается).</summary>
     public void RestartLesson()
     {
         _generation++;
         _history = HintHistory.Empty;
         _outcomes.Clear();
+        Array.Clear(_stepDone);
         _raisedAidsLeft = 0;
         _aidActive = false;
         _demoRequested = false;
+        _lastHadProcessError = false;
         LiveCueSerial = 0;
         LiveCuePoint = null;
         EnterStep(0);
@@ -344,7 +451,7 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         Changed();
     }
 
-    /// <summary>Кнопка «Показать ещё» / «Покажи ещё раз».</summary>
+    /// <summary>Кнопка «Покажи ещё раз».</summary>
     public void ShowAgain()
     {
         if (!CanShowAgain)
@@ -356,9 +463,90 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         Changed();
     }
 
+    /// <summary>
+    /// Анимация показа доиграла до конца (вызывает окно). Показ проигрывается сам несколько раз (<see cref="LessonStep.AutoPlays"/>);
+    /// «Дальше» открывается после первого полного показа.
+    /// </summary>
+    public void DemoPlaybackFinished()
+    {
+        if (_phase != LessonPhase.Demo)
+        {
+            return;
+        }
+
+        _demoFinished++;
+        if (_autoRepeatsLeft > 0)
+        {
+            _autoRepeatsLeft--;
+            RequestReplay(ReplayReason.Auto);
+        }
+
+        Changed();
+    }
+
+    /// <summary>
+    /// Ход времени (окно вызывает по таймеру): вспышка эталона → скрытие → пауза → письмо; молчаливая попытка переходит дальше сама.
+    /// </summary>
+    public void Tick()
+    {
+        bool changed = false;
+        while (true)
+        {
+            double elapsed = NowMs() - _phaseStartMs;
+            if (_phase == LessonPhase.Look && elapsed >= Step.FlashMs)
+            {
+                _phase = LessonPhase.Delay;
+                _phaseStartMs = NowMs();
+                StimulusChanged?.Invoke(false);
+                changed = true;
+            }
+            else if (_phase == LessonPhase.Delay && elapsed >= Step.DelayMs)
+            {
+                _phase = LessonPhase.Writing;
+                changed = true;
+            }
+            else if (_phase == LessonPhase.Feedback && _autoAdvance && elapsed >= _content.Config.Feedback.AutoAdvanceMs)
+            {
+                Next();
+                return;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        if (changed)
+        {
+            Changed();
+        }
+    }
+
+    /// <summary>
+    /// Касание пером строки в фазе обратной связи ведёт дальше: первый штрих сразу попадает в новую попытку. Окно вызывает до отрисовки
+    /// пачки; <see cref="OnSamples"/> вызывает то же сам.
+    /// </summary>
+    public void BeginTouch(ReadOnlySpan<PenSample> samples)
+    {
+        if (_phase != LessonPhase.Feedback || !CanNext)
+        {
+            return;
+        }
+
+        foreach (PenSample sample in samples)
+        {
+            if (sample.Phase == PenPhase.Down && !sample.IsAuxiliary)
+            {
+                Next();
+                return;
+            }
+        }
+    }
+
     /// <summary>Точки пера (поверхность, физические px). Принимаются только во время попытки.</summary>
     public void OnSamples(ReadOnlySpan<PenSample> samples)
     {
+        BeginTouch(samples);
         if (_phase != LessonPhase.Writing)
         {
             return;
@@ -374,6 +562,7 @@ public sealed class LessonViewModel : INotifyPropertyChanged
 
             bool firstDown = sample.Phase == PenPhase.Down && _assembler.StrokeCount == 0 && !sample.IsAuxiliary;
             _assembler.Add(sample);
+            _lastSampleUs = Math.Max(_lastSampleUs, sample.TimeUs);
             if (firstDown)
             {
                 CheckLiveStart(sample);
@@ -383,7 +572,7 @@ public sealed class LessonViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// «Заново» (A10, §7.6): холст очищен, попытка продолжается, штрафа нет. Второе нажатие подряд повторяет анимацию с мягким
-    /// «давай посмотрим ещё раз».
+    /// «давай посмотрим ещё раз». Событие несёт время последней точки попытки.
     /// </summary>
     public void Restart()
     {
@@ -393,8 +582,7 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         }
 
         _restarts++;
-        long now = _events.Count > 0 ? _events[^1].TimeUs : 0;
-        _events.Add(new InkEvent(now, InkEvent.Names.RestartButton));
+        _events.Add(new InkEvent(_lastSampleUs, InkEvent.Names.RestartButton));
         _assembler = new StrokeAssembler();
         _noticeKey = null;
         if (_restarts >= _content.Config.Feedback.RestartsBeforeReplay)
@@ -409,7 +597,7 @@ public sealed class LessonViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// «Готово»: оценка попытки в фоне, затем одна подсказка. Пустую попытку не оценивает (подсказка «сначала напиши»).
+    /// «Готово»: оценка попытки в фоне (не дольше таймаута), затем одна подсказка. Пустую попытку не оценивает (подсказка «сначала напиши»).
     /// </summary>
     public async Task DoneAsync()
     {
@@ -446,19 +634,22 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         try
         {
             ILetterEvaluator evaluator = _content.Evaluator;
-            EvaluationResult result = await _runtime.RunBackground(() =>
-                evaluator.Evaluate(new LetterEvaluationRequest(ink, glyph, _content.Style, ToleranceProfile.Learning))).ConfigureAwait(true);
+            TimeSpan timeout = _runtime.EvaluationTimeout ?? TimeSpan.FromMilliseconds(_content.Config.Feedback.EvaluationTimeoutMs);
+            EvaluationResult result = await _runtime
+                .RunBackground(() => evaluator.Evaluate(new LetterEvaluationRequest(ink, glyph, _content.Style, ToleranceProfile.Learning)))
+                .WaitAsync(timeout)
+                .ConfigureAwait(true);
             summary = result.Summary;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // §4.1: исключение в оценщике — попытка без оценки, ребёнок видит «спасибо, дальше».
+            // §4.1: исключение или слишком долгая оценка — попытка без оценки, ребёнок видит «спасибо, дальше».
             LastError = ex.GetType().Name + ": " + ex.Message;
         }
 
         if (generation != _generation)
         {
-            return; // урок перезапущен, пока шла оценка
+            return; // урок перезапущен, пока шла оценка: устаревший результат отброшен
         }
 
         var context = new FeedbackContext(_letter, Step.Code, Step.Level, ElementStatus.Learning, _attemptInStep, _history, _content.Config.Feedback);
@@ -471,8 +662,21 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         _outcomes.Add(new AttemptOutcome(Step.Code, _attemptInStep, summary, plan));
         _plan = plan;
         _highlight = plan.Highlight is { } spec ? TemplateGeometry.Resolve(glyph, spec, plan.Tone) : null;
+        _lastHadProcessError = summary is not null && summary.Findings.Any(f =>
+            f.Kind == FindingKind.Error && _content.Config.Feedback.ProcessCodes.Contains(f.Code));
+        if (plan.CountsAsAttempt)
+        {
+            _stepDone[_stepIndex]++;
+            if (summary is not null && plan.HintKey is null && plan.Reason is FeedbackReason.Praise or FeedbackReason.Clean)
+            {
+                _correctInStep++;
+            }
+        }
+
+        _autoAdvance = !plan.HasMessage && plan.CountsAsAttempt;
+        _phaseStartMs = NowMs();
         _phase = LessonPhase.Feedback;
-        if (plan.Action.HasFlag(FeedbackAction.AddAid) && Step.Kind == StepKind.Copy)
+        if (plan.Action.HasFlag(FeedbackAction.AddAid) && Step.Kind is StepKind.Copy or StepKind.Memory)
         {
             _raisedAidsLeft = _content.Config.Feedback.RaisedAidsAttempts;
         }
@@ -484,9 +688,6 @@ public sealed class LessonViewModel : INotifyPropertyChanged
 
         Changed();
     }
-
-    /// <summary>Последняя ошибка оценщика (для журнала), если была.</summary>
-    public string? LastError { get; private set; }
 
     /// <summary>«Дальше»: следующая попытка, следующий шаг или конец урока.</summary>
     public void Next()
@@ -504,9 +705,10 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         {
             BeginAttempt(isRetry: true); // U0: одна повторная попытка в том же номере
         }
-        else if (_attemptInStep >= Step.Attempts)
+        else if (_attemptInStep >= Step.Attempts
+            || (Step.Kind == StepKind.Trace && _attemptInStep >= Step.MinAttempts && !_lastHadProcessError))
         {
-            EnterStep(_stepIndex + 1);
+            EnterStep(_stepIndex + 1); // обводка: вторая попытка — только после процессной ошибки в первой
         }
         else
         {
@@ -522,6 +724,8 @@ public sealed class LessonViewModel : INotifyPropertyChanged
     {
         _stepIndex = index;
         _demoRequested = false;
+        _correctInStep = 0;
+        _lastHadProcessError = false;
         if (index >= _content.Config.Steps.Length)
         {
             _phase = LessonPhase.Finished;
@@ -536,6 +740,8 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         {
             _phase = LessonPhase.Demo;
             _attemptInStep = 0;
+            _demoFinished = 0;
+            _autoRepeatsLeft = Math.Max(0, step.AutoPlays - 1);
             _plan = null;
             _highlight = null;
             _noticeKey = null;
@@ -550,7 +756,7 @@ public sealed class LessonViewModel : INotifyPropertyChanged
     {
         if (!isRetry)
         {
-            _aidActive = Step.Kind == StepKind.Copy && _raisedAidsLeft > 0;
+            _aidActive = Step.Kind is StepKind.Copy or StepKind.Memory && _raisedAidsLeft > 0;
             if (_aidActive)
             {
                 _raisedAidsLeft--;
@@ -563,8 +769,18 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         _highlight = null;
         _noticeKey = null;
         _demoRequested = false;
-        _phase = LessonPhase.Writing;
+        _autoAdvance = false;
         AttemptStarted?.Invoke(Step, _attemptInStep);
+        if (Step.Kind == StepKind.Memory && !_aidActive)
+        {
+            _phase = LessonPhase.Look; // эталон виден FlashMs, затем скрыт и пауза DelayMs; перо не принимается
+            _phaseStartMs = NowMs();
+            StimulusChanged?.Invoke(true);
+        }
+        else
+        {
+            _phase = LessonPhase.Writing;
+        }
     }
 
     private void ResetInk()
@@ -572,6 +788,7 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         _assembler = new StrokeAssembler();
         _events = ImmutableArray.CreateBuilder<InkEvent>();
         _restarts = 0;
+        _lastSampleUs = 0;
         _rebaser = _runtime.TimeBase == PenTimeBase.MonotonicAbsolute && _runtime.Clock is { } clock ? AttemptTimeRebaser.Start(clock) : null;
     }
 
@@ -584,7 +801,7 @@ public sealed class LessonViewModel : INotifyPropertyChanged
     private void CheckLiveStart(PenSample sample)
     {
         LiveCueSettings cue = _content.Config.LiveCue;
-        if (!cue.Enabled || !Step.LiveCue || _cues >= cue.MaxPerAttempt || _writingFrame is not { } frame)
+        if (!cue.Enabled || !Step.LiveCue || _aidActive || _cues >= cue.MaxPerAttempt || _writingFrame is not { } frame)
         {
             return;
         }
@@ -601,6 +818,16 @@ public sealed class LessonViewModel : INotifyPropertyChanged
         Vec2 start = TemplateGeometry.StartPoint(glyph);
         LiveCuePoint = start;
         LiveCueRaised?.Invoke(start);
+    }
+
+    private double NowMs()
+    {
+        if (_runtime.Clock is { } clock)
+        {
+            return MonotonicTime.ToMicroseconds(clock.Ticks, clock.Frequency) / 1000.0;
+        }
+
+        return Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency;
     }
 
     private string Text(string key, params (string Name, string Value)[] parameters)

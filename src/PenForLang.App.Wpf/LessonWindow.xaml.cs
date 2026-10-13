@@ -26,18 +26,22 @@ namespace PenForLang.App.Wpf;
 public partial class LessonWindow : Window
 {
     private const double HighlightPulsePeriodMs = 900;
+    private const int TickMilliseconds = 50;
 
     private readonly AppOptions _options;
     private readonly QpcMonotonicClock _clock = new();
     private readonly GuidesLayer _guides = new();
+    private readonly GuidesLayer _guidesModel = new() { Opacity = 0.6 };
     private readonly GlyphAnimatorLayer _demo;
     private readonly GlyphAnimatorLayer _underPen;
     private readonly TemplateHighlightLayer _highlight;
     private readonly LiveInkLayer _ink;
     private readonly TemplateHighlightLayer _cue;
+    private readonly TemplateHighlightLayer _startDot;
     private readonly PenWindowHost _host;
     private readonly List<string> _errors = [];
     private readonly DispatcherTimer _exitTimer = new();
+    private readonly DispatcherTimer _tickTimer = new() { Interval = TimeSpan.FromMilliseconds(TickMilliseconds) };
 
     private LessonContent? _content;
     private LessonViewModel? _vm;
@@ -47,6 +51,7 @@ public partial class LessonWindow : Window
     private string? _underPenLetter;
     private bool _demoPending = true;
     private bool _stimulusOpen;
+    private bool _startDotShown;
     private int _attemptSerial;
 
     /// <summary>Создаёт окно.</summary>
@@ -61,9 +66,12 @@ public partial class LessonWindow : Window
         _highlight = new TemplateHighlightLayer(_clock);
         _ink = new LiveInkLayer(_clock, null) { ShowTip = !options.UseMouse, PressureEnabled = false };
         _cue = new TemplateHighlightLayer(_clock);
+        _startDot = new TemplateHighlightLayer(_clock);
+        CanvasHost.Children.Add(_guidesModel);
         CanvasHost.Children.Add(_guides);
         CanvasHost.Children.Add(_underPen);
         CanvasHost.Children.Add(_demo);
+        CanvasHost.Children.Add(_startDot);
         CanvasHost.Children.Add(_highlight);
         CanvasHost.Children.Add(_ink);
         CanvasHost.Children.Add(_cue);
@@ -90,7 +98,12 @@ public partial class LessonWindow : Window
         LayoutUpdated += (_, _) => _host.UpdateSurface();
         DpiChanged += (_, e) => _host.OnDpiChanged(e);
         PreviewKeyDown += OnPreviewKeyDown;
-        _demo.PlaybackFinished += (_, _) => EndStimulus();
+        _demo.PlaybackFinished += (_, _) =>
+        {
+            EndStimulus();
+            _vm?.DemoPlaybackFinished();
+        };
+        _tickTimer.Tick += (_, _) => _vm?.Tick();
         RefreshUi();
     }
 
@@ -106,6 +119,8 @@ public partial class LessonWindow : Window
     internal GlyphAnimatorLayer DemoLayer => _demo;
 
     internal GlyphAnimatorLayer UnderPenLayer => _underPen;
+
+    internal TemplateHighlightLayer StartDotLayer => _startDot;
 
     /// <summary>Ставить окно на монитор пера; UI-тесты выключают до <c>Show</c>.</summary>
     internal bool PlaceOnPenMonitor { get; set; } = true;
@@ -139,6 +154,7 @@ public partial class LessonWindow : Window
         _vm.AttemptStarted += OnAttemptStarted;
         _vm.AttemptRestarted += () => _recorder?.Restart();
         _vm.AttemptFinished += OnAttemptFinished;
+        _vm.StimulusChanged += OnStimulusChanged;
 
         if (_options.Dev)
         {
@@ -151,6 +167,7 @@ public partial class LessonWindow : Window
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         await _host.StartAsync();
+        _tickTimer.Start();
         if (_options.ExitAfter is TimeSpan exitAfter)
         {
             _exitTimer.Interval = exitAfter;
@@ -162,6 +179,7 @@ public partial class LessonWindow : Window
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         _exitTimer.Stop();
+        _tickTimer.Stop();
         _ink.EndAttempt();
         _recorder?.Complete("cancelled");
         _recorder?.Dispose();
@@ -176,6 +194,9 @@ public partial class LessonWindow : Window
         }
 
         ReadOnlySpan<PenSample> span = samples.Span;
+
+        // Касание пером строки в фазе обратной связи ведёт дальше, и первый штрих уже идёт в новой попытке.
+        vm.BeginTouch(span);
         bool accepts = vm.AcceptsInk;
 
         // Живые чернила рисуются первыми (задержка); вне попытки допускается только наведение — маркер кончика пера.
@@ -250,10 +271,15 @@ public partial class LessonWindow : Window
 
         var mapper = new SurfaceMapper(surface, pxPerMm, dpi);
         double xHeightMm = LessonLayout.FitXHeightMm(_options.XHeightMm, surface.HeightPx / pxPerMm, _content.Style);
-        (GuideFrame demo, GuideFrame writing) = SandboxLayout.Frames(mapper, _content.Style, xHeightMm);
+        (GuideFrame demo, GuideFrame writing) = LessonLayout.Frames(mapper, _content.Style, xHeightMm);
+        _guidesModel.Manifest = _content.Style;
+        _guidesModel.DpiScale = dpi;
+        _guidesModel.Guides = demo;
         _guides.Manifest = _content.Style;
         _guides.DpiScale = dpi;
         _guides.Guides = writing;
+        _startDot.DpiScale = dpi;
+        _startDotShown = false;
         _demo.DpiScale = dpi;
         _demo.Guides = demo;
         _underPen.DpiScale = dpi;
@@ -294,7 +320,7 @@ public partial class LessonWindow : Window
     {
         if (_vm is not { } vm)
         {
-            InstructionText.Text = string.Join(' ', _errors);
+            InstructionText.Text = string.Join(' ', DiagnosticLines());
             MessageText.Text = string.Empty;
             foreach (Control control in new Control[] { ShowButton, RestartButton, DoneButton, NextButton, RestartLessonButton, LetterA, LetterI, LetterT })
             {
@@ -305,7 +331,7 @@ public partial class LessonWindow : Window
         }
 
         LanguageButton.Content = vm.T("ui.lang.switch");
-        ShowButton.Content = vm.T(vm.Phase == LessonPhase.Demo ? "ui.show" : "ui.showAgain");
+        ShowButton.Content = vm.T("ui.showAgain");
         RestartButton.Content = vm.T("ui.restart");
         DoneButton.Content = vm.T("ui.done");
         NextButton.Content = vm.T("ui.next");
@@ -325,13 +351,26 @@ public partial class LessonWindow : Window
         ProgressText.Text = vm.TotalAttempts > 0
             ? vm.CompletedAttempts.ToString(CultureInfo.InvariantCulture) + " / " + vm.TotalAttempts.ToString(CultureInfo.InvariantCulture)
             : string.Empty;
-        InstructionText.Text = vm.InstructionText;
+        List<string> diagnostics = DiagnosticLines();
+        InstructionText.Text = diagnostics.Count == 0 ? vm.InstructionText : vm.InstructionText + "  [" + string.Join("; ", diagnostics) + "]";
         string praise = vm.PraiseText;
         MessageText.Text = praise.Length > 0 ? praise : vm.HintText;
         MessageText.Foreground = praise.Length > 0 ? PraiseBrush : HintBrush;
         RecordingBanner.Text = vm.T("ui.recording");
         RecordingBanner.Visibility = _recorder is null ? Visibility.Collapsed : Visibility.Visible;
         RefreshLayers(vm);
+    }
+
+    /// <summary>Ошибки загрузки контента и хоста пера, неизвестные аргументы: разработчик видит их в строке инструкции, а не в пустоте.</summary>
+    private List<string> DiagnosticLines()
+    {
+        List<string> lines = [.. _errors, .. _host.Errors];
+        if (_options.UnknownArguments.Count > 0)
+        {
+            lines.Add("Unknown arguments: " + string.Join(' ', _options.UnknownArguments));
+        }
+
+        return lines;
     }
 
     private static readonly SolidColorBrush PraiseBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x1E, 0x7A, 0x4C)));
@@ -367,7 +406,25 @@ public partial class LessonWindow : Window
             _underPen.Visibility = Visibility.Collapsed;
         }
 
-        // Анимация на линейке показа: показ, копия (эталон рядом, замерший в конце) и повторы по просьбе.
+        // Точка старта на строке письма: письмо по памяти на L2 (на строке видна только она).
+        if (vm.StartDotOnWritingRow && vm.WritingFrame is { } writingFrame)
+        {
+            if (!_startDotShown)
+            {
+                _startDot.Guides = writingFrame;
+                _startDot.ShowDot(TemplateGeometry.StartPoint(_content.GetGlyph(vm.Letter)));
+                _startDotShown = true;
+            }
+        }
+        else if (_startDotShown)
+        {
+            _startDot.Clear();
+            _startDotShown = false;
+        }
+
+        _demo.ShowArrows = vm.ArrowsVisible;
+
+        // Анимация на линейке эталона (над строкой): показ, копия, вспышка по памяти и повторы по просьбе.
         if (vm.DemoVisible)
         {
             if (_demoLetter != vm.Letter || _demo.Visibility != Visibility.Visible)
@@ -407,7 +464,8 @@ public partial class LessonWindow : Window
                     highlight.StartPoint,
                     highlight.Tone == FeedbackTone.Positive ? HighlightColor.Positive : HighlightColor.Warm,
                     HighlightPulsePeriodMs,
-                    0);
+                    HighlightPulsePeriodMs * _content.Config.Feedback.HighlightPulses,
+                    keepStatic: true);
                 _shownHighlight = highlight;
             }
         }
@@ -453,6 +511,25 @@ public partial class LessonWindow : Window
         }
 
         PlayDemo();
+    }
+
+    private void OnStimulusChanged(bool shown)
+    {
+        if (_recorder is null || _vm is null)
+        {
+            return;
+        }
+
+        if (shown)
+        {
+            EndStimulus();
+            _stimulusOpen = true;
+            _recorder.RecordEvent(InkEvent.Names.StimulusStart, new Dictionary<string, string> { ["key"] = "glyph/" + _vm.Letter });
+        }
+        else
+        {
+            EndStimulus();
+        }
     }
 
     private void EndStimulus()

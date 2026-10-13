@@ -26,7 +26,7 @@ namespace PenForLang.App.Wpf.Tests;
 public class LessonWindowUiTests
 {
     [Fact]
-    public void The_scenario_runs_in_the_real_window_from_demo_through_traces_and_copies_to_the_end()
+    public void The_scenario_runs_in_the_real_window_from_show_through_trace_copy_and_memory_to_the_end()
     {
         RunSta(() =>
         {
@@ -36,12 +36,16 @@ public class LessonWindowUiTests
                 LessonViewModel vm = window.ViewModel!;
                 Assert.NotNull(vm.WritingFrame);
                 Assert.Equal(LessonPhase.Demo, vm.Phase);
-                Pump(() => window.DemoLayer.IsPlaying || window.DemoLayer.PositionMs > 0, 5000);
+                window.DemoLayer.Speed = 25; // показ в 25 раз быстрее: тест не ждёт все секунды анимации
+                Assert.Equal(Visibility.Collapsed, window.NextButton.Visibility); // «Дальше» нет до первого полного показа
+                Assert.Contains("назад по кругу", window.MessageText.Text, StringComparison.Ordinal); // словесная метка на показе
+                Pump(() => vm.CanNext, 10000);
                 Shot(window, "01-demo");
                 Assert.Equal(Text("ui.step.demo"), window.InstructionText.Text);
-                Assert.Equal(Visibility.Visible, window.NextButton.Visibility);
+                Assert.Equal(Text("ui.showAgain"), window.ShowButton.Content);
                 Assert.Equal(Visibility.Collapsed, window.DoneButton.Visibility);
                 Assert.True(window.NextButton.ActualHeight >= MmToDip(window, SandboxLayout.TargetMinMm) - 0.5); // цели для пера ≥ 12 мм
+                Assert.True(vm.DemoFrame!.BaselineYPx < vm.WritingFrame!.BaselineYPx); // эталон над строкой
 
                 // Ввод во время показа не принимается: письма нет.
                 Write(window, Ideal("a"));
@@ -50,25 +54,14 @@ public class LessonWindowUiTests
                 Click(window.NextButton);
                 Assert.Equal(LessonPhase.Writing, vm.Phase);
                 Assert.Equal(Visibility.Visible, window.UnderPenLayer.Visibility); // обводка: эталон бледно под пером
-                Assert.Equal(Visibility.Visible, window.DoneButton.Visibility);
-                Shot(window, "02-trace-1-empty");
+                Assert.Equal(Text("ui.step.trace"), window.InstructionText.Text);
+                Shot(window, "02-trace-empty");
 
-                // Обводка 1: чистая. Подсказки нет, похвала процесса.
-                Write(window, Ideal("a"));
-                Assert.True(InkPixels(window) > 500);
-                Shot(window, "03-trace-1-written");
-                FinishAttempt(window);
-                Assert.Equal(LessonPhase.Feedback, vm.Phase);
-                Assert.Equal(Text("praise.process.path"), window.MessageText.Text);
-                Shot(window, "04-trace-1-feedback");
-                Click(window.NextButton);
-                Assert.Equal(0, InkPixels(window)); // «Дальше» очищает холст
-
-                // Обводка 2: неверный старт. Сигнал по ходу письма — мигает точка старта; после «Готово» — одна подсказка с наложением.
+                // Обводка 1: неверный старт. Мигание кольца по ходу письма; после «Готово» — одна подсказка с наложением.
                 Write(window, Mutated("a", SynthMutation.WrongStart), stopAfterPoints: 12);
                 Assert.Equal(1, vm.LiveCueSerial);
                 Assert.True(window.CueLayer.IsPulsing);
-                Shot(window, "05-trace-2-live-cue");
+                Shot(window, "03-trace-live-cue");
                 Write(window, Mutated("a", SynthMutation.WrongStart), skipStrokeStart: 12);
                 FinishAttempt(window);
                 Assert.Equal(FeedbackKeys.Start, vm.Plan!.HintKey);
@@ -76,42 +69,70 @@ public class LessonWindowUiTests
                 Assert.True(window.HighlightLayer.HasContent);
                 Assert.True(window.HighlightLayer.IsPulsing);
                 Assert.Equal(HighlightColor.Warm, window.HighlightLayer.Tone);
-                Shot(window, "06-trace-2-feedback-start");
+                Shot(window, "04-trace-feedback-start");
 
                 // Язык переключается на лету, состояние не меняется.
                 Click(window.LanguageButton);
                 Assert.Equal(Text("fb.start", "en"), window.MessageText.Text);
-                Shot(window, "07-trace-2-feedback-en");
+                Shot(window, "05-trace-feedback-en");
                 Click(window.LanguageButton);
 
-                Click(window.NextButton);
+                // Касание пером строки в обратной связи — это «Дальше»: вторая обводка (в первой была ошибка), первый штрих уже в ней.
+                Write(window, Ideal("a"));
+                Assert.Equal(LessonPhase.Writing, vm.Phase);
+                Assert.Equal(2, vm.AttemptInStep);
                 Assert.False(window.HighlightLayer.HasContent);
+                Assert.True(InkPixels(window) > 500);
+                FinishAttempt(window);
+                Assert.Equal(Text("praise.process.start"), window.MessageText.Text);
+                Assert.Equal(HighlightColor.Positive, window.HighlightLayer.Tone);
+                Shot(window, "06-trace-2-praise");
+                Click(window.NextButton);
 
-                // Обводка 3 и две копии: чисто.
+                // Копия ×3: эталон над строкой; стрелки исчезают после 2-й верной попытки.
+                Assert.Equal(StepKind.Copy, vm.Step.Kind);
+                Assert.Equal(Visibility.Visible, window.DemoLayer.Visibility);
+                Assert.True(window.DemoLayer.ShowArrows);
+                Shot(window, "07-copy-empty");
                 for (int i = 0; i < 3; i++)
                 {
                     Write(window, Ideal("a"));
                     FinishAttempt(window);
-                    if (i == 0)
-                    {
-                        Shot(window, "08-trace-3-feedback");
-                    }
-
-                    Click(window.NextButton);
-                    if (i == 0)
-                    {
-                        Assert.Equal(StepKind.Copy, vm.Step.Kind);
-                        Assert.Equal(Visibility.Collapsed, window.UnderPenLayer.Visibility);
-                        Assert.Equal(Visibility.Visible, window.DemoLayer.Visibility); // копия: эталон рядом
-                        Shot(window, "09-copy-1-empty");
-                    }
+                    GoNext(window);
                 }
 
+                // Письмо по памяти, L2: эталон 2 с над строкой, потом скрыт, пауза, письмо с точкой старта на строке.
+                Assert.Equal(LessonPhase.Look, vm.Phase);
+                Assert.Equal(Text("ui.step.memoryLook"), window.InstructionText.Text);
+                Assert.Equal(Visibility.Visible, window.DemoLayer.Visibility);
+                Write(window, Ideal("a")); // пока эталон виден, перо не принимается
+                Assert.Equal(0, InkPixels(window));
+                Shot(window, "08-memory-look");
+                Pump(() => vm.Phase == LessonPhase.Delay, 5000);
+                Assert.Equal(Visibility.Collapsed, window.DemoLayer.Visibility); // эталон скрыт
+                Shot(window, "09-memory-pause");
+                Pump(() => vm.Phase == LessonPhase.Writing, 5000);
+                Assert.True(window.StartDotLayer.HasContent); // L2: на строке видна точка старта
+                Assert.Equal(Text("ui.step.memoryWriteDot"), window.InstructionText.Text);
+                Shot(window, "10-memory-write-l2");
+                Write(window, Ideal("a"));
+                FinishAttempt(window);
+                Assert.Equal(Visibility.Visible, window.DemoLayer.Visibility); // после попытки эталон рядом со своей записью
+                Shot(window, "11-memory-compare");
+                GoNext(window);
+
+                // L1: без точки старта.
+                Pump(() => vm.Phase == LessonPhase.Writing, 8000);
+                Assert.False(window.StartDotLayer.HasContent);
+                Assert.Equal(Text("ui.step.memoryWrite"), window.InstructionText.Text);
+                Write(window, Ideal("a"));
+                FinishAttempt(window);
+                GoNext(window);
+
                 Assert.Equal(LessonPhase.Finished, vm.Phase);
-                Assert.Equal(5, vm.CompletedAttempts);
                 Assert.Equal(Text("ui.finished"), window.InstructionText.Text);
                 Assert.Equal(Visibility.Visible, window.RestartLessonButton.Visibility);
-                Shot(window, "10-finished");
+                Shot(window, "12-finished");
             }
             finally
             {
@@ -121,7 +142,7 @@ public class LessonWindowUiTests
     }
 
     [Fact]
-    public void A_missing_bar_of_t_is_highlighted_on_the_model_beside_in_the_copy_step()
+    public void A_missing_bar_of_t_is_highlighted_on_the_model_above_the_line_in_the_copy_step()
     {
         RunSta(() =>
         {
@@ -129,13 +150,12 @@ public class LessonWindowUiTests
             try
             {
                 LessonViewModel vm = window.ViewModel!;
+                window.DemoLayer.Speed = 25;
+                Pump(() => vm.CanNext, 10000);
                 Click(window.NextButton);
-                for (int i = 0; i < 3; i++)
-                {
-                    Write(window, Ideal("t"));
-                    FinishAttempt(window);
-                    Click(window.NextButton);
-                }
+                Write(window, Ideal("t"));
+                FinishAttempt(window);
+                GoNext(window);
 
                 Assert.Equal(StepKind.Copy, vm.Step.Kind);
                 Write(window, Mutated("t", SynthMutation.MissingDeferred));
@@ -144,14 +164,51 @@ public class LessonWindowUiTests
                 Assert.Equal(FeedbackKeys.DeferredMissing, vm.Plan!.HintKey);
                 Assert.Contains(Text("part.bar"), window.MessageText.Text, StringComparison.Ordinal);
                 Assert.True(window.HighlightLayer.HasContent);
-                Assert.Same(vm.DemoFrame, window.HighlightLayer.Guides); // подсветка на эталоне рядом (линейка показа)
-                Shot(window, "11-copy-missing-bar");
+                Assert.Same(vm.DemoFrame, window.HighlightLayer.Guides); // подсветка на эталоне над строкой
+                Shot(window, "13-copy-missing-bar");
             }
             finally
             {
                 window.Close();
             }
         });
+    }
+
+    [Fact]
+    public void Content_errors_and_unknown_arguments_are_shown_in_the_instruction_line()
+    {
+        RunSta(() =>
+        {
+            var options = AppOptions.Parse(["--mouse", "--windowed", "--content-dir", Path.Combine(Path.GetTempPath(), "pfl-no-such-content"), "--bogus"]);
+            var window = new LessonWindow(options)
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -20000,
+                Top = 0,
+                ShowActivated = false,
+                PlaceOnPenMonitor = false,
+            };
+            window.Show();
+            try
+            {
+                Pump(() => window.InstructionText.Text.Length > 0, 5000);
+                Assert.Contains("Content not found", window.InstructionText.Text, StringComparison.Ordinal);
+                Assert.Contains("--bogus", window.InstructionText.Text, StringComparison.Ordinal);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    /// <summary>«Дальше» из обратной связи; если молчаливая попытка уже ушла дальше сама — ничего не делает.</summary>
+    private static void GoNext(LessonWindow window)
+    {
+        if (window.ViewModel!.Phase == LessonPhase.Feedback)
+        {
+            Click(window.NextButton);
+        }
     }
 
     private static LessonWindow OpenWindow(params string[] extra)

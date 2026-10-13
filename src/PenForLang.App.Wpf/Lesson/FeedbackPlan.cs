@@ -15,8 +15,11 @@ public static class FeedbackKeys
     /// <summary>P3: неверный порядок штрихов.</summary>
     public const string Order = "fb.order";
 
-    /// <summary>P4 и D3: лишний штрих.</summary>
+    /// <summary>P4: лишний штрих основного следа («попробуй одним движением»).</summary>
     public const string ExtraStroke = "fb.extraStroke";
+
+    /// <summary>D3: лишняя черта (лишний отложенный штрих).</summary>
+    public const string ExtraLine = "fb.extraLine";
 
     /// <summary>P5: пропущенный штрих.</summary>
     public const string MissingStroke = "fb.missingStroke";
@@ -66,19 +69,28 @@ public static class FeedbackKeys
     /// <summary>Похвала: после исправленной формы.</summary>
     public const string PraiseShape = "praise.process.shape";
 
+    /// <summary>Похвала: овал замкнут.</summary>
+    public const string PraiseClosed = "praise.process.closed";
+
+    /// <summary>Похвала: ретрейс по той же линии.</summary>
+    public const string PraiseRetrace = "praise.process.retrace";
+
+    /// <summary>Похвала: буква стоит на линиях.</summary>
+    public const string PraiseLines = "praise.process.lines";
+
     /// <summary>Похвала: первая чистая попытка шага (старт, направление и порядок верны).</summary>
     public const string PraisePath = "praise.process.path";
 
     /// <summary>Все ключи подсказок (без похвалы).</summary>
     public static IReadOnlyList<string> Hints { get; } =
     [
-        Start, Direction, Order, ExtraStroke, MissingStroke, Retrace, Closed, Size, Baseline, Shape,
+        Start, Direction, Order, ExtraStroke, ExtraLine, MissingStroke, Retrace, Closed, Size, Baseline, Shape,
         DeferredMissing, DeferredPlace, Unrecognized, Next, LookAgain,
     ];
 
     /// <summary>Все ключи похвалы.</summary>
     public static IReadOnlyList<string> Praises { get; } =
-        [PraiseStart, PraiseDirection, PraiseOrder, PraiseStrokes, PraiseShape, PraisePath];
+        [PraiseStart, PraiseDirection, PraiseOrder, PraiseStrokes, PraiseShape, PraiseClosed, PraiseRetrace, PraiseLines, PraisePath];
 }
 
 /// <summary>Как показать участок эталона.</summary>
@@ -150,8 +162,11 @@ public enum FeedbackReason
     /// <summary>U0 повторилась: идём дальше без оценки.</summary>
     SkipUnrecognized,
 
-    /// <summary>Оценщик не отработал: попытка без оценки.</summary>
+    /// <summary>Оценщик не отработал или не успел за отведённое время: попытка без оценки.</summary>
     EvaluationFailed,
+
+    /// <summary>Низкая уверенность при решении «цель»: попытка засчитана, без подсказки и похвалы.</summary>
+    LowConfidence,
 }
 
 /// <summary>
@@ -167,6 +182,7 @@ public enum FeedbackReason
 /// <param name="CountsAsAttempt">Попытка засчитывается в шаг; для первой U0 — нет (одна повторная попытка).</param>
 /// <param name="Reason">Причина плана.</param>
 /// <param name="Parameters">Параметры текста (<c>part</c> → <c>dot</c>/<c>bar</c>/<c>cross</c>).</param>
+/// <param name="FadedCode">Младшая не-стоп находка, которая не показана (похвала за исправленное важнее): только для истории.</param>
 public sealed record FeedbackPlan(
     string? HintKey,
     string? PraiseKey,
@@ -176,7 +192,8 @@ public sealed record FeedbackPlan(
     FeedbackTone Tone,
     bool CountsAsAttempt,
     FeedbackReason Reason,
-    ImmutableDictionary<string, string> Parameters)
+    ImmutableDictionary<string, string> Parameters,
+    ErrorCode? FadedCode = null)
 {
     /// <summary>Есть ли что показать ребёнку текстом.</summary>
     public bool HasMessage => HintKey is not null || PraiseKey is not null;

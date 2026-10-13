@@ -43,7 +43,7 @@ public sealed record FeedbackContext(
 /// <list type="bullet">
 /// <item><b>Приоритет:</b> P1/P2, затем P3–P6, F2, D1–D3, F4/F5, F1; остальные находки записываются, но не показываются.</item>
 /// <item><b>D4</b> никогда не даёт подсказки и ошибки: засчитывается без штрафа (решение заказчика).</item>
-/// <item><b>U0</b> и низкая уверенность: нейтральное «давай ещё раз» без ошибки, одна повторная попытка; повтор — дальше без оценки.</item>
+/// <item><b>U0</b>: нейтральное «напиши ещё раз» без ошибки, одна повторная попытка; повтор — дальше без оценки. <b>Низкая уверенность</b> при решении «цель»: попытка засчитана, без подсказки и похвалы.</item>
 /// <item><b>Перегруз:</b> одна подсказка не больше <c>repeatLimit − 1</c> раз подряд; на последнем повторе текст не повторяется, вместо него
 /// «давай посмотрим ещё раз вместе»: анимация заново и опора вверх (§7.4).</item>
 /// <item><b>Затухание:</b> частота по статусу элемента (§7.2); после двух процессных ошибок подряд — на ступень выше.</item>
@@ -61,9 +61,15 @@ public static class MiniFeedback
         HintHistory history = context.History;
         string target = context.Target;
 
-        if (summary.Decision == Decision.Unrecognized || summary.Confidence == Confidence.Low)
+        if (summary.Decision == Decision.Target && summary.Confidence == Confidence.Low)
         {
-            // §4.1: при Confidence.Low или U0 негативных подсказок нет. §7.4: одна повторная попытка, затем дальше без оценки.
+            // Низкая уверенность при решении «цель»: попытка засчитана, негатива нет и похвалы нет, переписывать не просим (§4.1).
+            return FeedbackPlan.Silent(FeedbackReason.LowConfidence);
+        }
+
+        if (summary.Decision == Decision.Unrecognized)
+        {
+            // §4.1: при U0 негативных подсказок нет. §7.4: одна повторная попытка, затем дальше без оценки.
             return history.UnrecognizedStreak(target) < settings.UnrecognizedRetries
                 ? new FeedbackPlan(
                     FeedbackKeys.Unrecognized, null, null, null, FeedbackAction.None, FeedbackTone.Neutral,
@@ -74,6 +80,11 @@ public static class MiniFeedback
         }
 
         List<Candidate> candidates = Candidates(summary);
+        if (candidates.Count > 0 && FixedPraise(candidates, context) is { } fixedPlan)
+        {
+            return fixedPlan;
+        }
+
         if (candidates.Count > 0)
         {
             Candidate top = candidates[0];
@@ -119,7 +130,8 @@ public static class MiniFeedback
         ErrorCode.P1 => FeedbackKeys.Start,
         ErrorCode.P2 => FeedbackKeys.Direction,
         ErrorCode.P3 => FeedbackKeys.Order,
-        ErrorCode.P4 or ErrorCode.D3 => FeedbackKeys.ExtraStroke,
+        ErrorCode.P4 => FeedbackKeys.ExtraStroke,
+        ErrorCode.D3 => FeedbackKeys.ExtraLine,
         ErrorCode.P5 => FeedbackKeys.MissingStroke,
         ErrorCode.P6 => FeedbackKeys.Retrace,
         ErrorCode.F2 => FeedbackKeys.Closed,
@@ -214,6 +226,31 @@ public static class MiniFeedback
         };
     }
 
+    /// <summary>
+    /// Код прошлой подсказки исчез, а остались только младшие не-стоп находки: хвалим исправленное (зелёная подсветка того же участка),
+    /// младшую находку записываем в историю как «затухшую» (§7.2, §7.5).
+    /// </summary>
+    private static FeedbackPlan? FixedPraise(List<Candidate> candidates, FeedbackContext context)
+    {
+        HintRecord? previous = context.History.Last(context.Target);
+        if (previous is not { Reason: FeedbackReason.Hint or FeedbackReason.Overload, Code: { } fixedCode }
+            || PraiseFor(fixedCode) is not { } praise
+            || candidates.Any(c => c.Finding.Code == fixedCode))
+        {
+            return null;
+        }
+
+        int fixedPriority = Priority(fixedCode);
+        if (candidates.Any(c => context.Settings.StopCodes.Contains(c.Finding.Code) || Priority(c.Finding.Code) <= fixedPriority))
+        {
+            return null;
+        }
+
+        return new FeedbackPlan(
+            null, praise, null, previous.Highlight, FeedbackAction.None, FeedbackTone.Positive,
+            CountsAsAttempt: true, FeedbackReason.Praise, ImmutableDictionary<string, string>.Empty, candidates[0].Finding.Code);
+    }
+
     private static FeedbackPlan PlanForCleanAttempt(EvaluationSummary summary, FeedbackContext context)
     {
         HintRecord? previous = context.History.Last(context.Target);
@@ -244,7 +281,10 @@ public static class MiniFeedback
         ErrorCode.P2 => FeedbackKeys.PraiseDirection,
         ErrorCode.P3 => FeedbackKeys.PraiseOrder,
         ErrorCode.P4 or ErrorCode.P5 or ErrorCode.D1 or ErrorCode.D2 or ErrorCode.D3 => FeedbackKeys.PraiseStrokes,
-        ErrorCode.P6 or ErrorCode.F1 or ErrorCode.F2 or ErrorCode.F4 or ErrorCode.F5 => FeedbackKeys.PraiseShape,
+        ErrorCode.P6 => FeedbackKeys.PraiseRetrace,
+        ErrorCode.F2 => FeedbackKeys.PraiseClosed,
+        ErrorCode.F4 or ErrorCode.F5 => FeedbackKeys.PraiseLines,
+        ErrorCode.F1 => FeedbackKeys.PraiseShape,
         _ => null,
     };
 
@@ -253,9 +293,8 @@ public static class MiniFeedback
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(context);
-        bool processError = plan.Reason is FeedbackReason.Hint or FeedbackReason.Overload or FeedbackReason.Faded
-            && plan.Code is { } code
-            && context.Settings.ProcessCodes.Contains(code);
+        ErrorCode? recorded = plan.Reason is FeedbackReason.Hint or FeedbackReason.Overload or FeedbackReason.Faded ? plan.Code : plan.FadedCode;
+        bool processError = recorded is { } code && context.Settings.ProcessCodes.Contains(code);
         return new HintRecord(context.Target, context.StepCode, context.AttemptNo, plan.Reason, plan.HintKey, plan.Code, plan.Highlight, processError);
     }
 

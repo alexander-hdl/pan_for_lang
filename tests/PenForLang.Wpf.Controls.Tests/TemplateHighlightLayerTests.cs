@@ -125,4 +125,94 @@ public class TemplateHighlightLayerTests
             Assert.False(layer.HasContent);
         });
     }
+
+    [Fact]
+    public void The_start_point_stays_green_and_only_the_ring_is_amber_then_the_ring_freezes_after_the_pulses()
+    {
+        Sta.Run(() =>
+        {
+            var clock = new FakeMonotonicClock();
+            GuideFrame frame = Frame(1.0);
+            var layer = new TemplateHighlightLayer(clock) { Guides = frame, DpiScale = 1.0 };
+            var point = new Vec2(0.5, 0.5);
+            layer.Show([], point, HighlightColor.Warm, 800, 2400, keepStatic: true);
+
+            Assert.True(layer.IsPulsing);
+            Assert.True(layer.IsListeningToFrames);
+            (byte[] pulsing, int width, _) = Pixels.Render(layer, 1920, 1080, 1.0);
+            int cx = (int)(frame.OriginXPx + (0.5 * frame.XHeightPx));
+            int cy = (int)(frame.BaselineYPx - (0.5 * frame.XHeightPx));
+            AssertGreenDot(pulsing, width, cx, cy);
+
+            // Кольцо вокруг точки янтарное: найдём закрашенный пиксель за краем точки, он красный/зелёный как янтарь (R заметно больше B).
+            Assert.True(HasAmber(pulsing, width, cx, cy, frame.PxPerMm));
+
+            clock.Advance(TimeSpan.FromMilliseconds(2500)); // три периода прошли
+            layer.FrameTick();
+
+            Assert.False(layer.IsPulsing);
+            Assert.False(layer.IsListeningToFrames); // на кадры композитора больше не подписан
+            Assert.True(layer.HasContent);
+            (byte[] frozen, _, _) = Pixels.Render(layer, 1920, 1080, 1.0);
+            AssertGreenDot(frozen, width, cx, cy);
+            Assert.True(HasAmber(frozen, width, cx, cy, frame.PxPerMm)); // статичное кольцо осталось
+        });
+    }
+
+    [Fact]
+    public void The_layer_listens_to_frames_only_while_pulsing_and_a_plain_dot_has_no_ring()
+    {
+        Sta.Run(() =>
+        {
+            var clock = new FakeMonotonicClock();
+            GuideFrame frame = Frame(1.0);
+            var layer = new TemplateHighlightLayer(clock) { Guides = frame, DpiScale = 1.0 };
+
+            Assert.False(layer.IsListeningToFrames);
+            layer.Show([[new Vec2(0, 0), new Vec2(1, 0)]], null, HighlightColor.Warm, 800, 0); // без точки: мигать нечему
+            Assert.False(layer.IsListeningToFrames);
+
+            layer.Show([], new Vec2(0.5, 0.5), HighlightColor.Warm, 800, 1600);
+            Assert.True(layer.IsListeningToFrames);
+            layer.Clear();
+            Assert.False(layer.IsListeningToFrames);
+
+            layer.ShowDot(new Vec2(0.5, 0.5));
+            Assert.False(layer.IsListeningToFrames);
+            Assert.False(layer.IsPulsing);
+            Assert.True(layer.HasContent);
+            (byte[] data, int width, _) = Pixels.Render(layer, 1920, 1080, 1.0);
+            int cx = (int)(frame.OriginXPx + (0.5 * frame.XHeightPx));
+            int cy = (int)(frame.BaselineYPx - (0.5 * frame.XHeightPx));
+            AssertGreenDot(data, width, cx, cy);
+            Assert.False(HasAmber(data, width, cx, cy, frame.PxPerMm));
+        });
+    }
+
+    private static void AssertGreenDot(byte[] data, int width, int x, int y)
+    {
+        int i = (((y * width) + x) * 4);
+        Assert.True(data[i + 3] > 0xE0, "the dot is opaque");
+        Assert.True(data[i + 1] > data[i + 2] && data[i + 1] > data[i], "BGRA: green must dominate in the dot");
+    }
+
+    /// <summary>Есть ли на кольце (за краем точки радиусом ~2,6 мм) заметно янтарный пиксель: красного заметно больше синего.</summary>
+    private static bool HasAmber(byte[] data, int width, int cx, int cy, double pxPerMm)
+    {
+        int from = (int)(3.0 * pxPerMm);
+        int to = (int)(9.0 * pxPerMm);
+        for (int dx = from; dx <= to; dx++)
+        {
+            foreach ((int ox, int oy) in new[] { (dx, 0), (-dx, 0), (0, dx), (0, -dx) })
+            {
+                int i = ((((cy + oy) * width) + cx + ox) * 4);
+                if (data[i + 3] > 0x20 && data[i + 2] > data[i] + 0x30 && data[i + 2] > data[i + 1])
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
 }

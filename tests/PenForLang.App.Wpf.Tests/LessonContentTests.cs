@@ -5,6 +5,8 @@ using PenForLang.Core;
 using PenForLang.Core.Geometry;
 using PenForLang.Evaluation;
 using PenForLang.Glyphs;
+using PenForLang.Ink;
+using PenForLang.Platform.Windows;
 using static PenForLang.App.Wpf.Tests.LessonTestSupport;
 
 namespace PenForLang.App.Wpf.Tests;
@@ -16,11 +18,20 @@ public class LessonConfigTests
     {
         LessonConfig config = Content.Config;
 
-        Assert.Equal(["E01", "E03", "E04"], config.Steps.Select(s => s.Code));
-        Assert.Equal([StepKind.Demo, StepKind.Trace, StepKind.Copy], config.Steps.Select(s => s.Kind));
-        Assert.Equal([0, 3, 2], config.Steps.Select(s => s.Attempts));
-        Assert.Equal([SupportLevel.L4, SupportLevel.L4, SupportLevel.L3], config.Steps.Select(s => s.Level));
-        Assert.Equal([false, true, false], config.Steps.Select(s => s.LiveCue)); // мягкий сигнал — только при эталоне под пером
+        Assert.Equal(["E01", "E02", "E03", "E04", "E04"], config.Steps.Select(s => s.Code)); // коды по каталогу методики §6.2
+        Assert.Equal([StepKind.Demo, StepKind.Trace, StepKind.Copy, StepKind.Memory, StepKind.Memory], config.Steps.Select(s => s.Kind));
+        Assert.Equal([0, 2, 3, 1, 1], config.Steps.Select(s => s.Attempts));
+        Assert.Equal([0, 1, 3, 1, 1], config.Steps.Select(s => s.MinAttempts)); // обводка: минимум 1, максимум 2
+        Assert.Equal([SupportLevel.L4, SupportLevel.L4, SupportLevel.L3, SupportLevel.L2, SupportLevel.L1], config.Steps.Select(s => s.Level));
+        Assert.Equal([false, true, false, true, false], config.Steps.Select(s => s.LiveCue)); // в копии (L3) мгновенный сигнал выключен
+        Assert.Equal([true, true, true, true, false], config.Steps.Select(s => s.StartDot));
+        Assert.Equal([StepModel.Animated, StepModel.UnderPen, StepModel.Above, StepModel.Flash, StepModel.Flash], config.Steps.Select(s => s.Model));
+        Assert.Equal([2000, 2000], config.Steps.Where(s => s.Kind == StepKind.Memory).Select(s => s.FlashMs));
+        Assert.Equal([1000, 1000], config.Steps.Where(s => s.Kind == StepKind.Memory).Select(s => s.DelayMs));
+        Assert.Equal(2, config.Steps[2].HideArrowsAfterCorrect);
+        Assert.Equal(2, config.Steps[0].AutoPlays);
+        Assert.Equal(2000, config.Feedback.EvaluationTimeoutMs);
+        Assert.InRange(config.Feedback.AutoAdvanceMs, 1500, 2000);
         Assert.Equal(3, config.Feedback.RepeatLimit);
         Assert.Equal(12, config.Feedback.MaxWords);
         Assert.Equal(1, config.Feedback.UnrecognizedRetries);
@@ -46,7 +57,9 @@ public class LessonConfigTests
     {
         string text = File.ReadAllText(Path.Combine(ContentRoot, "config", "lesson.json"));
 
-        Assert.Throws<InvalidDataException>(() => LessonConfig.Parse(text.Replace("\"kind\": \"demo\", \"attempts\": 0", "\"kind\": \"demo\", \"attempts\": 1", StringComparison.Ordinal)));
+        Assert.Throws<InvalidDataException>(() => LessonConfig.Parse(text.Replace("\"kind\": \"demo\", \"level\": \"L4\", \"attempts\": 0", "\"kind\": \"demo\", \"level\": \"L4\", \"attempts\": 1", StringComparison.Ordinal)));
+        Assert.Throws<InvalidDataException>(() => LessonConfig.Parse(text.Replace("\"minAttempts\": 1", "\"minAttempts\": 3", StringComparison.Ordinal)));
+        Assert.Throws<InvalidDataException>(() => LessonConfig.Parse(text.Replace("\"flashMs\": 2000", "\"flashMs\": 0", StringComparison.Ordinal)));
         Assert.Throws<InvalidDataException>(() => LessonConfig.Parse(text.Replace("\"attempts\": 3", "\"attempts\": 0", StringComparison.Ordinal)));
         Assert.Throws<InvalidDataException>(() => LessonConfig.Parse(text.Replace("\"P1\", \"P2\", \"P3\"]", "\"P1\", \"ZZ\"]", StringComparison.Ordinal)));
     }
@@ -66,7 +79,7 @@ public class LocaleCatalogTests
     private static readonly string[] Languages = ["ru", "en"];
 
     private static IEnumerable<string> AllKeys =>
-        [.. FeedbackKeys.Hints, .. FeedbackKeys.Praises, "ui.show", "ui.showAgain", "ui.restart", "ui.done", "ui.next", "ui.restartLesson", "ui.evaluating", "ui.accepted", "ui.writeFirst", "ui.step.demo", "ui.step.trace", "ui.step.copy", "ui.step.copyAided", "ui.finished", "ui.letter", "ui.lang.switch", "part.dot", "part.bar", "part.cross"];
+        [.. FeedbackKeys.Hints, .. FeedbackKeys.Praises, "ui.show", "ui.showAgain", "ui.restart", "ui.done", "ui.next", "ui.restartLesson", "ui.evaluating", "ui.accepted", "ui.writeFirst", "ui.step.demo", "ui.step.trace", "ui.step.copy", "ui.step.memoryLook", "ui.step.memoryWrite", "ui.step.memoryWriteDot", "ui.step.memoryAided", "ui.step.memoryCompare", "ui.finished", "ui.letter", "ui.lang.switch", "part.dot", "part.bar", "part.cross"];
 
     [Fact]
     public void Every_key_the_feedback_can_show_exists_in_both_languages()
@@ -136,6 +149,23 @@ public class LocaleCatalogTests
     }
 
     [Fact]
+    public void Russian_texts_are_gender_neutral_and_the_show_button_has_one_label()
+    {
+        LocaleCatalog ru = Content.Locale("ru");
+        foreach ((string key, LocaleString entry) in ru.Strings)
+        {
+            foreach (string word in new[] { "прошёл", "прошел", "начал ", "шёл", "шел ", "следил", "написал", "молодец" })
+            {
+                Assert.DoesNotContain(word, entry.Text.ToLowerInvariant() + " ", StringComparison.Ordinal);
+            }
+        }
+
+        Assert.Equal(ru.Get("ui.show"), ru.Get("ui.showAgain"));
+        Assert.Equal("Покажи ещё раз", ru.Get("ui.showAgain"));
+        Assert.Equal(Content.Locale("en").Get("ui.show"), Content.Locale("en").Get("ui.showAgain"));
+    }
+
+    [Fact]
     public void Texts_are_substituted_by_placeholder_and_unknown_keys_stay_visible()
     {
         LocaleCatalog ru = Content.Locale("ru");
@@ -154,6 +184,52 @@ public class LocaleCatalogTests
         Assert.Throws<InvalidDataException>(() => LocaleCatalog.Parse("""{ "schema": "pfl.locale/1", "strings": {} }"""));
         Assert.Throws<InvalidDataException>(() => LocaleCatalog.Parse("""{ "schema": "pfl.locale/1", "lang": "ru", "strings": { "a": {} } }"""));
         Assert.Throws<InvalidDataException>(() => LocaleCatalog.Parse("["));
+    }
+}
+
+public class LessonLayoutTests
+{
+    [Fact]
+    public void The_model_row_is_above_the_writing_row_at_the_same_horizontal_position_and_both_fit_the_canvas()
+    {
+        (GuideFrame model, GuideFrame writing) = Frames();
+
+        Assert.Equal(model.OriginXPx, writing.OriginXPx);
+        Assert.Equal(model.XHeightPx, writing.XHeightPx);
+        Assert.Equal(SandboxLayout.LineSpacing * writing.XHeightPx, writing.BaselineYPx - model.BaselineYPx, 6);
+        double xh = writing.XHeightPx;
+        Assert.True(model.BaselineYPx - (2 * xh) >= 0, "the model ascender must fit the canvas");
+        Assert.True(writing.BaselineYPx + xh <= 900, "the writing descender must fit the canvas");
+    }
+
+    [Fact]
+    public void A_small_canvas_shrinks_the_letter_instead_of_clipping_the_two_rows()
+    {
+        StyleManifest style = Content.Style;
+
+        Assert.Equal(15.0, LessonLayout.FitXHeightMm(15.0, 120.0, style));
+        double fitted = LessonLayout.FitXHeightMm(15.0, 60.0, style);
+        Assert.InRange(fitted, LessonLayout.MinXHeightMm, 9.0);
+        Assert.True((6 * fitted) + (2 * LessonLayout.MarginMm) <= 60.0 + 1e-9);
+        Assert.Equal(LessonLayout.MinXHeightMm, LessonLayout.FitXHeightMm(15.0, 10.0, style));
+    }
+
+    [Theory]
+    [InlineData(StepKind.Trace, "E02", "trace", "L4")]
+    [InlineData(StepKind.Copy, "E03", "copy", "L3")]
+    [InlineData(StepKind.Memory, "E04", "memory", "L2")]
+    public void The_penlog_header_carries_the_catalogue_code_and_the_mode_of_the_step(StepKind kind, string code, string mode, string level)
+    {
+        (_, GuideFrame writing) = Frames();
+        LessonStep step = Content.Config.Steps.First(s => s.Kind == kind && s.Code == code && s.Level.ToString() == level);
+        var device = new PenDeviceInfo("test", PenSourceKind.Mouse, null, null, null, false, PenTimestampKind.Qpc);
+
+        PenLogHeader header = LessonLayout.Header("1", "10", device, null, 1.0, 7.5, PxPerMmSource.Default, writing, "a", 3, step, 10_000_000);
+
+        Assert.Equal(code, header.Task!.Exercise);
+        Assert.Equal(mode, header.Task.Mode);
+        Assert.Equal(level, header.Task.Level);
+        Assert.Equal("glyph:a", header.Task.Target);
     }
 }
 
