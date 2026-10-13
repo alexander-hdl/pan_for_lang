@@ -1,0 +1,101 @@
+{
+  "schema": "pfl.config.scoring/1",
+  "version": "0.1.0",
+  "meta": {
+    "task": "V0.7",
+    "status": "engineering starting values; not calibrated on real data (ARCHITECTURE.md 6.7)",
+    "units": "x-height of the ruler unless a key name says Deg or Ms",
+    "ownerNote": "process.startTolerance is also listed under thresholds.json in ARCHITECTURE.md 3.6; until thresholds.json exists the evaluator owns it here (open question)"
+  },
+  "resampleStep": 0.04,
+  "smoothing": { "window": 7, "order": 2 },
+  "preprocess": { "spikeJumpMedianSteps": 8, "dotMaxLength": 0.02, "dotMaxDurationMs": 30, "minPointDistance": 0.015, "smoothHalfWindowMs": 25, "maxResamplePoints": 400, "stepScaleMax": 3.0 },
+  "normalization": {
+    "dominantStrokeShare": 0.5,
+    "deslant": { "enabled": true, "deadbandDeg": 4, "maxDeg": 35, "minRunLength": 0.4, "maxDeviationDeg": 40, "maxSpreadDeg": 12 },
+    "scale": { "enabled": true, "min": 0.6, "max": 1.7, "lowPercentile": 0.25, "highPercentile": 0.75 },
+    "baselineShiftMax": 2.5,
+    "refine": { "enabled": true, "iterations": 3, "keepShare": 0.7, "scaleMin": 0.8, "scaleMax": 1.25, "maxShiftV": 0.6, "minChange": 0.01, "rounds": 2, "rerunAbove": 0.1 }
+  },
+  "dtw": { "positionWeight": 1.0, "directionWeight": 0.1 },
+  "matching": { "extraStrokeCost": 0.3, "missingStrokeCost": 0.3, "minLengthRatio": 0.3, "maxLengthRatio": 3.0 },
+  "profiles": {
+    "learning": { "toleranceScale": 1.0 },
+    "familiar": { "toleranceScale": 1.0 },
+    "mastered": { "toleranceScale": 0.85 },
+    "stable": { "toleranceScale": 0.75 },
+    "sprint": { "toleranceScale": 1.2 },
+    "capital": { "toleranceScale": 1.0 }
+  },
+  "process": {
+    "startTolerance": 0.55,
+    "startArcTolerance": 0.6,
+    "startOnPathTolerance": 0.2,
+    "approach": { "extendLeft": true, "extendRight": 0.9, "tolerance": 0.22, "maxAngleDeg": 90, "minElevationDeg": -10, "overlapMax": 0.4, "overlapTolerance": 0.12, "overlapSkipTail": 0.2, "entryAngleMaxDeg": 35, "ambiguousShare": 0.05, "ambiguousAngleDeg": 5 },
+    "direction": { "reverseCostRatioMax": 0.8, "strongReverseCostRatio": 0.3, "firstSegmentAngleMaxDeg": 60, "firstSegmentLength": 0.2, "minStrokeLength": 0.4, "barMinDirectionalShare": 0.3, "barReverseIsError": false, "rangeAreaMinShare": 0.3 },
+    "strokeCount": { "extraForP4": 1, "extraForStop": 2 },
+    "retrace": { "tolerance": 0.12, "minShareOfReference": 0.6, "minPriorPoints": 5, "minRangePoints": 4, "coveredByExtraShare": 0.5 }
+  },
+  "form": {
+    "corridorTau": 0.15,
+    "minLoopArea": 0.02,
+    "closureWindow": 0.15,
+    "baselineTouchWindow": 0.12,
+    "baselineTouchMaxMismatch": 0.45,
+    "deferredPenalty": { "missing": 1.0, "misplaced": 0.5, "extra": 0.5 },
+    "weights": {
+      "dtwMean": 0.25,
+      "frechet": 0.10,
+      "corridor": 0.15,
+      "coverage": 0.15,
+      "closed": 0.08,
+      "loops": 0.08,
+      "reach": 0.10,
+      "baseline": 0.05,
+      "retrace": 0.08,
+      "strokes": 0.15,
+      "deferred": 0.20,
+      "slant": 0.05
+    },
+    "scores": {
+      "dtwMean": { "toleranceScaled": true, "points": [[0.0, 1.0], [0.05, 1.0], [0.30, 0.0]] },
+      "frechet": { "toleranceScaled": true, "points": [[0.0, 1.0], [0.12, 1.0], [0.60, 0.0]] },
+      "corridor": { "toleranceScaled": false, "points": [[0.40, 0.0], [0.95, 1.0]] },
+      "coverage": { "toleranceScaled": false, "points": [[0.40, 0.0], [0.95, 1.0]] },
+      "closed": { "toleranceScaled": true, "points": [[0.0, 1.0], [0.08, 1.0], [0.40, 0.0]] },
+      "loops": { "toleranceScaled": false, "points": [[0.0, 0.0], [1.0, 1.0]] },
+      "reach": { "toleranceScaled": true, "points": [[0.0, 1.0], [0.10, 1.0], [0.50, 0.0]] },
+      "baseline": { "toleranceScaled": true, "points": [[0.0, 1.0], [0.10, 1.0], [0.40, 0.0]] },
+      "retrace": { "toleranceScaled": false, "points": [[0.20, 0.0], [0.80, 1.0]] },
+      "strokes": { "toleranceScaled": false, "points": [[0.0, 1.0], [1.0, 0.6], [3.0, 0.0]] },
+      "deferred": { "toleranceScaled": false, "points": [[0.0, 1.0], [1.0, 0.0]] },
+      "slant": { "toleranceScaled": true, "points": [[0.0, 1.0], [8.0, 1.0], [30.0, 0.0]] }
+    }
+  },
+  "deferred": {
+    "acceptTiming": "either",
+    "nearU": 0.35,
+    "nearV": 0.25,
+    "nearVUpDot": 0.45,
+    "barMustCrossStem": true,
+    "barCrossTolerance": 0.1,
+    "assignMaxDistance": 1.5,
+    "dotMaxLength": 0.25,
+    "barMinLengthRatio": 0.4,
+    "barMaxLengthRatio": 2.5,
+    "extraMarkMaxLength": 0.9,
+    "extraMarkHorizontalShare": 0.8,
+    "strictTimingSeverity": 0.3
+  },
+  "findings": {
+    "f1DtwMean": 0.12,
+    "f2ClosedGap": 0.15,
+    "f4ReachError": 0.25,
+    "f5BaselineError": 0.2,
+    "f6SlantDeviationDeg": 8,
+    "severityBase": 0.3,
+    "severityFullAtMultiple": 3.0,
+    "fixedSeverity": { "P2": 0.7, "P3": 0.6, "P5": 0.8, "P6": 0.5, "F3": 0.4, "D1": 0.5, "D3": 0.3 }
+  },
+  "confidence": { "unrecognizedMeanDtw": 0.5, "unrecognizedCoverage": 0.25, "unrecognizedInkShare": 0.6, "mediumMeanDtw": 0.2 }
+}

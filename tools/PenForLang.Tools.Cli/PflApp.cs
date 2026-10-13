@@ -17,6 +17,7 @@ public static class PflApp
         var root = new RootCommand(Description);
         root.Subcommands.Add(StyleCommands.CreateValidateCommand());
         root.Subcommands.Add(StyleCommands.CreateRenderCommand());
+        root.Subcommands.Add(EvalCommands.CreateEvalCommand());
         return root;
     }
 
