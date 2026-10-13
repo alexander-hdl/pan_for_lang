@@ -7,6 +7,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PenForLang.Wpf.Controls\PenForLang.Wpf.Controls.csproj" />
+    <!-- FakePenInputSource и FakeMonotonicClock. -->
+    <ProjectReference Include="..\..\tools\PenForLang.Testing\PenForLang.Testing.csproj" />
   </ItemGroup>
 
 </Project>

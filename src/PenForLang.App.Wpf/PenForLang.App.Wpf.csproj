@@ -30,6 +30,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Контент песочницы (V0.6): стиль-пакет zaner-bloser кладётся рядом с exe в content/styles/... при сборке и публикации. -->
+    <None Include="..\..\content\styles\**\*" Link="content\styles\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Запускатели протокола V0 (0-mouse.cmd ... 4-wpf-pointer.cmd) кладутся рядом с exe при сборке и публикации. -->
     <None Include="..\..\build\v0\*.cmd" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

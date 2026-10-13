@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using PenForLang.Ink;
 using PenForLang.Platform.Windows;
+using PenForLang.Wpf.Controls;
 
 namespace PenForLang.App.Wpf;
 
@@ -124,6 +125,36 @@ public sealed record ReportInput
 
     /// <summary>Путь файла отчёта.</summary>
     public string? ReportPath { get; init; }
+
+    /// <summary>Внутренняя задержка «метка точки → Rendering» (V0.6); пусто, если не измерялась.</summary>
+    public RenderLatency Latency { get; init; }
+
+    /// <summary>Штрихов в живых чернилах на момент записи (V0.6).</summary>
+    public int LiveInkStrokes { get; init; }
+
+    /// <summary>Отрезков в живых чернилах на момент записи.</summary>
+    public int LiveInkSegments { get; init; }
+
+    /// <summary>Сколько раз за сеанс включался режим GC <c>SustainedLowLatency</c>.</summary>
+    public int GcLowLatencyActivations { get; init; }
+
+    /// <summary>Число сборок GC поколений 0, 1, 2 за сеанс.</summary>
+    public (int Gen0, int Gen1, int Gen2) GcCollections { get; init; }
+
+    /// <summary>Суммарное время пауз GC.</summary>
+    public TimeSpan GcPause { get; init; }
+
+    /// <summary>Режим разработчика (запись penlog и оверлей).</summary>
+    public bool DevMode { get; init; }
+
+    /// <summary>Папка penlog (<c>null</c> — запись выключена).</summary>
+    public string? PenLogDirectory { get; init; }
+
+    /// <summary>Записанные за сеанс попытки.</summary>
+    public IReadOnlyList<RecordedAttempt> RecordedAttempts { get; init; } = [];
+
+    /// <summary>Ошибка записи penlog.</summary>
+    public string? PenLogError { get; init; }
 }
 
 /// <summary>
@@ -151,6 +182,7 @@ public static class SessionReport
         AppendMonitors(sb, r, inv);
         AppendPointer(sb, r, inv);
         AppendRate(sb, r, inv);
+        AppendLiveInk(sb, r, inv);
         AppendPressure(sb, r, inv);
         AppendButtons(sb, r, inv);
         AppendTargets(sb, r, inv);
@@ -205,6 +237,11 @@ public static class SessionReport
         }
 
         sb.AppendLine(inv, $"- Частота в контакте: медиана **{s.OverallMedianHz:0.0} Гц**, p5 {s.OverallP5Hz:0.0} Гц, интервалов > 12 мс: {s.GapsOverThreshold}, доля coalesced {Share(s.CoalescedSamples, s.TotalSamples):0.0}%");
+        if (!r.Latency.IsEmpty)
+        {
+            sb.AppendLine(inv, $"- Внутренняя задержка «метка точки → Rendering»: среднее **{r.Latency.MeanPointToRenderMs:0.0} мс**, максимум {r.Latency.MaxPointToRenderMs:0.0} мс ({r.Latency.Frames} кадров)");
+        }
+
         sb.AppendLine(inv, $"- Давление в контакте: {s.MinPressure:0.000} .. {s.MaxPressure:0.000}, различных уровней {s.PressureLevels}; наклон {(r.TiltReported ? "сообщается" : "НЕ сообщается")}");
         sb.AppendLine(inv, $"- Кнопки пера замечены: barrel {(s.BarrelSamples > 0 ? "да" : "нет")}, ластик {(s.EraserSamples > 0 ? "да" : "нет")}");
         sb.AppendLine(inv, $"- Тестовая кнопка вне холста нажата пером/мышью: **{(r.ButtonClicks > 0 ? $"да ({r.ButtonClicks})" : "нет")}**");
@@ -323,6 +360,55 @@ public static class SessionReport
             {
                 sb.AppendLine(inv, $"| {st.Index} | {st.Samples} | {st.DurationMs:0} | {st.MedianHz:0.0} | {st.P5Hz:0.0} | {st.CoalescedShare * 100:0} |");
             }
+        }
+
+        sb.AppendLine();
+    }
+
+    private static void AppendLiveInk(StringBuilder sb, ReportInput r, CultureInfo inv)
+    {
+        sb.AppendLine("## Живые чернила и задержка (V0.6)");
+        sb.AppendLine();
+        if (r.Latency.IsEmpty)
+        {
+            sb.AppendLine("- Внутренняя задержка: нет данных (в этом сеансе точки не рисовались или источник не даёт абсолютных меток времени).");
+        }
+        else
+        {
+            RenderLatency l = r.Latency;
+            sb.AppendLine(inv, $"- Внутренняя задержка «метка точки → `CompositionTarget.Rendering`»: среднее **{l.MeanPointToRenderMs:0.0} мс**, максимум {l.MaxPointToRenderMs:0.0} мс, последний кадр {l.LastPointToRenderMs:0.0} мс; кадров с новыми точками {l.Frames}");
+            sb.AppendLine(inv, $"- Из неё на программу («пачка получена → Rendering»): среднее {l.MeanArrivalToRenderMs:0.0} мс, максимум {l.MaxArrivalToRenderMs:0.0} мс. Остальное — часть ОС и драйвера до хука и ожидание кадра");
+            sb.AppendLine("- Это только внутренняя часть «перо → пиксель». Композитор, DWM и панель измеряются камерой 240 fps (клавиша L, раздел «Замер задержки» в `docs/spikes/V0-hardware.md`).");
+        }
+
+        sb.AppendLine(inv, $"- Чернила: штрихов {r.LiveInkStrokes}, отрезков {r.LiveInkSegments}");
+        sb.AppendLine(inv, $"- Режим GC `SustainedLowLatency` на время попытки включался {r.GcLowLatencyActivations} раз; сборок GC (0/1/2): {r.GcCollections.Gen0}/{r.GcCollections.Gen1}/{r.GcCollections.Gen2}, суммарная пауза {r.GcPause.TotalMilliseconds:0.0} мс");
+        sb.AppendLine();
+        sb.AppendLine("### Penlog попыток (dev-режим)");
+        sb.AppendLine();
+        if (!r.DevMode || r.PenLogDirectory is null)
+        {
+            sb.AppendLine("Запись penlog выключена (`--no-dev`).");
+        }
+        else
+        {
+            sb.AppendLine(inv, $"Папка: `{r.PenLogDirectory}`; записано попыток: {r.RecordedAttempts.Count}.");
+            if (r.RecordedAttempts.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("| Цель | Точек | «Заново» | Завершение | Файл |");
+                sb.AppendLine("|---|---|---|---|---|");
+                foreach (RecordedAttempt a in r.RecordedAttempts)
+                {
+                    sb.AppendLine(inv, $"| {a.Target} | {a.Samples} | {a.Restarts} | {a.CompletedBy} | `{a.Path}` |");
+                }
+            }
+        }
+
+        if (r.PenLogError is not null)
+        {
+            sb.AppendLine();
+            sb.AppendLine(inv, $"Ошибка записи penlog: {r.PenLogError}");
         }
 
         sb.AppendLine();
