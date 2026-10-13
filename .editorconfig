@@ -55,3 +55,11 @@ dotnet_naming_style.pascal_case.capitalization = pascal_case
 # Тесты: имена методов вида Method_Scenario_Result допустимы.
 [tests/**/*.cs]
 dotnet_diagnostic.CA1707.severity = none
+
+# F12: в доменных проектах зависимость от текущей культуры — ошибка (CA1304 — CultureInfo, CA1305 — IFormatProvider,
+# CA1310 — StringComparison). WPF-проекты работают без инвариантной глобализации (Directory.Build.targets),
+# поэтому домен обязан указывать культуру и сравнение явно. Наличие правил проверяет Architecture.Tests.
+[src/PenForLang.{Core,Ink,Glyphs,Evaluation,Evaluation.Abstractions,Curriculum,Learner,Lesson,Reporting}/**.cs]
+dotnet_diagnostic.CA1304.severity = error
+dotnet_diagnostic.CA1305.severity = error
+dotnet_diagnostic.CA1310.severity = error
