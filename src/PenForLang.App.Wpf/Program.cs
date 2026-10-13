@@ -12,6 +12,10 @@ public static class Program
         // По умолчанию переключатель включён через runtimeconfig (PenForLang.App.Wpf.csproj); здесь он переопределяется флагом.
         // WPF читает его лениво при первом использовании стилуса, поэтому значение надо задать до создания приложения.
         AppContext.SetSwitch(AppOptions.DisableStylusSwitch, !options.KeepWpfStylus);
+        if (options.WpfPointer)
+        {
+            AppContext.SetSwitch(AppOptions.EnablePointerSupportSwitch, true);
+        }
 
         App.Options = options;
         var app = new App();

@@ -12,6 +12,14 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        DispatcherUnhandledException += (_, args) =>
+        {
+            // Родитель не должен остаться без отчёта: при сбое пишем его до падения.
+            if (MainWindow is MainWindow window)
+            {
+                window.WriteCrashReport(args.Exception);
+            }
+        };
         MainWindow = new MainWindow(Options);
         MainWindow.Show();
     }

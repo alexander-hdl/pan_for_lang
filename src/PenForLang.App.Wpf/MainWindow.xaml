@@ -12,18 +12,49 @@
         Stylus.IsTapFeedbackEnabled="False"
         Stylus.IsTouchFeedbackEnabled="False">
   <Grid>
-    <Grid x:Name="CanvasHost" />
-    <Border HorizontalAlignment="Left"
-            VerticalAlignment="Top"
-            Margin="12"
-            Padding="10"
-            Background="#D9202020"
-            CornerRadius="6"
-            IsHitTestVisible="False">
-      <TextBlock x:Name="PanelText"
-                 FontFamily="Consolas"
-                 FontSize="13"
-                 Foreground="White" />
+    <Grid.RowDefinitions>
+      <!-- Полоса вне холста: прямоугольник холста (PointToScreen) её не включает, поэтому касания здесь не принадлежат источнику пера,
+           уходят в WPF и проверяют «кнопки пером» (необработанные WM_POINTER превращаются в мышь). -->
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <Border Grid.Row="0"
+            Background="#FFE3DCC2"
+            Padding="16,10">
+      <StackPanel Orientation="Horizontal">
+        <Button x:Name="TestButton"
+                Content="Test button - tap it with the pen"
+                FontSize="20"
+                Padding="28,12"
+                Click="OnTestButtonClick" />
+        <TextBlock x:Name="ClickText"
+                   Margin="20,0,0,0"
+                   VerticalAlignment="Center"
+                   FontSize="20"
+                   Text="Clicks: 0" />
+        <TextBlock Margin="20,0,0,0"
+                   VerticalAlignment="Center"
+                   FontSize="14"
+                   Foreground="#FF555555"
+                   Text="(this strip is outside the writing canvas)" />
+      </StackPanel>
     </Border>
+
+    <Grid Grid.Row="1">
+      <Grid x:Name="CanvasHost" />
+      <Border HorizontalAlignment="Left"
+              VerticalAlignment="Top"
+              Margin="12"
+              Padding="10"
+              Background="#D9202020"
+              CornerRadius="6"
+              IsHitTestVisible="False">
+        <TextBlock x:Name="PanelText"
+                   FontFamily="Consolas"
+                   FontSize="13"
+                   Foreground="White" />
+      </Border>
+    </Grid>
   </Grid>
 </Window>

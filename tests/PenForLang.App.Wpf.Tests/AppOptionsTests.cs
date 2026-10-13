@@ -13,8 +13,37 @@ public class AppOptionsTests
         Assert.False(options.UseMouse);
         Assert.False(options.KeepWpfStylus);
         Assert.False(options.Windowed);
+        Assert.False(options.WpfPointer);
         Assert.Null(options.ExitAfter);
+        Assert.Null(options.MonitorIndex);
+        Assert.Null(options.ReportDirectory);
         Assert.Empty(options.UnknownArguments);
+    }
+
+    [Fact]
+    public void Monitor_report_dir_and_wpf_pointer_are_parsed()
+    {
+        AppOptions options = AppOptions.Parse(["--monitor", "2", "--report-dir", "reports/v0", "--wpf-pointer"]);
+
+        Assert.Equal(2, options.MonitorIndex);
+        Assert.Equal("reports/v0", options.ReportDirectory);
+        Assert.True(options.WpfPointer);
+        Assert.True(options.KeepWpfStylus); // EnablePointerSupport работает только при включённом стилусе WPF
+        Assert.Empty(options.UnknownArguments);
+    }
+
+    [Theory]
+    [InlineData("--monitor")]
+    [InlineData("--monitor", "0")]
+    [InlineData("--monitor", "x")]
+    [InlineData("--report-dir")]
+    public void Bad_monitor_or_report_dir_is_reported_not_thrown(params string[] args)
+    {
+        AppOptions options = AppOptions.Parse(args);
+
+        Assert.Null(options.MonitorIndex);
+        Assert.Null(options.ReportDirectory);
+        Assert.Contains(args[0], options.UnknownArguments);
     }
 
     [Fact]
@@ -65,11 +94,25 @@ public class AppOptionsTests
     }
 
     [Fact]
-    public void Project_turns_off_invariant_globalization_because_wpf_text_needs_culture_data()
+    public void Project_does_not_enable_invariant_globalization_because_wpf_text_needs_culture_data()
     {
         // Наблюдалось: при InvariantGlobalization=true WPF падает на первом TextBlock (MS.Internal.FontCache.MajorLanguages).
+        // F12: свойство не задаётся в проекте приложения, а Directory.Build.targets включает его только для не-WPF исполняемых.
         var csproj = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "PenForLang.App.Wpf.csproj"));
 
-        Assert.Equal("false", csproj.Descendants("InvariantGlobalization").Single().Value.Trim());
+        Assert.DoesNotContain(csproj.Descendants("InvariantGlobalization"), e => e.Value.Trim() == "true");
+        Assert.Equal("true", csproj.Descendants("UseWPF").Single().Value.Trim());
+    }
+
+    [Fact]
+    public void Project_publishes_the_launcher_scripts_next_to_the_executable()
+    {
+        var csproj = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "PenForLang.App.Wpf.csproj"));
+
+        XElement? launchers = csproj.Descendants("None")
+            .SingleOrDefault(e => ((string?)e.Attribute("Include"))?.EndsWith("*.cmd", StringComparison.Ordinal) == true);
+
+        Assert.NotNull(launchers);
+        Assert.Equal("PreserveNewest", (string?)launchers.Attribute("CopyToPublishDirectory"));
     }
 }

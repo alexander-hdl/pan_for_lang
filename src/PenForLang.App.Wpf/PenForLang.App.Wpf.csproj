@@ -7,8 +7,6 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Своя точка входа: параметры командной строки (mouse, wpf-stylus и др.) нужны до создания Application. -->
     <StartupObject>PenForLang.App.Wpf.Program</StartupObject>
-    <!-- WPF в режиме инвариантной глобализации падает при первом тексте (MS.Internal.FontCache.MajorLanguages требует культуру en) — выключаем для приложения. -->
-    <InvariantGlobalization>false</InvariantGlobalization>
     <Description>Корень композиции и оболочка приложения (WPF). Per-Monitor V2 DPI задан в app.manifest.</Description>
   </PropertyGroup>
 
@@ -29,6 +27,11 @@
       флаг командной строки wpf-stylus переопределяет значение (см. Program.cs). Работает ли на целевом железе — [не проверено, V0.5/S1].
     -->
     <RuntimeHostConfigurationOption Include="Switch.System.Windows.Input.Stylus.DisableStylusAndTouchSupport" Value="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Запускатели протокола V0 (0-mouse.cmd ... 4-wpf-pointer.cmd) кладутся рядом с exe при сборке и публикации. -->
+    <None Include="..\..\build\v0\*.cmd" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
