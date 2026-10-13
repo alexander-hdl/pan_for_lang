@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using PenForLang.Core;
 using PenForLang.Ink;
@@ -68,6 +69,7 @@ public class PenPointerMessageProcessorTests
     {
         Process(NativeConstants.WmPointerDown, 1, out PenSample[] samples, Pen.Down(1, 300, 200, perf: 0));
 
+        // Первая точка указателя без метки: нет «последнего» времени, берётся «сейчас».
         Assert.Equal(MonotonicTime.ToMicroseconds(_clock.Ticks, _clock.Frequency), samples[0].TimeUs);
         Assert.Equal(SampleFlags.InterpolatedTime, samples[0].Flags);
         Assert.Equal(1, _processor.Diagnostics.TimeFallbackSamples);
@@ -152,15 +154,137 @@ public class PenPointerMessageProcessorTests
     }
 
     [Fact]
-    public void Pointer_leave_while_owned_closes_the_stroke()
+    public void Pointer_enter_and_leave_produce_no_points_only_counters()
+    {
+        Process(NativeConstants.WmPointerDown, 1, out _, Pen.Down(1, 300, 200).WithFrame(10));
+
+        // WM_POINTERLEAVE повторяет последний UPDATE: точек быть не должно, штрих остаётся открытым.
+        bool handled = Process(NativeConstants.WmPointerLeave, 1, out PenSample[] samples, Pen.Hover(1, 305, 205, 1_030_000).WithFrame(11));
+
+        Assert.False(handled);
+        Assert.Empty(samples);
+        Assert.Equal(1, _processor.OwnedCount);
+        Assert.Equal(1, _processor.Diagnostics.EnterLeaveMessages);
+    }
+
+    [Fact]
+    public void Enter_carrying_the_down_frame_does_not_double_the_down()
+    {
+        // F1: ENTER несёт тот же кадр, что и DOWN (frameId совпадает, флаги с POINTER_FLAG_DOWN).
+        NativePointerPenInfo downFrame = Pen.Down(1, 300, 200, perf: 1_000_000).WithFrame(42);
+
+        bool enterHandled = Process(NativeConstants.WmPointerEnter, 1, out PenSample[] fromEnter, downFrame);
+        bool downHandled = Process(NativeConstants.WmPointerDown, 1, out PenSample[] fromDown, downFrame);
+
+        Assert.False(enterHandled);
+        Assert.Empty(fromEnter);
+        Assert.True(downHandled);
+        Assert.Equal(PenPhase.Down, Assert.Single(fromDown).Phase);
+        Assert.Equal(1, _processor.OwnedCount);
+
+        // Сборка штрихов: ровно один штрих, без фантомного штриха из одной точки.
+        var assembler = new StrokeAssembler();
+        assembler.Add(fromEnter);
+        assembler.Add(fromDown);
+        Process(NativeConstants.WmPointerUp, 1, out PenSample[] up, Pen.Up(1, 300, 200, 1_020_000).WithFrame(43));
+        assembler.Add(up);
+        Assert.Single(assembler.ToStrokes());
+    }
+
+    [Fact]
+    public void A_repeated_frame_of_the_same_pointer_is_dropped()
+    {
+        Process(NativeConstants.WmPointerDown, 1, out _, Pen.Down(1, 300, 200).WithFrame(10));
+        Process(NativeConstants.WmPointerUpdate, 1, out PenSample[] first, Pen.Move(1, 310, 200, 1_010_000).WithFrame(11));
+
+        bool handled = Process(NativeConstants.WmPointerUpdate, 1, out PenSample[] repeat, Pen.Move(1, 310, 200, 1_010_000).WithFrame(11));
+
+        Assert.Single(first);
+        Assert.False(handled);
+        Assert.Empty(repeat);
+        Assert.Equal(1, _processor.Diagnostics.DuplicateFrames);
+    }
+
+    [Fact]
+    public void Unknown_frame_id_zero_is_never_treated_as_a_duplicate()
     {
         Process(NativeConstants.WmPointerDown, 1, out _, Pen.Down(1, 300, 200));
+        Process(NativeConstants.WmPointerUpdate, 1, out PenSample[] a, Pen.Move(1, 310, 200, 1_010_000));
+        Process(NativeConstants.WmPointerUpdate, 1, out PenSample[] b, Pen.Move(1, 320, 200, 1_020_000));
 
-        // WM_POINTERLEAVE: контакта нет, флагов DOWN/UP нет.
-        bool handled = Process(NativeConstants.WmPointerLeave, 1, out PenSample[] samples, Pen.Hover(1, 305, 205, 1_030_000));
+        Assert.Single(a);
+        Assert.Single(b);
+        Assert.Equal(0, _processor.Diagnostics.DuplicateFrames);
+    }
+
+    [Fact]
+    public void Missing_time_stamps_are_spread_evenly_between_the_last_time_and_now_monotonically()
+    {
+        var clock = new FakeMonotonicClock(startTicks: 1_000_000, frequency: 10_000_000); // 100_000 мкс
+        var processor = new PenPointerMessageProcessor(_api, clock);
+        processor.SetSurface(Surface);
+        _api.SetHistoryChronological(Pen.Down(1, 300, 200, perf: 1_000_000)); // 100_000 мкс, с меткой
+        processor.TryProcess(NativeConstants.WmPointerDown, 1, out _);
+
+        clock.Advance(3_000_000); // «сейчас» = 400_000 мкс
+        _api.SetHistoryChronological(
+            Pen.Move(1, 310, 200, perf: 0),
+            Pen.Move(1, 320, 200, perf: 0),
+            Pen.Move(1, 330, 200, perf: 0));
+        processor.TryProcess(NativeConstants.WmPointerUpdate, 1, out ReadOnlyMemory<PenSample> memory);
+
+        PenSample[] samples = memory.ToArray();
+        Assert.Equal([200_000L, 300_000L, 400_000L], samples.Select(s => s.TimeUs));
+        Assert.All(samples, s => Assert.Equal(SampleFlags.InterpolatedTime, s.Flags & SampleFlags.InterpolatedTime));
+
+        // Время не убывает, даже если «сейчас» не больше последнего выданного.
+        _api.SetHistoryChronological(Pen.Move(1, 340, 200, perf: 0));
+        processor.TryProcess(NativeConstants.WmPointerUpdate, 1, out ReadOnlyMemory<PenSample> later);
+        Assert.True(later.Span[0].TimeUs >= 400_000);
+    }
+
+    [Fact]
+    public void History_failure_on_an_owned_pointer_falls_back_to_the_single_record_and_stays_handled()
+    {
+        Process(NativeConstants.WmPointerDown, 1, out _, Pen.Down(1, 300, 200));
+        _api.FailHistory = true;
+        _api.Single = Pen.Move(1, 320, 210, perf: 1_050_000);
+
+        bool handled = Process(NativeConstants.WmPointerUpdate, 1, out PenSample[] samples);
 
         Assert.True(handled);
-        Assert.Equal(PenPhase.Up, samples.Single().Phase);
+        Assert.Equal(220.0, Assert.Single(samples).X);
+        Assert.Equal(1, _processor.Diagnostics.HistoryFallbacks);
+        Assert.Equal(1, _processor.Diagnostics.HistoryFailures);
+        Assert.Equal(232, _processor.Diagnostics.LastHistoryError);
+    }
+
+    [Fact]
+    public void History_failure_without_the_fallback_on_an_owned_pointer_still_keeps_the_message_from_wpf()
+    {
+        Process(NativeConstants.WmPointerDown, 1, out _, Pen.Down(1, 300, 200));
+        _api.FailHistory = true;
+        _api.Single = null;
+
+        bool handled = Process(NativeConstants.WmPointerUpdate, 1, out PenSample[] samples);
+
+        Assert.True(handled);
+        Assert.Empty(samples);
+        Assert.Equal(1, _processor.OwnedCount);
+    }
+
+    [Fact]
+    public void History_failure_on_a_pointer_that_is_not_owned_does_not_use_the_fallback()
+    {
+        _api.FailHistory = true;
+        _api.Single = Pen.Move(5, 320, 210, perf: 1_050_000);
+
+        bool handled = Process(NativeConstants.WmPointerUpdate, 5, out PenSample[] samples);
+
+        Assert.False(handled);
+        Assert.Empty(samples);
+        Assert.Equal(0, _api.SingleCalls);
+        Assert.Equal(232, _processor.Diagnostics.LastHistoryError);
     }
 
     [Fact]
@@ -313,6 +437,30 @@ public class PenPointerMessageProcessorTests
         Assert.Equal(64, (int)Marshal.OffsetOf<NativePointerInfo>(nameof(NativePointerInfo.DwTime)));
         Assert.Equal(80, (int)Marshal.OffsetOf<NativePointerInfo>(nameof(NativePointerInfo.PerformanceCount)));
         Assert.Equal(96, (int)Marshal.OffsetOf<NativePointerPenInfo>(nameof(NativePointerPenInfo.PenFlags)));
+    }
+
+    [Fact]
+    public void Device_and_monitor_structs_match_the_documented_layout_on_x64()
+    {
+        if (!Environment.Is64BitProcess)
+        {
+            return;
+        }
+
+        // POINTER_DEVICE_INFO: 4+pad4, HANDLE 8, type 4+pad4, HMONITOR 8, cursorId 4, USHORT 2, WCHAR[520] -> 1080 (кратно 8).
+        Assert.Equal(1080, Unsafe.SizeOf<NativePointerDeviceInfo>());
+        Assert.Equal(8, (int)Marshal.OffsetOf<NativePointerDeviceInfo>(nameof(NativePointerDeviceInfo.Device)));
+        Assert.Equal(16, (int)Marshal.OffsetOf<NativePointerDeviceInfo>(nameof(NativePointerDeviceInfo.PointerDeviceType)));
+        Assert.Equal(24, (int)Marshal.OffsetOf<NativePointerDeviceInfo>(nameof(NativePointerDeviceInfo.Monitor)));
+        Assert.Equal(32, (int)Marshal.OffsetOf<NativePointerDeviceInfo>(nameof(NativePointerDeviceInfo.StartingCursorId)));
+        Assert.Equal(36, (int)Marshal.OffsetOf<NativePointerDeviceInfo>(nameof(NativePointerDeviceInfo.MaxActiveContacts)));
+        Assert.Equal(38, (int)Marshal.OffsetOf<NativePointerDeviceInfo>(nameof(NativePointerDeviceInfo.ProductString)));
+
+        // MONITORINFOEXW: cbSize 4, RECT 16, RECT 16, flags 4, szDevice[32] WCHAR = 64 -> 104.
+        Assert.Equal(104, Unsafe.SizeOf<NativeMonitorInfoEx>());
+        Assert.Equal(4, (int)Marshal.OffsetOf<NativeMonitorInfoEx>(nameof(NativeMonitorInfoEx.Monitor)));
+        Assert.Equal(36, (int)Marshal.OffsetOf<NativeMonitorInfoEx>(nameof(NativeMonitorInfoEx.Flags)));
+        Assert.Equal(40, (int)Marshal.OffsetOf<NativeMonitorInfoEx>(nameof(NativeMonitorInfoEx.Device)));
     }
 
     [Fact]

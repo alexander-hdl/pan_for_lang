@@ -156,4 +156,28 @@ public class PenMonitorSelectorTests
         Assert.Null(choice.Monitor);
         Assert.Equal(PenMonitorChoiceSource.None, choice.Source);
     }
+
+    [Fact]
+    public void Forced_monitor_index_wins_over_everything_else()
+    {
+        PenMonitorChoice choice = PenMonitorSelector.SelectForced(
+            [Main, PenPanel], 1, [Device(11, PointerDeviceKind.IntegratedPen, monitorHandle: 2)]);
+
+        Assert.Same(Main, choice.Monitor);
+        Assert.Equal(PenMonitorChoiceSource.CommandLine, choice.Source);
+        Assert.False(choice.NeedsParentConfirmation);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3)]
+    [InlineData(-1)]
+    public void Forced_index_out_of_range_falls_back_to_the_automatic_choice(int index)
+    {
+        PenMonitorChoice choice = PenMonitorSelector.SelectForced(
+            [Main, PenPanel], index, [Device(11, PointerDeviceKind.IntegratedPen, monitorHandle: 2)]);
+
+        Assert.Same(PenPanel, choice.Monitor);
+        Assert.Equal(PenMonitorChoiceSource.PointerDevice, choice.Source);
+    }
 }

@@ -8,6 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Как в приложении (ADR-003): без переключателя WISP забирает контакт пера, и интерактивные тесты не видят WM_POINTER. Идёт в runtimeconfig теста. -->
+    <RuntimeHostConfigurationOption Include="Switch.System.Windows.Input.Stylus.DisableStylusAndTouchSupport" Value="true" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\PenForLang.Platform.Windows\PenForLang.Platform.Windows.csproj" />
     <!-- FakeMonotonicClock (10 МГц, ~месяц аптайма) для проверки переполнений при переводе времени. -->
     <ProjectReference Include="..\..\tools\PenForLang.Testing\PenForLang.Testing.csproj" />

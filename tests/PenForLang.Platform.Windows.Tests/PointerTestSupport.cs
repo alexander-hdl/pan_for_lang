@@ -15,6 +15,20 @@ internal sealed class FakePointerApi : IPointerApi
 
     public bool FailHistory { get; set; }
 
+    /// <summary>Запись для <c>GetPointerPenInfo</c> (запасной путь F5); <c>null</c> — вызов не удаётся.</summary>
+    public NativePointerPenInfo? Single { get; set; }
+
+    public int LastError { get; set; }
+
+    public int SingleCalls { get; private set; }
+
+    public bool TryGetPenInfo(uint pointerId, out NativePointerPenInfo info)
+    {
+        SingleCalls++;
+        info = Single ?? default;
+        return Single is not null;
+    }
+
     public int HistoryCalls { get; private set; }
 
     public bool TryGetPointerType(uint pointerId, out uint pointerType)
@@ -28,6 +42,7 @@ internal sealed class FakePointerApi : IPointerApi
         HistoryCalls++;
         if (FailHistory)
         {
+            LastError = 232; // ERROR_NO_DATA
             return false;
         }
 
@@ -70,6 +85,12 @@ internal static class Pen
 
     public static NativePointerPenInfo Hover(uint id, int x, int y, ulong perf) =>
         Make(id, NativeConstants.PointerFlagInRange | NativeConstants.PointerFlagUpdate, x, y, perf, 0);
+
+    public static NativePointerPenInfo WithFrame(this NativePointerPenInfo info, uint frameId)
+    {
+        info.PointerInfo.FrameId = frameId;
+        return info;
+    }
 
     public static NativePointerPenInfo Make(uint id, uint pointerFlags, int x, int y, ulong perf, uint pressure) =>
         new()

@@ -66,13 +66,12 @@ internal static class PenSampleConverter
     /// </summary>
     /// <param name="performanceCount">Поле <c>POINTER_INFO.PerformanceCount</c>; 0 — ОС метку не дала.</param>
     /// <param name="frequency">Частота QPC, Гц.</param>
-    /// <param name="fallbackTicks">Тики QPC в момент обработки сообщения — подставляются, если метки нет.</param>
-    /// <param name="usedFallback">Метки не было, время взято из <paramref name="fallbackTicks"/>.</param>
-    public static long ToAbsoluteMicroseconds(ulong performanceCount, long frequency, long fallbackTicks, out bool usedFallback)
+    /// <param name="fallbackTimeUs">Абсолютное время в мкс, подставляемое, если метки нет (вычисляет вызывающий, F4).</param>
+    /// <param name="usedFallback">Метки не было, время взято из <paramref name="fallbackTimeUs"/>.</param>
+    public static long ToAbsoluteMicroseconds(ulong performanceCount, long frequency, long fallbackTimeUs, out bool usedFallback)
     {
         usedFallback = performanceCount == 0 || performanceCount > long.MaxValue;
-        long ticks = usedFallback ? fallbackTicks : (long)performanceCount;
-        return MonotonicTime.ToMicroseconds(ticks, frequency);
+        return usedFallback ? fallbackTimeUs : MonotonicTime.ToMicroseconds((long)performanceCount, frequency);
     }
 
     /// <summary>
@@ -83,17 +82,17 @@ internal static class PenSampleConverter
     /// <param name="surfaceOriginXPx">Левый край холста на экране, физические px.</param>
     /// <param name="surfaceOriginYPx">Верхний край холста на экране, физические px.</param>
     /// <param name="frequency">Частота QPC, Гц.</param>
-    /// <param name="fallbackTicks">Тики QPC «сейчас» на случай отсутствия метки времени.</param>
+    /// <param name="fallbackTimeUs">Время в мкс на случай отсутствия метки (см. <see cref="PenPointerMessageProcessor"/>, F4).</param>
     /// <param name="coalesced">Запись — не новейшая в сообщении (история), помечается <see cref="SampleFlags.Coalesced"/>.</param>
     public static PenSample Convert(
         in NativePointerPenInfo info,
         double surfaceOriginXPx,
         double surfaceOriginYPx,
         long frequency,
-        long fallbackTicks,
+        long fallbackTimeUs,
         bool coalesced)
     {
-        long timeUs = ToAbsoluteMicroseconds(info.PointerInfo.PerformanceCount, frequency, fallbackTicks, out bool usedFallback);
+        long timeUs = ToAbsoluteMicroseconds(info.PointerInfo.PerformanceCount, frequency, fallbackTimeUs, out bool usedFallback);
 
         SampleFlags flags = SampleFlags.None;
         if (coalesced)

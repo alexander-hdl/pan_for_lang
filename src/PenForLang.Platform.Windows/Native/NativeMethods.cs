@@ -15,6 +15,24 @@ internal static unsafe partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetPointerType(uint pointerId, out uint pointerType);
 
+    // https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getpointerpeninfo
+    [LibraryImport(User32, EntryPoint = "GetPointerPenInfo", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetPointerPenInfo(uint pointerId, out NativePointerPenInfo penInfo);
+
+    // https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-windowfrompoint (точка — по значению)
+    [LibraryImport(User32, EntryPoint = "WindowFromPoint")]
+    internal static partial nint WindowFromPoint(NativePoint point);
+
+    // https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getancestor
+    [LibraryImport(User32, EntryPoint = "GetAncestor")]
+    internal static partial nint GetAncestor(nint hwnd, uint flags);
+
+    // https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowrect
+    [LibraryImport(User32, EntryPoint = "GetWindowRect")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetWindowRect(nint hwnd, out NativeRect rect);
+
     // https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getpointerpeninfohistory
     // История приходит в обратном хронологическом порядке (новейшая — первая); entriesCount — in/out.
     [LibraryImport(User32, EntryPoint = "GetPointerPenInfoHistory", SetLastError = true)]

@@ -69,10 +69,15 @@ internal static class NativeConstants
     public const int VertSize = 6;
 
     // --- SetWindowPos ---
+    public const uint SwpNoSize = 0x0001;
+    public const uint SwpNoMove = 0x0002;
     public const uint SwpNoZOrder = 0x0004;
     public const uint SwpNoActivate = 0x0010;
     public const uint SwpFrameChanged = 0x0020;
     public const uint SwpShowWindow = 0x0040;
+
+    /// <summary>GA_ROOT для GetAncestor.</summary>
+    public const uint GaRoot = 2;
 
     /// <summary>HWND_TOPMOST = (HWND)-1.</summary>
     public static readonly nint HwndTopmost = -1;

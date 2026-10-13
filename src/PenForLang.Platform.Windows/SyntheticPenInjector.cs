@@ -40,18 +40,8 @@ internal sealed class SyntheticPenInjector : IDisposable
     }
 
     /// <summary>Наведение пера в точке (без контакта).</summary>
-    public bool Hover(int xPx, int yPx)
-    {
-        uint flags = NativeConstants.PointerFlagInRange | NativeConstants.PointerFlagUpdate;
-        if (!_arrived)
-        {
-            // Первое сообщение нового указателя несёт POINTER_FLAG_NEW (появление в зоне).
-            flags |= NativeConstants.PointerFlagNew;
-            _arrived = true;
-        }
-
-        return Inject(xPx, yPx, pressure: 0, flags);
-    }
+    public bool Hover(int xPx, int yPx) =>
+        Inject(xPx, yPx, pressure: 0, NativeConstants.PointerFlagInRange | NativeConstants.PointerFlagUpdate);
 
     /// <summary>Касание.</summary>
     public bool Down(int xPx, int yPx, uint pressure) =>
@@ -84,6 +74,13 @@ internal sealed class SyntheticPenInjector : IDisposable
 
     private bool Inject(int xPx, int yPx, uint pressure, uint flags)
     {
+        if (!_arrived)
+        {
+            // Первое сообщение нового указателя (и hover, и сразу Down без наведения) несёт POINTER_FLAG_NEW.
+            flags |= NativeConstants.PointerFlagNew;
+            _arrived = true;
+        }
+
         var info = new NativePointerTypeInfoPen { Type = PtPen };
         info.PenInfo.PointerInfo.PointerType = PtPen;
         info.PenInfo.PointerInfo.PointerId = 0;

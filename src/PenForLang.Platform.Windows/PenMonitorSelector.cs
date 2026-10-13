@@ -67,6 +67,9 @@ public enum PenMonitorChoiceSource
     /// <summary>Мониторов нет.</summary>
     None,
 
+    /// <summary>Монитор задан параметром командной строки <c>--monitor N</c>.</summary>
+    CommandLine,
+
     /// <summary>Устройство пера, отображённое на монитор (<c>GetPointerDevices</c>) — основной путь.</summary>
     PointerDevice,
 
@@ -161,6 +164,25 @@ public static class PenMonitorSelector
         // 3. Основной монитор (при его отсутствии в списке — первый).
         MonitorDescription primary = monitors.FirstOrDefault(m => m.IsPrimary) ?? monitors[0];
         return new PenMonitorChoice(primary, PenMonitorChoiceSource.PrimaryFallback, null, monitors.Count);
+    }
+
+    /// <summary>
+    /// Принудительный выбор (<c>--monitor N</c>): монитор с номером <paramref name="oneBasedIndex"/> в списке. Если номер вне списка —
+    /// обычный выбор (<see cref="Select"/>).
+    /// </summary>
+    public static PenMonitorChoice SelectForced(
+        IReadOnlyList<MonitorDescription> monitors,
+        int oneBasedIndex,
+        IReadOnlyList<PointerDeviceDescription> devices)
+    {
+        ArgumentNullException.ThrowIfNull(monitors);
+        ArgumentNullException.ThrowIfNull(devices);
+        if (oneBasedIndex < 1 || oneBasedIndex > monitors.Count)
+        {
+            return Select(devices, monitors);
+        }
+
+        return new PenMonitorChoice(monitors[oneBasedIndex - 1], PenMonitorChoiceSource.CommandLine, null, 1);
     }
 
     /// <summary>Монитор похож на экран пера: 1920×1080 px и ≈256×144 мм.</summary>

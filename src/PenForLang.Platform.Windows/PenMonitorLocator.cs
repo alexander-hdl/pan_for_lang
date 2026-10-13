@@ -12,8 +12,14 @@ namespace PenForLang.Platform.Windows;
 public static class PenMonitorLocator
 {
     /// <summary>Опрашивает систему и выбирает монитор пера.</summary>
-    public static PenMonitorChoice Locate() =>
-        PenMonitorSelector.Select(EnumeratePointerDevices(), EnumerateMonitors());
+    /// <param name="forcedMonitorIndex">Принудительный монитор: номер (с 1) в порядке <see cref="EnumerateMonitors"/>; <c>null</c> — автоматический выбор.</param>
+    public static PenMonitorChoice Locate(int? forcedMonitorIndex = null)
+    {
+        IReadOnlyList<MonitorDescription> monitors = EnumerateMonitors();
+        return forcedMonitorIndex is int index
+            ? PenMonitorSelector.SelectForced(monitors, index, EnumeratePointerDevices())
+            : PenMonitorSelector.Select(EnumeratePointerDevices(), monitors);
+    }
 
     /// <summary>Все устройства-указатели (<c>GetPointerDevices</c>); пустой список, если API недоступен или устройств нет.</summary>
     public static IReadOnlyList<PointerDeviceDescription> EnumeratePointerDevices()
@@ -74,8 +80,23 @@ public static class PenMonitorLocator
         return monitors;
     }
 
+    // Исключение, вышедшее из UnmanagedCallersOnly, роняет процесс (F6): любой сбой — остановка перечисления.
     [UnmanagedCallersOnly]
     private static unsafe int OnMonitor(nint monitor, nint hdc, NativeRect* rect, nint data)
+    {
+        try
+        {
+            return OnMonitorCore(monitor, data);
+        }
+#pragma warning disable CA1031 // Callback из нативного кода не вправе выпускать исключения.
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            return 0;
+        }
+    }
+
+    private static unsafe int OnMonitorCore(nint monitor, nint data)
     {
         var list = (List<MonitorDescription>)GCHandle.FromIntPtr(data).Target!;
 

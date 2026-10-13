@@ -59,7 +59,7 @@ public class PenSampleConverterTests
     {
         // 30 суток на 10 МГц = 2,592e13 тиков; тики * 1e6 переполнили бы long.
         ulong ticks = 30UL * 24 * 3600 * 10_000_000 + 3;
-        long us = PenSampleConverter.ToAbsoluteMicroseconds(ticks, 10_000_000, fallbackTicks: 0, out bool fallback);
+        long us = PenSampleConverter.ToAbsoluteMicroseconds(ticks, 10_000_000, fallbackTimeUs: 0, out bool fallback);
 
         Assert.False(fallback);
         Assert.Equal((30L * 24 * 3600 * 1_000_000) + 0, us); // 3 тика = 0,3 мкс, округление вниз
@@ -69,7 +69,7 @@ public class PenSampleConverterTests
     public void Time_conversion_handles_a_non_decimal_frequency()
     {
         // 3,0 МГц: 7 тиков = 2,333 мкс -> 2.
-        long us = PenSampleConverter.ToAbsoluteMicroseconds(7, 3_000_000, fallbackTicks: 0, out _);
+        long us = PenSampleConverter.ToAbsoluteMicroseconds(7, 3_000_000, fallbackTimeUs: 0, out _);
         Assert.Equal(2, us);
     }
 
@@ -78,7 +78,7 @@ public class PenSampleConverterTests
     {
         NativePointerPenInfo info = Pen.Down(4, x: 1234, y: 777, perf: 20_000_000, pressure: 256);
 
-        PenSample sample = PenSampleConverter.Convert(in info, 1000.5, 500, 10_000_000, fallbackTicks: 0, coalesced: false);
+        PenSample sample = PenSampleConverter.Convert(in info, 1000.5, 500, 10_000_000, fallbackTimeUs: 0, coalesced: false);
 
         Assert.Equal(233.5, sample.X);
         Assert.Equal(277.0, sample.Y);

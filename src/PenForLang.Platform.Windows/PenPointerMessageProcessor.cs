@@ -14,7 +14,11 @@ namespace PenForLang.Platform.Windows;
 /// <param name="Samples">Выдано точек.</param>
 /// <param name="CoalescedSamples">Из них из истории (флаг <see cref="SampleFlags.Coalesced"/>).</param>
 /// <param name="ClippedSamples">Точек с флагом <see cref="SampleFlags.Clipped"/>.</param>
-/// <param name="TimeFallbackSamples">Точек без метки <c>PerformanceCount</c> (время взято по часам обработки).</param>
+/// <param name="TimeFallbackSamples">Точек без метки <c>PerformanceCount</c> (время распределено между последним выданным и «сейчас»).</param>
+/// <param name="EnterLeaveMessages">Сообщения ENTER/LEAVE: только считаются, точек не дают (F1).</param>
+/// <param name="DuplicateFrames">Записи, отброшенные как повтор кадра (тот же <c>frameId</c>, что у последней обработанной записи указателя).</param>
+/// <param name="HistoryFallbacks">Сколько раз сбой истории у владеемого указателя был заменён одиночным <c>GetPointerPenInfo</c> (F5).</param>
+/// <param name="LastHistoryError">Код Win32 последнего сбоя <c>GetPointerPenInfoHistory</c> (0 — сбоев не было).</param>
 public readonly record struct PointerDiagnostics(
     long PointerMessages,
     long PenMessages,
@@ -25,7 +29,11 @@ public readonly record struct PointerDiagnostics(
     long Samples,
     long CoalescedSamples,
     long ClippedSamples,
-    long TimeFallbackSamples);
+    long TimeFallbackSamples,
+    long EnterLeaveMessages,
+    long DuplicateFrames,
+    long HistoryFallbacks,
+    int LastHistoryError);
 
 /// <summary>
 /// Обработка сообщений <c>WM_POINTER</c> пера без окна: история → хронологический порядок → <see cref="PenSample"/> →
@@ -37,10 +45,18 @@ public readonly record struct PointerDiagnostics(
 /// обработанным и не отдаёт его дальше в WPF. Для не-перьевых указателей, указателей вне холста и пока поверхность не задана
 /// результат <c>false</c>. <c>WM_POINTERCAPTURECHANGED</c> никогда не помечается обработанным, но владение снимается,
 /// а открытый штрих закрывается синтетической точкой <see cref="PenPhase.Up"/>.</para>
+/// <para><b>ENTER/LEAVE (F1).</b> <c>WM_POINTERENTER</c> несёт тот же кадр, что и <c>WM_POINTERDOWN</c> (тот же <c>frameId</c>,
+/// флаги с <c>POINTER_FLAG_DOWN</c>), а <c>WM_POINTERLEAVE</c> повторяет последний UPDATE; точки из них дали бы двойной Down и
+/// фантомные штрихи из одной точки. Поэтому эти сообщения только считаются (<see cref="PointerDiagnostics.EnterLeaveMessages"/>)
+/// и не обрабатываются. Дополнительно запись с <c>frameId</c>, равным <c>frameId</c> последней обработанной записи того же
+/// указателя, отбрасывается (<c>frameId</c> = 0 — «неизвестен», проверка не применяется).</para>
 /// <para><b>История.</b> <c>GetPointerPenInfoHistory</c> отдаёт записи от новейшей к старейшей и теряет их после следующего
 /// сообщения потока, поэтому вызывается прямо в хуке. Записи разворачиваются в хронологический порядок; все, кроме новейшей,
 /// получают <see cref="SampleFlags.Coalesced"/>. Если записей больше размера буфера, буфер увеличивается и вызов повторяется
-/// (ОС при нехватке места отдаёт только новейшие); в установившемся режиме аллокаций нет.</para>
+/// (ОС при нехватке места отдаёт только новейшие); в установившемся режиме аллокаций нет. Если история недоступна у владеемого
+/// указателя (F5), читается одиночная запись <c>GetPointerPenInfo</c>, а сообщение всё равно считается принадлежащим холсту.</para>
+/// <para><b>Время без метки (F4).</b> Если у записей нет <c>PerformanceCount</c>, их время распределяется равномерно между
+/// последним выданным временем указателя и «сейчас» с монотонным <c>max</c>; помечается <see cref="SampleFlags.InterpolatedTime"/>.</para>
 /// <para>Не потокобезопасен: вызывается из потока окна. Возвращаемая память живёт до следующего вызова.</para>
 /// </remarks>
 internal sealed class PenPointerMessageProcessor
@@ -51,6 +67,8 @@ internal sealed class PenPointerMessageProcessor
     private readonly IMonotonicClock _clock;
     private readonly PointerOwnership _ownership = new(1, 1);
     private readonly Dictionary<uint, PenSample> _lastOwned = [];
+    private readonly Dictionary<uint, uint> _lastFrame = [];
+    private readonly Dictionary<uint, long> _lastTimeUs = [];
 
     private NativePointerPenInfo[] _history = new NativePointerPenInfo[InitialCapacity];
     private PenSample[] _batch = new PenSample[InitialCapacity + 1];
@@ -105,6 +123,8 @@ internal sealed class PenPointerMessageProcessor
     {
         _ownership.Reset();
         _lastOwned.Clear();
+        _lastFrame.Clear();
+        _lastTimeUs.Clear();
     }
 
     /// <summary>
@@ -130,8 +150,16 @@ internal sealed class PenPointerMessageProcessor
             return ProcessCaptureChanged(pointerId, out samples);
         }
 
+        if (message is NativeConstants.WmPointerEnter or NativeConstants.WmPointerLeave)
+        {
+            // F1: ENTER повторяет кадр DOWN, LEAVE — последний UPDATE; точек они не дают.
+            _diagnostics = _diagnostics with { EnterLeaveMessages = _diagnostics.EnterLeaveMessages + 1 };
+            return false;
+        }
+
         // Владеемый указатель — заведомо перо; для остальных проверяем тип (мышь и касание уходят в WPF).
-        if (!_ownership.IsOwned(pointerId))
+        bool owned = _ownership.IsOwned(pointerId);
+        if (!owned)
         {
             if (!_api.TryGetPointerType(pointerId, out uint type) || type != NativeConstants.PtPen)
             {
@@ -146,19 +174,37 @@ internal sealed class PenPointerMessageProcessor
             return false;
         }
 
-        int count = ReadHistoryChronologically(pointerId);
+        int count = ReadHistoryChronologically(pointerId, owned, out bool ownedFallback);
         if (count == 0)
         {
-            return false;
+            // F5: у владеемого указателя сообщение всё равно наше (иначе WPF превратит его в мышиное и порвёт штрих).
+            return ownedFallback;
         }
 
-        long fallbackTicks = _clock.Ticks;
+        long nowTicks = _clock.Ticks;
+        long nowUs = MonotonicTime.ToMicroseconds(nowTicks, _clock.Frequency);
+        bool haveLast = _lastTimeUs.TryGetValue(pointerId, out long lastUs);
         int accepted = 0;
         for (int i = 0; i < count; i++)
         {
+            ref readonly NativePointerPenInfo info = ref _history[i];
+
+            uint frame = info.PointerInfo.FrameId;
+            if (frame != 0 && _lastFrame.TryGetValue(pointerId, out uint lastFrame) && lastFrame == frame)
+            {
+                _diagnostics = _diagnostics with { DuplicateFrames = _diagnostics.DuplicateFrames + 1 };
+                continue;
+            }
+
+            _lastFrame[pointerId] = frame;
+
+            // F4: равномерное распределение между последним выданным временем указателя и «сейчас», монотонно.
+            long fallbackUs = haveLast
+                ? Math.Max(lastUs, lastUs + (long)((double)(nowUs - lastUs) * (i + 1) / count))
+                : nowUs;
             bool newest = i == count - 1;
             PenSample sample = PenSampleConverter.Convert(
-                in _history[i], surface.OriginXPx, surface.OriginYPx, _clock.Frequency, fallbackTicks, coalesced: !newest);
+                in info, surface.OriginXPx, surface.OriginYPx, _clock.Frequency, fallbackUs, coalesced: !newest);
 
             if (!_ownership.TryProcess(sample, out PenSample result))
             {
@@ -171,8 +217,14 @@ internal sealed class PenPointerMessageProcessor
             }
 
             TrackOwned(result);
+            _lastTimeUs[pointerId] = result.TimeUs;
+            if (result.Phase == PenPhase.Up)
+            {
+                _lastFrame.Remove(pointerId);
+            }
+
             _batch[accepted++] = result;
-            Count(result, in _history[i]);
+            Count(result, in info);
         }
 
         if (accepted == 0)
@@ -190,6 +242,8 @@ internal sealed class PenPointerMessageProcessor
         samples = ReadOnlyMemory<PenSample>.Empty;
         bool wasOwned = _ownership.IsOwned(pointerId);
         _ownership.Release(pointerId);
+        _lastFrame.Remove(pointerId);
+        _lastTimeUs.Remove(pointerId);
 
         // Потеря захвата посреди штриха: закрываем его точкой Up, иначе сборщик штрихов оставит штрих открытым.
         if (wasOwned && _lastOwned.Remove(pointerId, out PenSample last))
@@ -209,14 +263,17 @@ internal sealed class PenPointerMessageProcessor
         return false;
     }
 
-    /// <summary>Читает историю и разворачивает её в хронологический порядок; возвращает число записей в <c>_history</c>.</summary>
-    private int ReadHistoryChronologically(uint pointerId)
+    /// <summary>
+    /// Читает историю и разворачивает её в хронологический порядок; возвращает число записей в <c>_history</c>.
+    /// При сбое у владеемого указателя читает одиночную запись (F5).
+    /// </summary>
+    private int ReadHistoryChronologically(uint pointerId, bool owned, out bool ownedFallback)
     {
+        ownedFallback = false;
         uint total = (uint)_history.Length;
         if (!_api.TryGetPenInfoHistory(pointerId, _history, ref total))
         {
-            _diagnostics = _diagnostics with { HistoryFailures = _diagnostics.HistoryFailures + 1 };
-            return 0;
+            return HandleHistoryFailure(pointerId, owned, out ownedFallback);
         }
 
         if (total > _history.Length)
@@ -229,14 +286,32 @@ internal sealed class PenPointerMessageProcessor
             total = (uint)_history.Length;
             if (!_api.TryGetPenInfoHistory(pointerId, _history, ref total))
             {
-                _diagnostics = _diagnostics with { HistoryFailures = _diagnostics.HistoryFailures + 1 };
-                return 0;
+                return HandleHistoryFailure(pointerId, owned, out ownedFallback);
             }
         }
 
         int count = (int)Math.Min(total, (uint)_history.Length);
         _history.AsSpan(0, count).Reverse();
         return count;
+    }
+
+    private int HandleHistoryFailure(uint pointerId, bool owned, out bool ownedFallback)
+    {
+        _diagnostics = _diagnostics with
+        {
+            HistoryFailures = _diagnostics.HistoryFailures + 1,
+            LastHistoryError = _api.LastError,
+        };
+
+        ownedFallback = owned;
+        if (owned && _api.TryGetPenInfo(pointerId, out NativePointerPenInfo single))
+        {
+            _history[0] = single;
+            _diagnostics = _diagnostics with { HistoryFallbacks = _diagnostics.HistoryFallbacks + 1 };
+            return 1;
+        }
+
+        return 0;
     }
 
     private void TrackOwned(in PenSample result)
