@@ -6,11 +6,27 @@
         Height="720"
         WindowStyle="None"
         ResizeMode="NoResize"
+        UseLayoutRounding="True"
         Background="#FFFBF8EF"
         Stylus.IsPressAndHoldEnabled="False"
         Stylus.IsFlicksEnabled="False"
         Stylus.IsTapFeedbackEnabled="False"
         Stylus.IsTouchFeedbackEnabled="False">
+  <Window.Resources>
+    <!-- Цели для пера: не меньше ~12 мм (ARCHITECTURE.md §7.8, A34). -->
+    <Style x:Key="StripButton" TargetType="Button">
+      <Setter Property="FontSize" Value="24" />
+      <Setter Property="Padding" Value="26,12" />
+      <Setter Property="Margin" Value="0,0,12,0" />
+    </Style>
+    <Style x:Key="LetterToggle" TargetType="ToggleButton">
+      <Setter Property="FontSize" Value="30" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="MinWidth" Value="76" />
+      <Setter Property="Padding" Value="18,6" />
+      <Setter Property="Margin" Value="0,0,8,0" />
+    </Style>
+  </Window.Resources>
   <Grid>
     <Grid.RowDefinitions>
       <!-- Полоса вне холста: прямоугольник холста (PointToScreen) её не включает, поэтому касания здесь не принадлежат источнику пера,
@@ -19,41 +35,96 @@
       <RowDefinition Height="*" />
     </Grid.RowDefinitions>
 
-    <Border Grid.Row="0"
+    <Border x:Name="StripHost"
+            Grid.Row="0"
             Background="#FFE3DCC2"
             Padding="16,10">
-      <StackPanel Orientation="Horizontal">
+      <WrapPanel Orientation="Horizontal">
+        <Button x:Name="ShowButton"
+                Style="{StaticResource StripButton}"
+                Content="Показать"
+                Click="OnShowClick" />
+        <StackPanel Orientation="Horizontal"
+                    Margin="0,0,16,0">
+          <ToggleButton x:Name="LetterA"
+                        Style="{StaticResource LetterToggle}"
+                        Content="a"
+                        Tag="a"
+                        IsChecked="True"
+                        Click="OnLetterClick" />
+          <ToggleButton x:Name="LetterI"
+                        Style="{StaticResource LetterToggle}"
+                        Content="i"
+                        Tag="i"
+                        Click="OnLetterClick" />
+          <ToggleButton x:Name="LetterT"
+                        Style="{StaticResource LetterToggle}"
+                        Content="t"
+                        Tag="t"
+                        Click="OnLetterClick" />
+        </StackPanel>
+        <Button x:Name="RestartButton"
+                Style="{StaticResource StripButton}"
+                Content="Заново"
+                Click="OnRestartClick" />
+        <Button x:Name="DoneButton"
+                Style="{StaticResource StripButton}"
+                Content="Готово"
+                Click="OnDoneClick" />
+        <Button x:Name="OverlayButton"
+                Style="{StaticResource StripButton}"
+                Content="Dev"
+                Click="OnOverlayClick" />
+        <TextBlock x:Name="RecordingBanner"
+                   Margin="0,0,16,0"
+                   Padding="12,6"
+                   VerticalAlignment="Center"
+                   FontSize="16"
+                   FontWeight="SemiBold"
+                   Foreground="White"
+                   Background="#FFB3261E"
+                   Visibility="Collapsed"
+                   Text="Идёт запись (dev) — пишет только взрослый" />
+        <TextBlock x:Name="StatusText"
+                   Margin="8,0,24,0"
+                   VerticalAlignment="Center"
+                   FontSize="18" />
         <Button x:Name="TestButton"
                 Content="Test button - tap it with the pen"
-                FontSize="20"
-                Padding="28,12"
+                FontSize="16"
+                Padding="16,8"
+                VerticalAlignment="Center"
                 Click="OnTestButtonClick" />
         <TextBlock x:Name="ClickText"
-                   Margin="20,0,0,0"
+                   Margin="14,0,0,0"
                    VerticalAlignment="Center"
-                   FontSize="20"
+                   FontSize="16"
                    Text="Clicks: 0" />
-        <TextBlock Margin="20,0,0,0"
+        <TextBlock Margin="14,0,0,0"
                    VerticalAlignment="Center"
-                   FontSize="14"
+                   FontSize="13"
                    Foreground="#FF555555"
                    Text="(this strip is outside the writing canvas)" />
-      </StackPanel>
+      </WrapPanel>
     </Border>
 
     <Grid Grid.Row="1">
-      <Grid x:Name="CanvasHost" />
-      <Border HorizontalAlignment="Left"
+      <Grid x:Name="CanvasHost"
+            ClipToBounds="True" />
+      <Border x:Name="OverlayBorder"
+              HorizontalAlignment="Right"
               VerticalAlignment="Top"
               Margin="12"
               Padding="10"
+              MaxWidth="780"
               Background="#D9202020"
               CornerRadius="6"
               IsHitTestVisible="False">
         <TextBlock x:Name="PanelText"
                    FontFamily="Consolas"
                    FontSize="13"
-                   Foreground="White" />
+                   Foreground="White"
+                   TextWrapping="Wrap" />
       </Border>
     </Grid>
   </Grid>
