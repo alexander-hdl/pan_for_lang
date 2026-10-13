@@ -48,13 +48,15 @@ public sealed record SmoothingConfig(int Window, int Order);
 /// <param name="MinPointDistance">Прореживание: точки ближе этого к последней оставленной отбрасываются (подавляет дрожание на уровне отсчётов).</param>
 /// <param name="SmoothHalfWindowMs">Полуширина скользящего среднего по времени до прореживания, мс (0 — без сглаживания); концы штриха не сдвигаются. Подавляет дрожание отсчётов у медленного письма.</param>
 /// <param name="MaxResamplePoints">Наибольшее число точек штриха после ресэмплинга (длинные штрихи ресэмплируются реже).</param>
+/// <param name="StepScaleMax">Шаг ресэмплинга растёт пропорционально размеру буквы (оценка по межквартильному размаху v против эталона), но не более чем в столько раз: крупная буква не даёт больше точек, чем обычная.</param>
 public sealed record PreprocessConfig(
     double SpikeJumpMedianSteps,
     double DotMaxLength,
     double DotMaxDurationMs,
     double MinPointDistance,
     double SmoothHalfWindowMs,
-    int MaxResamplePoints);
+    int MaxResamplePoints,
+    double StepScaleMax);
 
 /// <summary>Деслантинг рукописи к наклону эталона.</summary>
 /// <param name="Enabled">Включён.</param>
@@ -154,16 +156,18 @@ public sealed record StrokeCountConfig(int ExtraForP4, int ExtraForStop);
 /// <param name="MinShareOfReference">Доля ретрейса по написанному должна быть не меньше этой доли от эталонной.</param>
 /// <param name="MinPriorPoints">Если до ретрейса написано меньше точек, проверка неприменима (написано нечего повторять).</param>
 /// <param name="MinRangePoints">Если участок ретрейса отображается меньше чем в это число точек рукописи, ретрейса нет (доля 0, P6).</param>
-public sealed record RetraceConfig(double Tolerance, double MinShareOfReference, int MinPriorPoints, int MinRangePoints);
+/// <param name="CoveredByExtraShare">Если участок ретрейса не менее чем на эту долю лежит под лишним штрихом (P4: буква кусками), P6 не выдаётся — ретрейс написан другим штрихом.</param>
+public sealed record RetraceConfig(double Tolerance, double MinShareOfReference, int MinPriorPoints, int MinRangePoints, double CoveredByExtraShare);
 
 /// <summary>Процессные пороги.</summary>
 /// <param name="StartTolerance">Допуск старта (P1), x-height.</param>
-/// <param name="StartArcTolerance">Допуск места, где DTW с открытым началом «начинает» рукопись на эталоне: дальше этого вдоль тела от его начала (длина дуги, x-height) — старт с середины буквы (P1), даже если точка случайно близка к подходу.</param>
+/// <param name="StartArcTolerance">Допуск места, где DTW с открытым началом «начинает» рукопись на эталоне: дальше этого вдоль тела от его начала (длина дуги, x-height; 0,5 — около ±50° по овалу) — старт с середины буквы (P1).</param>
+/// <param name="StartOnPathTolerance">Старт, лежащий на самом эталоне не дальше этого от выровненной точки и в пределах <c>StartArcTolerance</c> вдоль тела, — малое отклонение от эталонного старта (12 и 3 часа у a), а не P1, x-height.</param>
 /// <param name="Approach">Подход к телу буквы как допустимое место старта.</param>
 /// <param name="Direction">Направление.</param>
 /// <param name="StrokeCount">Число штрихов.</param>
 /// <param name="Retrace">Ретрейс.</param>
-public sealed record ProcessConfig(double StartTolerance, double StartArcTolerance, ApproachConfig Approach, DirectionConfig Direction, StrokeCountConfig StrokeCount, RetraceConfig Retrace);
+public sealed record ProcessConfig(double StartTolerance, double StartArcTolerance, double StartOnPathTolerance, ApproachConfig Approach, DirectionConfig Direction, StrokeCountConfig StrokeCount, RetraceConfig Retrace);
 
 /// <summary>
 /// Допустимый старт изолированной буквы при <c>animation.startDot = leadIn</c>: вся ломаная входящего штриха плюс её продолжение
@@ -173,7 +177,25 @@ public sealed record ProcessConfig(double StartTolerance, double StartArcToleran
 /// <param name="ExtendRight">Допустимый старт вдоль той же линии и вправо от начала подхода на столько, x-height (короткий подход, начатый ближе к телу).</param>
 /// <param name="Tolerance">Допуск расстояния до подхода, x-height; жёстче допуска старта тела, потому что подход тянется вдоль овала и старт снизу овала близок к нему (ошибка выражается в единицах <c>startTolerance</c>).</param>
 /// <param name="MaxAngleDeg">Старт на подходе засчитывается, если первый участок рукописи отклонён от хода подхода не больше (градусы).</param>
-public sealed record ApproachConfig(bool ExtendLeft, double ExtendRight, double Tolerance, double MaxAngleDeg);
+/// <param name="MinElevationDeg">... и первые 0,2 x-height не идут вниз: угол подъёма (от горизонтали) не меньше этого, градусы (отрицательный — допустим небольшой спуск).</param>
+/// <param name="OverlapMax">Старт на подходе не засчитывается, если путь до точки входа в тело перекрыт последующим следом (доля точек в коридоре) не меньше этого ...</param>
+/// <param name="OverlapTolerance">Ширина коридора перекрытия, x-height.</param>
+/// <param name="OverlapSkipTail">Последние столько (x-height) пути до входа не учитываются: они прилегают к телу по построению.</param>
+/// <param name="EntryAngleMaxDeg">... и направление прихода в точку входа отличается от <c>entry.tangent</c> эталона больше этого (градусы). Верный подход: перекрытие небольшое ИЛИ направление близко.</param>
+/// <param name="AmbiguousShare">Запас по доле: P1 только при перекрытии больше <c>OverlapMax</c> плюс запас (у порога P1 не ставится).</param>
+/// <param name="AmbiguousAngleDeg">Запас по углу, градусы.</param>
+public sealed record ApproachConfig(
+    bool ExtendLeft,
+    double ExtendRight,
+    double Tolerance,
+    double MaxAngleDeg,
+    double MinElevationDeg,
+    double OverlapMax,
+    double OverlapTolerance,
+    double OverlapSkipTail,
+    double EntryAngleMaxDeg,
+    double AmbiguousShare,
+    double AmbiguousAngleDeg);
 
 /// <summary>Единицы штрафа отложенных штрихов в подбалле <c>deferred</c> (вход функции <c>form.scores.deferred</c>).</summary>
 /// <param name="Missing">Слот пуст (D1).</param>
@@ -203,7 +225,8 @@ public sealed record FormConfig(
 /// <summary>Отложенные штрихи (§6.4.8).</summary>
 /// <param name="AcceptTiming">Какое время принимается.</param>
 /// <param name="NearU">Допуск положения отложенного штриха по горизонтали от ожидаемого (по реальному стволу), x-height; допуск эллиптический вместе с <paramref name="NearV"/>.</param>
-/// <param name="NearV">То же по вертикали (точка над i и перекладина чувствительны к высоте).</param>
+/// <param name="NearV">То же по вертикали вниз (точка над i и перекладина чувствительны к высоте).</param>
+/// <param name="NearVUpDot">Допуск вверх для точки: дети ставят точку выше ожидаемого, не ниже.</param>
 /// <param name="BarMustCrossStem">Перекладина, не пересекающая ствол, — D2.</param>
 /// <param name="BarCrossTolerance">Расстояние от перекладины до ствола, до которого она считается пересекающей, x-height.</param>
 /// <param name="AssignMaxDistance">Дальше этого штрих не считается этим слотом вообще (D1 и лишний штрих).</param>
@@ -217,6 +240,7 @@ public sealed record DeferredConfig(
     DeferredAcceptPolicy AcceptTiming,
     double NearU,
     double NearV,
+    double NearVUpDot,
     bool BarMustCrossStem,
     double BarCrossTolerance,
     double AssignMaxDistance,

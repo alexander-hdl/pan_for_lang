@@ -7,5 +7,5 @@ namespace PenForLang.Evaluation;
 public static class EvaluatorVersion
 {
     /// <summary>Текущая версия алгоритма (меняется при любом изменении результатов).</summary>
-    public const string Current = "v0.7.1";
+    public const string Current = "v0.7.2";
 }

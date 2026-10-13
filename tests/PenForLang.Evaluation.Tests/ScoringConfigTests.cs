@@ -21,7 +21,7 @@ public class ScoringConfigTests
 
         Assert.Equal("0.1.0", config.Version);
         Assert.Equal(0.04, config.ResampleStep);
-        Assert.Equal(0.35, config.Process.StartTolerance);
+        Assert.Equal(0.55, config.Process.StartTolerance);
         Assert.Equal(DeferredAcceptPolicy.Either, config.Deferred.AcceptTiming);
         Assert.Equal(Enum.GetValues<ToleranceProfile>().Length, config.Profiles.Count);
         Assert.Equal(64, config.ConfigHash.Length);

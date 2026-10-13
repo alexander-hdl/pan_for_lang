@@ -44,6 +44,13 @@ public class PerformanceTests
         MeasureMedian(symbol, ink, "slow trembling");
     }
 
+    /// <summary>Крупное письмо (a ×2,5): шаг ресэмплинга растёт с размером буквы, число точек не растёт (R2-07).</summary>
+    [Fact]
+    public void A_big_letter_is_within_the_same_budget()
+    {
+        MeasureMedian("a", HandFixtures.HandInkBuilder.Build(HandFixtures.Hand.A(scale: 2.5)), "a x2.5");
+    }
+
     private static void MeasureMedian(string symbol, RulerInk ink, string kind)
     {
         Glyph glyph = Shipped.Glyph(symbol);

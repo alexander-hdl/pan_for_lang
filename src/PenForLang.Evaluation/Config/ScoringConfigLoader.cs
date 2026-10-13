@@ -177,7 +177,7 @@ public static class ScoringConfigLoader
         PreprocessConfig? pre = null;
         if (o.Obj("preprocess") is { } pp)
         {
-            pre = new PreprocessConfig(pp.Double("spikeJumpMedianSteps", 1, 1000), pp.Double("dotMaxLength", 0, 1), pp.Double("dotMaxDurationMs", 0, 10000), pp.Double("minPointDistance", 0, 0.5), pp.Double("smoothHalfWindowMs", 0, 500), pp.Int("maxResamplePoints", 20, 100000));
+            pre = new PreprocessConfig(pp.Double("spikeJumpMedianSteps", 1, 1000), pp.Double("dotMaxLength", 0, 1), pp.Double("dotMaxDurationMs", 0, 10000), pp.Double("minPointDistance", 0, 0.5), pp.Double("smoothHalfWindowMs", 0, 500), pp.Int("maxResamplePoints", 20, 100000), pp.Double("stepScaleMax", 1, 20));
             pp.Done();
         }
 
@@ -298,6 +298,7 @@ public static class ScoringConfigLoader
 
         double start = p.Double("startTolerance", 0.01, 10);
         double startArc = p.Double("startArcTolerance", 0, 50);
+        double startOnPath = p.Double("startOnPathTolerance", 0, 5);
         DirectionConfig? direction = null;
         if (p.Obj("direction") is { } d)
         {
@@ -323,19 +324,30 @@ public static class ScoringConfigLoader
         RetraceConfig? retrace = null;
         if (p.Obj("retrace") is { } r)
         {
-            retrace = new RetraceConfig(r.Double("tolerance", 0.001, 5), r.Double("minShareOfReference", 0, 1), r.Int("minPriorPoints", 0, 1000), r.Int("minRangePoints", 0, 1000));
+            retrace = new RetraceConfig(r.Double("tolerance", 0.001, 5), r.Double("minShareOfReference", 0, 1), r.Int("minPriorPoints", 0, 1000), r.Int("minRangePoints", 0, 1000), r.Double("coveredByExtraShare", 0, 1));
             r.Done();
         }
 
         ApproachConfig? approach = null;
         if (p.Obj("approach") is { } ap)
         {
-            approach = new ApproachConfig(ap.Bool("extendLeft"), ap.Double("extendRight", 0, 5), ap.Double("tolerance", 0.01, 10), ap.Double("maxAngleDeg", 0, 180));
+            approach = new ApproachConfig(
+                ap.Bool("extendLeft"),
+                ap.Double("extendRight", 0, 5),
+                ap.Double("tolerance", 0.01, 10),
+                ap.Double("maxAngleDeg", 0, 180),
+                ap.Double("minElevationDeg", -90, 90),
+                ap.Double("overlapMax", 0, 1),
+                ap.Double("overlapTolerance", 0.01, 2),
+                ap.Double("overlapSkipTail", 0, 5),
+                ap.Double("entryAngleMaxDeg", 0, 180),
+                ap.Double("ambiguousShare", 0, 1),
+                ap.Double("ambiguousAngleDeg", 0, 90));
             ap.Done();
         }
 
         p.Done();
-        return direction is null || count is null || retrace is null || approach is null ? null : new ProcessConfig(start, startArc, approach, direction, count, retrace);
+        return direction is null || count is null || retrace is null || approach is null ? null : new ProcessConfig(start, startArc, startOnPath, approach, direction, count, retrace);
     }
 
     private static FormConfig? ReadForm(ConfigObject? f, List<string> issues)
@@ -462,6 +474,7 @@ public static class ScoringConfigLoader
             policy,
             d.Double("nearU", 0.01, 10),
             d.Double("nearV", 0.01, 10),
+            d.Double("nearVUpDot", 0.01, 10),
             d.Bool("barMustCrossStem"),
             d.Double("barCrossTolerance", 0, 5),
             d.Double("assignMaxDistance", 0, 10),

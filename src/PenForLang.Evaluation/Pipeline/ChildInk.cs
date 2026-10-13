@@ -29,6 +29,12 @@ internal sealed class ChildStroke
     /// <summary>Микроштрих (<c>dotCandidate</c>, §6.4.1).</summary>
     public required bool IsDot { get; init; }
 
+    /// <summary>Исходные точки после удаления выбросов, без сглаживания (проход 2: экстремумы для F4, F5 не срезаются сглаживанием).</summary>
+    public Vec2[] Raw { get; init; } = [];
+
+    /// <summary>Доля длины дуги исходной ломаной в каждой исходной точке, [0, 1].</summary>
+    public double[] RawArcFraction { get; init; } = [];
+
     public required bool Clipped { get; init; }
 
     /// <summary>Нормализованные точки (проход 1): деслантинг, масштаб, сдвиг по u и baseline.</summary>
@@ -50,9 +56,9 @@ internal static class ChildInk
     /// Предобработка (§6.4.1): отбрасывание нечисловых точек и дубликатов, выбросов-«шпилек», пометка микроштрихов,
     /// ресэмплинг по длине дуги, сглаживание. Штрихи упорядочиваются хронологически (по времени первой точки).
     /// </summary>
-    public static List<ChildStroke> Prepare(RulerInk ink, ScoringConfig config, SavitzkyGolayFilter filter)
+    public static List<ChildStroke> Prepare(RulerInk ink, LetterReference reference, ScoringConfig config, SavitzkyGolayFilter filter)
     {
-        var result = new List<ChildStroke>(ink.Strokes.Length);
+        var pending = new List<(RulerStroke Stroke, List<Vec2> Points, List<RulerPoint> Kept, Vec2[] Raw, List<Vec2> Thinned)>(ink.Strokes.Length);
         foreach (RulerStroke stroke in ink.Strokes)
         {
             var points = new List<Vec2>(stroke.Points.Length);
@@ -80,16 +86,25 @@ internal static class ChildInk
             }
 
             RemoveSpikes(points, kept, config.Preprocess.SpikeJumpMedianSteps);
+            Vec2[] raw = [.. points];
+            PolylineTools.SmoothByTime(points, [.. kept.Select(p => p.TimeUs)], config.Preprocess.SmoothHalfWindowMs * 1000.0);
+            pending.Add((stroke, points, kept, raw, Decimate(points, config.Preprocess.MinPointDistance)));
+        }
+
+        // Шаг ресэмплинга растёт с размером буквы (оценка по межквартильному размаху v против эталона): крупная буква не должна
+        // давать больше точек, чем обычная; после деления на масштаб нормализации шаг снова близок к resampleStep.
+        double step = config.ResampleStep * EstimateStepScale(pending.Select(p => p.Thinned), reference, config);
+        var result = new List<ChildStroke>(pending.Count);
+        foreach ((RulerStroke stroke, List<Vec2> points, List<RulerPoint> kept, Vec2[] raw, List<Vec2> thinned) in pending)
+        {
             long startUs = kept[0].TimeUs;
             long endUs = kept[^1].TimeUs;
-            PolylineTools.SmoothByTime(points, [.. kept.Select(p => p.TimeUs)], config.Preprocess.SmoothHalfWindowMs * 1000.0);
             double extent = Extent(points);
-            List<Vec2> thinned = Decimate(points, config.Preprocess.MinPointDistance);
             double rawLength = thinned.Count < 2 ? 0.0 : PolylineMath.Length(CollectionsSpan(thinned));
             bool dot = rawLength < config.Preprocess.DotMaxLength && (endUs - startUs) < (long)(config.Preprocess.DotMaxDurationMs * 1000.0);
             Vec2[] pos = thinned.Count < 2 || !(rawLength > 0.0)
                 ? [Centroid(points)]
-                : PolylineTools.ResampleSmooth(CollectionsSpan(thinned), config.ResampleStep, filter, config.Preprocess.MaxResamplePoints);
+                : PolylineTools.ResampleSmooth(CollectionsSpan(thinned), step, filter, config.Preprocess.MaxResamplePoints);
             double length = pos.Length < 2 ? 0.0 : PolylineMath.Length(pos);
             result.Add(new ChildStroke
             {
@@ -101,6 +116,8 @@ internal static class ChildInk
                 Extent = extent,
                 IsDot = dot,
                 Clipped = stroke.Clipped,
+                Raw = raw,
+                RawArcFraction = ArcFractions(raw),
             });
         }
 
@@ -277,6 +294,41 @@ internal static class ChildInk
         }
 
         return Math.Sqrt(((maxX - minX) * (maxX - minX)) + ((maxY - minY) * (maxY - minY)));
+    }
+
+    private static double EstimateStepScale(IEnumerable<List<Vec2>> strokes, LetterReference reference, ScoringConfig config)
+    {
+        List<Vec2[]> all = [.. strokes.Where(s => s.Count > 0).Select(s => s.ToArray())];
+        double refHeight = reference.HighV - reference.LowV;
+        if (all.Count == 0 || !(refHeight > 1e-6))
+        {
+            return 1.0;
+        }
+
+        double low = PolylineTools.PercentileV(all, config.Normalization.Scale.LowPercentile);
+        double high = PolylineTools.PercentileV(all, config.Normalization.Scale.HighPercentile);
+        return Math.Clamp((high - low) / refHeight, 1.0, config.Preprocess.StepScaleMax);
+    }
+
+    private static double[] ArcFractions(Vec2[] points)
+    {
+        var result = new double[points.Length];
+        double total = 0.0;
+        for (int i = 1; i < points.Length; i++)
+        {
+            total += Vec2.Distance(points[i - 1], points[i]);
+            result[i] = total;
+        }
+
+        if (total > 0.0)
+        {
+            for (int i = 0; i < result.Length; i++)
+            {
+                result[i] /= total;
+            }
+        }
+
+        return result;
     }
 
     private static ReadOnlySpan<Vec2> CollectionsSpan(List<Vec2> list) => System.Runtime.InteropServices.CollectionsMarshal.AsSpan(list);

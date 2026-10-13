@@ -118,7 +118,8 @@ internal static class DeferredMatcher
             if (anchored[j])
             {
                 Vec2 delta = stroke.NCenter - expectedCenters[j];
-                normalized = Math.Sqrt(Math.Pow(delta.X / d.NearU, 2) + Math.Pow(delta.Y / d.NearV, 2));
+                double nearV = slot.Kind == DeferredKind.Dot && delta.Y > 0.0 ? d.NearVUpDot : d.NearV;
+                normalized = Math.Sqrt(Math.Pow(delta.X / d.NearU, 2) + Math.Pow(delta.Y / nearV, 2));
                 near = normalized <= 1.0;
                 if (d.BarMustCrossStem && slot.Kind != DeferredKind.Dot)
                 {

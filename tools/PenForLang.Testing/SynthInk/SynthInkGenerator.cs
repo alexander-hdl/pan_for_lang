@@ -212,7 +212,7 @@ public sealed class SynthInkGenerator
 
                     OpenClosure(glyph, stroke, closed, rng, -0.65);
                     expected = [new ExpectedFinding(ErrorCode.F2, stroke.Id)];
-                    forbidden = [ErrorCode.P1, ErrorCode.P2, ErrorCode.P5];
+                    forbidden = [ErrorCode.P2, ErrorCode.P5]; // P1 допустим: овал a открывается смещением его начала
                     break;
                 }
 
@@ -278,7 +278,7 @@ public sealed class SynthInkGenerator
         }
 
         Vec2 p0 = stroke.Points[0];
-        double radius = 0.7 + (0.2 * rng.NextDouble()); // в единицах эталона: после нормализации масштаба смещение остаётся 0,75–1 x-height
+        double radius = 0.9 + (0.25 * rng.NextDouble()); // в единицах эталона: после нормализации масштаба смещение остаётся 0,75–1 x-height
         double angle0 = rng.NextDouble() * 2.0 * Math.PI;
         Vec2 start = p0;
         double bestClearance = double.NegativeInfinity;

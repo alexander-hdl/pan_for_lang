@@ -2,7 +2,7 @@
   "schema": "pfl.test.evaluation-golden/1",
   "glyph": "zaner-bloser/a.default",
   "note": "Evaluator golden: decisions, codes and places exact; numbers within tolerances. Inputs: SynthInk-lite, seeds in case names.",
-  "evaluatorVersion": "v0.7.1",
+  "evaluatorVersion": "v0.7.2",
   "tolerances": {
     "form": 0.02,
     "severity": 0.05,
@@ -19,13 +19,13 @@
       "findings": [],
       "deferred": [],
       "metrics": {
-        "dtwMean": 0.0108,
-        "frechet": 0.0263,
+        "dtwMean": 0.0103,
+        "frechet": 0.0232,
         "corridor": 1,
         "coverage": 1,
-        "closed": 0.003,
-        "reach": 0.0001,
-        "baseline": 0.0033,
+        "closed": 0.0026,
+        "reach": 0,
+        "baseline": 0.0022,
         "retrace": 1,
         "strokes": 0
       }
@@ -34,7 +34,7 @@
       "name": "clean.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9898,
+      "form": 0.9936,
       "processOk": true,
       "findings": [],
       "deferred": [],
@@ -44,7 +44,7 @@
         "corridor": 1,
         "coverage": 1,
         "closed": 0,
-        "reach": 0.1453,
+        "reach": 0.1285,
         "baseline": 0.0469,
         "retrace": 1,
         "strokes": 0
@@ -59,13 +59,13 @@
       "findings": [],
       "deferred": [],
       "metrics": {
-        "dtwMean": 0.024,
-        "frechet": 0.0563,
+        "dtwMean": 0.0208,
+        "frechet": 0.0477,
         "corridor": 1,
         "coverage": 1,
         "closed": 0,
-        "reach": 0.0717,
-        "baseline": 0.0742,
+        "reach": 0.0801,
+        "baseline": 0.0842,
         "retrace": 1,
         "strokes": 0
       }
@@ -74,7 +74,7 @@
       "name": "mutation.WrongStart.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.83,
+      "form": 0.8517,
       "processOk": false,
       "findings": [
         {
@@ -85,30 +85,19 @@
           "ink": 0,
           "span": "s1:Body",
           "severity": 1,
-          "measured": 1.9644,
-          "threshold": 0.35
-        },
-        {
-          "code": "F5",
-          "kind": "Error",
-          "place": "Letter",
-          "stroke": null,
-          "ink": null,
-          "span": ":Body",
-          "severity": 0.937,
-          "measured": -0.564,
-          "threshold": 0.2
+          "measured": 2.0784,
+          "threshold": 0.55
         }
       ],
       "deferred": [],
       "metrics": {
-        "dtwMean": 0.077,
-        "frechet": 0.6556,
-        "corridor": 0.9221,
-        "coverage": 1,
+        "dtwMean": 0.0991,
+        "frechet": 0.8167,
+        "corridor": 0.8994,
+        "coverage": 0.9484,
         "closed": 0,
-        "reach": 0.1165,
-        "baseline": 0.564,
+        "reach": 0.1054,
+        "baseline": 0.0885,
         "retrace": 1,
         "strokes": 0
       }
@@ -117,7 +106,7 @@
       "name": "mutation.ReversedStroke.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9868,
+      "form": 0.9894,
       "processOk": false,
       "findings": [
         {
@@ -139,7 +128,7 @@
         "corridor": 1,
         "coverage": 1,
         "closed": 0.024,
-        "reach": 0.1545,
+        "reach": 0.1437,
         "baseline": 0.0647,
         "strokes": 0
       }
@@ -148,7 +137,7 @@
       "name": "mutation.ExtraStroke.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9423,
+      "form": 0.9452,
       "processOk": true,
       "findings": [
         {
@@ -170,7 +159,7 @@
         "corridor": 1,
         "coverage": 1,
         "closed": 0,
-        "reach": 0.1162,
+        "reach": 0.1033,
         "baseline": 0.0737,
         "retrace": 1,
         "strokes": 1
@@ -180,7 +169,7 @@
       "name": "mutation.ParallelRetrace.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9051,
+      "form": 0.909,
       "processOk": true,
       "findings": [
         {
@@ -202,7 +191,7 @@
         "corridor": 0.9375,
         "coverage": 1,
         "closed": 0,
-        "reach": 0.1453,
+        "reach": 0.1282,
         "baseline": 0.0508,
         "retrace": 0.3,
         "strokes": 0
@@ -245,7 +234,7 @@
         "corridor": 0.9444,
         "coverage": 0.9943,
         "closed": 0.1818,
-        "reach": 0.0923,
+        "reach": 0.0007,
         "baseline": 0.0789,
         "retrace": 1,
         "strokes": 0

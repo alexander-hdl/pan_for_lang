@@ -2,7 +2,7 @@
   "schema": "pfl.test.evaluation-golden/1",
   "glyph": "zaner-bloser/t.default",
   "note": "Evaluator golden: decisions, codes and places exact; numbers within tolerances. Inputs: SynthInk-lite, seeds in case names.",
-  "evaluatorVersion": "v0.7.1",
+  "evaluatorVersion": "v0.7.2",
   "tolerances": {
     "form": 0.02,
     "severity": 0.05,
@@ -25,12 +25,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.0113,
-        "frechet": 0.0314,
+        "dtwMean": 0.0132,
+        "frechet": 0.0233,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.0342,
-        "baseline": 0.0008,
+        "reach": 0,
+        "baseline": 0.0005,
         "retrace": 1,
         "strokes": 0,
         "deferred": 0
@@ -55,7 +55,7 @@
         "frechet": 0.0458,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.0522,
+        "reach": 0.0932,
         "baseline": 0.0813,
         "retrace": 1,
         "strokes": 0,
@@ -66,21 +66,9 @@
       "name": "clean.seed2",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9643,
+      "form": 0.9699,
       "processOk": true,
-      "findings": [
-        {
-          "code": "F4",
-          "kind": "Error",
-          "place": "Letter",
-          "stroke": null,
-          "ink": null,
-          "span": ":Body",
-          "severity": 0.3164,
-          "measured": -0.2617,
-          "threshold": 0.25
-        }
-      ],
+      "findings": [],
       "deferred": [
         {
           "slot": "bar",
@@ -93,7 +81,7 @@
         "frechet": 0.1366,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.2617,
+        "reach": 0.2342,
         "baseline": 0.0751,
         "retrace": 1,
         "strokes": 0,
@@ -104,7 +92,7 @@
       "name": "mutation.WrongStart.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.8673,
+      "form": 0.7706,
       "processOk": false,
       "findings": [
         {
@@ -114,9 +102,20 @@
           "stroke": "s1",
           "ink": 0,
           "span": "s1:LeadIn",
-          "severity": 0.8336,
-          "measured": 0.8836,
-          "threshold": 0.35
+          "severity": 1,
+          "measured": 1.652,
+          "threshold": 0.55
+        },
+        {
+          "code": "F1",
+          "kind": "Error",
+          "place": "Letter",
+          "stroke": null,
+          "ink": null,
+          "span": ":Body",
+          "severity": 0.3031,
+          "measured": 0.1211,
+          "threshold": 0.12
         }
       ],
       "deferred": [
@@ -127,12 +126,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.0841,
-        "frechet": 0.5554,
-        "corridor": 0.8944,
-        "coverage": 0.8649,
-        "reach": 0.0635,
-        "baseline": 0.0581,
+        "dtwMean": 0.1211,
+        "frechet": 0.668,
+        "corridor": 0.8062,
+        "coverage": 0.6903,
+        "reach": 0.1041,
+        "baseline": 0.0504,
         "retrace": 1,
         "strokes": 0,
         "deferred": 0
@@ -153,7 +152,7 @@
           "ink": 0,
           "span": "s1:Body",
           "severity": 0.7,
-          "measured": 0.01,
+          "measured": 0.0098,
           "threshold": 0.8
         }
       ],
@@ -165,12 +164,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.0235,
-        "frechet": 0.0568,
+        "dtwMean": 0.0242,
+        "frechet": 0.0637,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.073,
-        "baseline": 0.0623,
+        "reach": 0.0968,
+        "baseline": 0.0618,
         "strokes": 0,
         "deferred": 0
       }
@@ -202,12 +201,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.0134,
-        "frechet": 0.0295,
+        "dtwMean": 0.0137,
+        "frechet": 0.0257,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.0631,
-        "baseline": 0.0461,
+        "reach": 0.0995,
+        "baseline": 0.0462,
         "retrace": 1,
         "strokes": 1,
         "deferred": 0
@@ -268,12 +267,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.0201,
-        "frechet": 0.0458,
+        "dtwMean": 0.0177,
+        "frechet": 0.0406,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.0522,
-        "baseline": 0.0813,
+        "reach": 0.0932,
+        "baseline": 0.0812,
         "retrace": 1,
         "strokes": 0,
         "deferred": 1
@@ -283,7 +282,7 @@
       "name": "mutation.DeferredImmediately.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 1,
+      "form": 0.9973,
       "processOk": true,
       "findings": [
         {
@@ -310,7 +309,7 @@
         "frechet": 0.0428,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.0812,
+        "reach": 0.1135,
         "baseline": 0.0662,
         "retrace": 1,
         "strokes": 0,
@@ -321,7 +320,7 @@
       "name": "mutation.MisplacedDeferred.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9187,
+      "form": 0.9131,
       "processOk": true,
       "findings": [
         {
@@ -332,7 +331,7 @@
           "ink": 1,
           "span": "bar:Body",
           "severity": 1,
-          "measured": 3.8927,
+          "measured": 3.9834,
           "threshold": 1
         }
       ],
@@ -344,12 +343,12 @@
         }
       ],
       "metrics": {
-        "dtwMean": 0.0219,
-        "frechet": 0.0471,
+        "dtwMean": 0.0263,
+        "frechet": 0.0583,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.0903,
-        "baseline": 0.0873,
+        "reach": 0.1276,
+        "baseline": 0.0874,
         "retrace": 1,
         "strokes": 0,
         "deferred": 0.5
@@ -359,7 +358,7 @@
       "name": "mutation.ExtraDeferred.seed1",
       "decision": "Target",
       "confidence": "High",
-      "form": 0.9187,
+      "form": 0.9131,
       "processOk": true,
       "findings": [
         {
@@ -386,7 +385,7 @@
         "frechet": 0.0471,
         "corridor": 1,
         "coverage": 1,
-        "reach": 0.0903,
+        "reach": 0.1276,
         "baseline": 0.0873,
         "retrace": 1,
         "strokes": 0,
@@ -424,7 +423,7 @@
         "frechet": 0.2309,
         "corridor": 0.9453,
         "coverage": 1,
-        "reach": 0.0533,
+        "reach": 0.0932,
         "baseline": 0.0699,
         "retrace": 0.3077,
         "strokes": 0,

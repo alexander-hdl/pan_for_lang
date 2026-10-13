@@ -130,21 +130,137 @@ public class HandFixtureTests
         Assert.False(result.Summary.Has(ErrorCode.F2), "closure of the oval does not depend on the approach: " + Codes(result));
     }
 
-    [Fact]
-    public void Starting_at_the_body_without_an_approach_is_fine_but_starting_in_the_middle_of_the_letter_is_P1()
+    /// <summary>
+    /// Старт на овале без подхода, ход против часовой (R2-02). Верхне-правая четверть (3 ч = 0°, 12 ч = 90°) — малое отклонение
+    /// от эталонного старта (около 1–2 ч), не P1; низ, левая сторона и 4 ч — грубо неверный старт.
+    /// </summary>
+    [Theory]
+    [InlineData(0.0, false)]
+    [InlineData(20.0, false)]
+    [InlineData(30.0, false)]
+    [InlineData(40.0, false)]
+    [InlineData(60.0, false)]
+    [InlineData(90.0, false)]
+    [InlineData(120.0, true)]
+    [InlineData(150.0, true)]
+    [InlineData(180.0, true)]
+    [InlineData(210.0, true)]
+    [InlineData(225.0, true)]
+    [InlineData(240.0, true)]
+    [InlineData(255.0, true)]
+    [InlineData(270.0, true)]
+    [InlineData(285.0, true)]
+    [InlineData(300.0, true)]
+    [InlineData(330.0, true)]
+    public void The_start_on_the_oval_is_judged_by_its_distance_from_the_reference_start(double startDeg, bool wrongStart)
     {
-        EvaluationResult oneOClock = Run(HandInkBuilder.Build(Hand.AWithoutApproach(40)), "a");
-        EvaluationResult twelve = Run(HandInkBuilder.Build(Hand.AWithoutApproach(90)), "a");
-        EvaluationResult fourOClock = Run(HandInkBuilder.Build(Hand.AWithoutApproach(300)), "a");
+        EvaluationResult result = Run(HandInkBuilder.Build(Hand.AWithoutApproach(startDeg)), "a");
 
-        Assert.False(oneOClock.Summary.Has(ErrorCode.P1), Codes(oneOClock));
-        Assert.True(twelve.Summary.Has(ErrorCode.P1), Codes(twelve));
-        Assert.True(fourOClock.Summary.Has(ErrorCode.P1), Codes(fourOClock));
-        Assert.All(new[] { twelve, fourOClock }.SelectMany(r => r.Summary.Of(ErrorCode.P1)), f =>
+        Assert.True(wrongStart == result.Summary.Has(ErrorCode.P1), $"start {startDeg}: {Codes(result)}");
+        if (wrongStart)
         {
-            Assert.Equal("s1", f.Where.StrokeId);
-            Assert.True(f.Measured > f.Threshold);
-        });
+            Finding p1 = Assert.Single(result.Summary.Of(ErrorCode.P1));
+            Assert.Equal("s1", p1.Where.StrokeId);
+            Assert.True(p1.Measured > p1.Threshold, $"start {startDeg}: measured {p1.Measured} threshold {p1.Threshold}");
+            Assert.False(result.Summary.Letters[0].ProcessOk);
+        }
+        else
+        {
+            Assert.Equal(true, result.Summary.Letters[0].ProcessOk);
+        }
+    }
+
+    [Theory]
+    [InlineData(0.0, 360.0, false)]
+    [InlineData(90.0, 360.0, false)]
+    [InlineData(90.0, 380.0, false)]
+    [InlineData(120.0, 360.0, true)]
+    [InlineData(270.0, 360.0, true)]
+    public void The_start_decision_does_not_depend_on_how_far_the_oval_is_overlapped(double startDeg, double sweepDeg, bool wrongStart)
+    {
+        EvaluationResult result = Run(HandInkBuilder.Build(Hand.AWithoutApproach(startDeg, sweepDeg)), "a");
+
+        Assert.True(wrongStart == result.Summary.Has(ErrorCode.P1), $"start {startDeg}, sweep {sweepDeg}: {Codes(result)}");
+    }
+
+    /// <summary>
+    /// Старт в 6 часов (низ овала, ход вправо и вверх) геометрически лежит на «подходе» (R2-01), но путь до входа в тело затем
+    /// перекрывается самим овалом и приходит под другим углом, — это P1 с доказательством по перекрытию. Верный подход (любой
+    /// длины) почти не перекрыт.
+    /// </summary>
+    [Fact]
+    public void A_start_at_six_oclock_is_P1_by_overlap_evidence_while_a_real_approach_is_not()
+    {
+        EvaluationResult sixOClock = Run(HandInkBuilder.Build(Hand.AWithoutApproach(270)), "a");
+        Finding p1 = Assert.Single(sixOClock.Summary.Of(ErrorCode.P1));
+        Assert.Equal(0.4, p1.Threshold); // порог доли перекрытия подхода (process.approach.overlapMax)
+        Assert.True(p1.Measured > 0.45, $"overlap {p1.Measured}");
+
+        foreach (double fromU in new[] { -1.6, -0.9, -0.3, 0.0, 0.3 })
+        {
+            Assert.False(Run(HandInkBuilder.Build(Hand.AApproach(fromU)), "a").Summary.Has(ErrorCode.P1), $"approach from {fromU}");
+        }
+    }
+
+    [Fact]
+    public void A_downward_first_segment_is_never_accepted_as_an_approach()
+    {
+        // Старт слева на овале (7–8 ч) идёт вниз и вправо: к подходу не относится, хотя лежит рядом с линией подхода (R2-01).
+        foreach (double startDeg in new[] { 210.0, 225.0, 240.0, 255.0 })
+        {
+            EvaluationResult result = Run(HandInkBuilder.Build(Hand.AWithoutApproach(startDeg)), "a");
+
+            Assert.True(result.Summary.Has(ErrorCode.P1), $"start {startDeg}: {Codes(result)}");
+        }
+    }
+
+    [Fact]
+    public void A_in_two_pieces_is_P4_and_not_P6()
+    {
+        EvaluationResult result = Run(HandInkBuilder.Build(Hand.ATwoPieces()), "a");
+
+        Assert.Equal(["P4"], result.Summary.Findings.Where(f => f.Code is ErrorCode.P4 or ErrorCode.P6 or ErrorCode.P1 or ErrorCode.P2).Select(f => f.Code.ToString()));
+        Assert.True(result.Summary.Process().RetraceOk);
+    }
+
+    [Theory]
+    [InlineData(1.55)]
+    [InlineData(1.65)]
+    public void A_dot_set_somewhat_high_is_fine_but_far_too_high_is_not(double dotV)
+    {
+        Assert.False(Run(HandInkBuilder.Build(Hand.I(), Hand.Dot(0.45, dotV).After(400)), "i").Summary.Has(ErrorCode.D2));
+        Assert.True(Run(HandInkBuilder.Build(Hand.I(), Hand.Dot(0.45, 2.3).After(400)), "i").Summary.Has(ErrorCode.D2));
+    }
+
+    [Fact]
+    public void A_big_letter_keeps_its_baseline_and_height_measured_on_unsmoothed_points()
+    {
+        EvaluationResult result = Run(HandInkBuilder.Build(Hand.A(scale: 2.0)), "a");
+
+        Finding f4 = Assert.Single(result.Summary.Of(ErrorCode.F4));
+        Assert.Equal(1.0, f4.Measured!.Value, 0.05); // высота 2,0 против 1,0: смещение экстремума 1,0 без среза сглаживанием
+        Assert.False(result.Summary.Has(ErrorCode.F5), Codes(result));
+    }
+
+    [Fact]
+    public void An_approach_started_below_the_line_does_not_count_as_the_baseline_of_the_letter()
+    {
+        var stroke = new HandStroke(
+            HandCurves.Concat(
+            [
+                HandCurves.Quad(new HandVec(0.1, -0.4), new HandVec(0.6, -0.1), new HandVec(0.845, 0.82)),
+                t => new HandVec(0.5 + (0.45 * Math.Cos((40 + (340 * t)) * Math.PI / 180)), 0.5 + (0.5 * Math.Sin((40 + (340 * t)) * Math.PI / 180))),
+                HandCurves.Line(new HandVec(0.92, 0.67), new HandVec(1.0, 1.0)),
+                HandCurves.Line(new HandVec(1.0, 1.0), new HandVec(0.95, 0.12)),
+                HandCurves.Quad(new HandVec(0.95, 0.12), new HandVec(0.97, -0.05), new HandVec(1.45, 0.5)),
+            ]),
+            1.5,
+            0,
+            1).Transform(0, 1, 1.0, 0, 0);
+
+        EvaluationResult result = Run(HandInkBuilder.Build(stroke), "a");
+
+        Assert.False(result.Summary.Has(ErrorCode.F5), Codes(result));
     }
 
     // ---------------------------------------------------------------- F-03: сдвиг по v меняет только F4 и F5

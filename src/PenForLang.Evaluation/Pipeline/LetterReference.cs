@@ -46,6 +46,9 @@ internal sealed class RefStroke
 
     public required bool HasLeadIn { get; init; }
 
+    /// <summary>Направление прихода в начало тела (<c>entry.tangent</c> глифа) для первого штриха с подходом, иначе нулевой вектор.</summary>
+    public Vec2 EntryTangent { get; init; }
+
     public required bool HasLeadOut { get; init; }
 
     public required double Length { get; init; }
@@ -243,6 +246,7 @@ internal sealed class LetterReference
             BodyStart = bodyStart,
             BodyEnd = bodyEnd,
             HasLeadIn = leadIn is not null,
+            EntryTangent = leadIn is not null ? glyph.Entry.Tangent : Vec2.Zero,
             HasLeadOut = leadOut is not null,
             Length = totalLength,
             BodyLength = totalLength - leadInLength - leadOutLength,
@@ -302,6 +306,7 @@ internal sealed class LetterReference
             BodyStart = stroke.BodyStart,
             BodyEnd = stroke.BodyEnd,
             HasLeadIn = stroke.HasLeadIn,
+            EntryTangent = stroke.EntryTangent,
             HasLeadOut = stroke.HasLeadOut,
             Length = stroke.Length,
             BodyLength = stroke.BodyLength,

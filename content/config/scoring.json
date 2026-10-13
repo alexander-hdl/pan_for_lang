@@ -9,7 +9,7 @@
   },
   "resampleStep": 0.04,
   "smoothing": { "window": 7, "order": 2 },
-  "preprocess": { "spikeJumpMedianSteps": 8, "dotMaxLength": 0.02, "dotMaxDurationMs": 30, "minPointDistance": 0.015, "smoothHalfWindowMs": 25, "maxResamplePoints": 400 },
+  "preprocess": { "spikeJumpMedianSteps": 8, "dotMaxLength": 0.02, "dotMaxDurationMs": 30, "minPointDistance": 0.015, "smoothHalfWindowMs": 25, "maxResamplePoints": 400, "stepScaleMax": 3.0 },
   "normalization": {
     "dominantStrokeShare": 0.5,
     "deslant": { "enabled": true, "deadbandDeg": 4, "maxDeg": 35, "minRunLength": 0.4, "maxDeviationDeg": 40, "maxSpreadDeg": 12 },
@@ -28,12 +28,13 @@
     "capital": { "toleranceScale": 1.0 }
   },
   "process": {
-    "startTolerance": 0.35,
+    "startTolerance": 0.55,
     "startArcTolerance": 0.6,
-    "approach": { "extendLeft": true, "extendRight": 0.9, "tolerance": 0.22, "maxAngleDeg": 90 },
+    "startOnPathTolerance": 0.2,
+    "approach": { "extendLeft": true, "extendRight": 0.9, "tolerance": 0.22, "maxAngleDeg": 90, "minElevationDeg": -10, "overlapMax": 0.4, "overlapTolerance": 0.12, "overlapSkipTail": 0.2, "entryAngleMaxDeg": 35, "ambiguousShare": 0.05, "ambiguousAngleDeg": 5 },
     "direction": { "reverseCostRatioMax": 0.8, "strongReverseCostRatio": 0.3, "firstSegmentAngleMaxDeg": 60, "firstSegmentLength": 0.2, "minStrokeLength": 0.4, "barMinDirectionalShare": 0.3, "barReverseIsError": false, "rangeAreaMinShare": 0.3 },
     "strokeCount": { "extraForP4": 1, "extraForStop": 2 },
-    "retrace": { "tolerance": 0.12, "minShareOfReference": 0.6, "minPriorPoints": 5, "minRangePoints": 4 }
+    "retrace": { "tolerance": 0.12, "minShareOfReference": 0.6, "minPriorPoints": 5, "minRangePoints": 4, "coveredByExtraShare": 0.5 }
   },
   "form": {
     "corridorTau": 0.15,
@@ -75,6 +76,7 @@
     "acceptTiming": "either",
     "nearU": 0.35,
     "nearV": 0.25,
+    "nearVUpDot": 0.45,
     "barMustCrossStem": true,
     "barCrossTolerance": 0.1,
     "assignMaxDistance": 1.5,

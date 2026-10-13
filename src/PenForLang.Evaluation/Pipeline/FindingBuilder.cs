@@ -27,9 +27,7 @@ internal static class FindingBuilder
             if (!pair.StartOk)
             {
                 // Либо точка старта далека от допустимых мест (подход, начало тела), либо рукопись «начинается» с середины тела.
-                bool midLetter = pair.StartErr <= config.Process.StartTolerance;
-                double measured = midLetter ? pair.StartArcOffset : pair.StartErr;
-                double threshold = midLetter ? config.Process.StartArcTolerance : config.Process.StartTolerance;
+                (double measured, double threshold) = pair.StartEvidence;
                 list.Add(new Finding(
                     ErrorCode.P1,
                     new FindingLocation(FindingPlace.Stroke, LetterIndex, stroke.Id, pair.Child.InkIndex),

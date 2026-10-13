@@ -84,7 +84,7 @@ public sealed class LetterEvaluator : ILetterEvaluator
 
         Glyph glyph = request.Glyph;
         LetterReference reference = _references.GetValue(glyph, g => LetterReference.Build(g, request.Style.Lines, _config, _filter));
-        List<ChildStroke> children = ChildInk.Prepare(request.Ink, _config, _filter);
+        List<ChildStroke> children = ChildInk.Prepare(request.Ink, reference, _config, _filter);
         if (children.Count == 0)
         {
             return Unrecognized(request, new NormalizationParams(0.0, 1.0, 0.0, 0.0, null, reference.SlantDeg), null);
@@ -152,6 +152,7 @@ public sealed class LetterEvaluator : ILetterEvaluator
             foreach (PairMetrics pair in pairs)
             {
                 PairMetricsCalculator.WithCoverage(pair, others, _config, toleranceScale);
+                SuppressRetraceUnderExtra(pair, others);
             }
         }
 
@@ -185,7 +186,7 @@ public sealed class LetterEvaluator : ILetterEvaluator
                 double actual = check.Extreme == ExtremeKind.Max ? double.NegativeInfinity : double.PositiveInfinity;
                 foreach (PairMetrics pair in pairs)
                 {
-                    foreach (Vec2 p in pair.Child.Pos)
+                    foreach (Vec2 p in BodyRawPoints(pair))
                     {
                         actual = check.Extreme == ExtremeKind.Max ? Math.Max(actual, p.Y) : Math.Min(actual, p.Y);
                     }
@@ -293,6 +294,65 @@ public sealed class LetterEvaluator : ILetterEvaluator
 
         ChildInk.Transform(children, fit);
         return (fit, change);
+    }
+
+    /// <summary>
+    /// Исходные точки (после удаления выбросов, без сглаживания) той части штриха, что выровнена с телом эталона: подход
+    /// (начатый выше или ниже строки) не считается высотой и посадкой буквы (F4, F5).
+    /// </summary>
+    private static IEnumerable<Vec2> BodyRawPoints(PairMetrics pair)
+    {
+        ChildStroke child = pair.Child;
+        int n = child.NPos.Length;
+        int low = int.MaxValue;
+        int high = int.MinValue;
+        foreach (DtwCell cell in pair.Path)
+        {
+            if (cell.J >= pair.Ref.BodyStart && cell.J <= pair.Ref.BodyEnd)
+            {
+                low = Math.Min(low, cell.I);
+                high = Math.Max(high, cell.I);
+            }
+        }
+
+        if (high < low || n < 2)
+        {
+            return child.Raw;
+        }
+
+        double from = (double)low / (n - 1);
+        double to = (double)high / (n - 1);
+        return child.Raw.Where((_, i) => child.RawArcFraction[i] >= from && child.RawArcFraction[i] <= to);
+    }
+
+    /// <summary>
+    /// Буква кусками: если участок ретрейса лежит под лишним штрихом (ствол написан отдельным штрихом, P4), в основном штрихе
+    /// ретрейса нет по построению — P6 не выдаётся, остаётся P4.
+    /// </summary>
+    private void SuppressRetraceUnderExtra(PairMetrics pair, List<Vec2[]> extra)
+    {
+        if (pair.RetraceShare is null || pair.RetraceRefRange is not { } range)
+        {
+            return;
+        }
+
+        Vec2[] reference = pair.Ref.Pos;
+        int covered = 0;
+        int total = 0;
+        for (int j = range.FromIndex; j <= range.ToIndex && j < reference.Length; j++)
+        {
+            total++;
+            if (extra.Any(e => PolylineMath.DistanceToPolyline(reference[j], e) <= _config.Process.Retrace.Tolerance))
+            {
+                covered++;
+            }
+        }
+
+        if (total > 0 && (double)covered / total >= _config.Process.Retrace.CoveredByExtraShare)
+        {
+            pair.RetraceShare = null;
+            pair.RetraceSpan = null;
+        }
     }
 
     private bool IsUnrecognized(LetterAnalysis a)

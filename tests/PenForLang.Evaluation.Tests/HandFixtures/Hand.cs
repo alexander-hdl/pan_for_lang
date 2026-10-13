@@ -73,7 +73,14 @@ internal static class Hand
     public static HandStroke AApproach(double fromU) => A(leadInFromU: fromU);
 
     /// <summary>a без подхода: старт с овала на <paramref name="startDeg"/> градусах (40 — «1 час»).</summary>
-    public static HandStroke AWithoutApproach(double startDeg) => A(leadIn: false, startDeg: startDeg, endDeg: startDeg + 340);
+    public static HandStroke AWithoutApproach(double startDeg, double sweepDeg = 340) => A(leadIn: false, startDeg: startDeg, endDeg: startDeg + sweepDeg);
+
+    /// <summary>a двумя кусками: овал с подходом, затем отдельным штрихом ствол с хвостом.</summary>
+    public static HandStroke[] ATwoPieces() =>
+    [
+        A(startDeg: 40, endDeg: 400).Cut(0.0, 0.75, 0),
+        A(startDeg: 40, endDeg: 400).Cut(0.75, 1.0, 400),
+    ];
 
     /// <summary>«o» вместо a: овал и хвост сверху, ствола с ретрейсом нет.</summary>
     public static HandStroke OInsteadOfA() => new HandStroke(
