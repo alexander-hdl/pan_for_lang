@@ -1,0 +1,17 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.idea/
+TestResults/
+*.binlog
+artifacts/
+publish/
+
+## Local data
+*.db
+*.db-shm
+*.db-wal
+recordings/local/
