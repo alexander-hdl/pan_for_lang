@@ -68,6 +68,12 @@ internal static partial class StyleManifestParser
         IReadOnlyDictionary<string, string>? displayName = ParseDisplayName(o, sink);
         GuideLines? lines = ParseLines(o, sink);
         double? slant = ParseSlant(o, sink);
+        SlantScoring? slantScoring = o.EnumValue("slantScoring", WireNames.SlantScorings);
+        if (slantScoring == SlantScoring.Absolute && slant is null)
+        {
+            sink.Error("slantScoring", "style.slantScoring", "slantScoring 'absolute' needs a numeric slantDeg; use 'consistency' while the slant is not set");
+        }
+
         double? letterSpacing = o.Number("letterSpacing", 0.0, 2.0);
         double? wordSpacing = o.Number("wordSpacing", 0.0, 5.0);
         JoinPolicy? joins = ParseJoins(o, sink);
@@ -86,6 +92,7 @@ internal static partial class StyleManifestParser
             || language is null
             || displayName is null
             || lines is null
+            || slantScoring is not { } scoring
             || letterSpacing is not { } letter
             || wordSpacing is not { } word
             || joins is null
@@ -98,7 +105,7 @@ internal static partial class StyleManifestParser
             return null;
         }
 
-        return new StyleManifest(id, version, roleValue, script, language, displayName, lines, slant, letter, word, joins, variants, motor, capital, timing, animation);
+        return new StyleManifest(id, version, roleValue, script, language, displayName, lines, slant, scoring, letter, word, joins, variants, motor, capital, timing, animation);
     }
 
     private static SortedDictionary<string, string>? ParseDisplayName(ObjectReader parent, IssueSink sink)
@@ -515,23 +522,24 @@ internal static partial class StyleManifestParser
 
     private static AnimationSettings? ParseAnimation(ObjectReader parent, IssueSink sink)
     {
-        if (parent.Object("animation", required: false) is not { } o)
+        if (parent.Object("animation") is not { } o)
         {
-            return new AnimationSettings();
+            return null;
         }
 
-        var defaults = new AnimationSettings();
-        int errorsBefore = sink.ErrorCount;
-        double speed = o.Number("speedXhPerSec", 0.05, 10.0, required: false) ?? defaults.SpeedXhPerSec;
-        int cusp = o.Integer("cuspPauseMs", 0, 5000, required: false) ?? defaults.CuspPauseMs;
-        double slowdown = o.Number("joinSlowdown", 0.05, 1.0, required: false) ?? defaults.JoinSlowdown;
-        int strokeGap = o.Integer("strokeGapMs", 0, 5000, required: false) ?? defaults.StrokeGapMs;
-        int deferredGap = o.Integer("deferredGapMs", 0, 5000, required: false) ?? defaults.DeferredGapMs;
-        int startHold = o.Integer("startHoldMs", 0, 5000, required: false) ?? defaults.StartHoldMs;
-        int endHold = o.Integer("endHoldMs", 0, 5000, required: false) ?? defaults.EndHoldMs;
-        int dot = o.Integer("dotMs", 1, 5000, required: false) ?? defaults.DotMs;
+        double? speed = o.Number("speedXhPerSec", 0.05, 10.0);
+        int? cusp = o.Integer("cuspPauseMs", 0, 5000);
+        double? slowdown = o.Number("joinSlowdown", 0.05, 1.0);
+        int? strokeGap = o.Integer("strokeGapMs", 0, 5000);
+        int? deferredGap = o.Integer("deferredGapMs", 0, 5000);
+        int? startHold = o.Integer("startHoldMs", 0, 5000);
+        int? endHold = o.Integer("endHoldMs", 0, 5000);
+        int? dot = o.Integer("dotMs", 1, 5000);
         o.RejectUnknown();
-        return sink.ErrorCount > errorsBefore ? null : new AnimationSettings(speed, cusp, slowdown, strokeGap, deferredGap, startHold, endHold, dot);
+        return speed is { } s && cusp is { } c && slowdown is { } sl && strokeGap is { } sg && deferredGap is { } dg
+            && startHold is { } sh && endHold is { } eh && dot is { } d
+            ? new AnimationSettings(s, c, sl, sg, dg, sh, eh, d)
+            : null;
     }
 
     private static bool IsSingleSymbol(string text) =>

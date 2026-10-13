@@ -33,7 +33,22 @@ internal static class GlyphLimits
     public const double ReachTolerance = 0.1;
 
     /// <summary>Допуск касания базовой линии для ключевой точки, x-height.</summary>
-    public const double BaselineTouchTolerance = 0.15;
+    public const double BaselineTouchTolerance = 0.03;
+
+    /// <summary>Допуск совпадения <c>advance</c> с точкой выхода по u, x-height.</summary>
+    public const double AdvanceTolerance = 0.1;
+
+    /// <summary>Допуск положения левого края тела относительно u = 0, x-height.</summary>
+    public const double OriginTolerance = 0.05;
+
+    /// <summary>Наименьшее допустимое u точки входа, x-height.</summary>
+    public const double EntryMinU = -0.5;
+
+    /// <summary>Допуск замкнутости (<c>checks.closed</c>): расстояние между началом участка и его концом, x-height.</summary>
+    public const double ClosedTolerance = 0.05;
+
+    /// <summary>Наибольший излом между концом тела и началом выходящего штриха, градусы.</summary>
+    public const double LeadOutG1Degrees = 10.0;
 
     /// <summary>Точность разбиения кривых на ломаную при проверках, x-height.</summary>
     public const double FlattenTolerance = 0.004;
@@ -54,7 +69,7 @@ internal static class GlyphLimits
     public const double ArrowMinSeparation = 0.02;
 
     /// <summary>Наибольшее расстояние номера от своего штриха, x-height.</summary>
-    public const double NumberMaxDistance = 1.0;
+    public const double NumberMaxDistance = 0.5;
 }
 
 /// <summary>Семантическая проверка глифа по стилю: инварианты порядка, непрерывности, привязок и ссылок.</summary>
@@ -139,9 +154,23 @@ internal static partial class GlyphValidator
         {
             sink.Error("advance", "glyph.advance", "advance must be greater than 0");
         }
-        else if (Math.Abs(glyph.Exit.Point.X - glyph.Advance) > 0.5)
+        else
         {
-            sink.Warning("advance", "glyph.advance.exit", $"advance {Num(glyph.Advance)} is far from the exit point u = {Num(glyph.Exit.Point.X)}");
+            if (Math.Abs(glyph.Exit.Point.X - glyph.Advance) > GlyphLimits.AdvanceTolerance)
+            {
+                sink.Error("advance", "glyph.advance.exit", $"advance {Num(glyph.Advance)} must match the exit point u = {Num(glyph.Exit.Point.X)} within {Num(GlyphLimits.AdvanceTolerance)}: the next glyph is placed at u = advance + letterSpacing");
+            }
+
+            if (glyph.Entry.Point.X < GlyphLimits.EntryMinU || glyph.Entry.Point.X > glyph.Advance)
+            {
+                sink.Error("entry.point", "glyph.entry.range", $"entry.point u = {Num(glyph.Entry.Point.X)} must lie within [{Num(GlyphLimits.EntryMinU)}, advance = {Num(glyph.Advance)}]");
+            }
+        }
+
+        double minU = glyph.Strokes.Min(s => s.Path.GetBounds().Min.X);
+        if (Math.Abs(minU) > GlyphLimits.OriginTolerance)
+        {
+            sink.Error("strokes", "glyph.origin", $"the left edge of the body is at u = {Num(minU)} but must be at u = 0 (within {Num(GlyphLimits.OriginTolerance)}): u = 0 is the left edge of the body");
         }
     }
 
@@ -164,15 +193,6 @@ internal static partial class GlyphValidator
             sink.Error("entry.height", "glyph.entry.height", $"entry.height {Num(height)} differs from entry.point v = {Num(glyph.Entry.Point.Y)}");
         }
 
-        if (glyph.Entry.Tangent.Length < 0.1)
-        {
-            sink.Error("entry.tangent", "glyph.tangent.zero", "entry.tangent must be a non-zero direction");
-        }
-
-        if (glyph.Exit.Tangent.Length < 0.1)
-        {
-            sink.Error("exit.tangent", "glyph.tangent.zero", "exit.tangent must be a non-zero direction");
-        }
     }
 
     private static void ValidateStrokeIds(Glyph glyph, IssueSink sink)
@@ -302,13 +322,10 @@ internal static partial class GlyphValidator
             sink.Error("exit.point", "glyph.exit.point", $"exit.point {Pt(glyph.Exit.Point)} is not the end of the last stroke {Pt(last.Path.End)} (distance {Num(exitGap)}, tolerance {Num(GlyphLimits.PointTolerance)})");
         }
 
-        if (glyph.Exit.Tangent.Length >= 0.1)
+        double exitAngle = AngleDegrees(glyph.Exit.Tangent, last.Path.EndTangent);
+        if (exitAngle > GlyphLimits.TangentMatchDegrees)
         {
-            double angle = AngleDegrees(glyph.Exit.Tangent, last.Path.EndTangent);
-            if (angle > GlyphLimits.TangentMatchDegrees)
-            {
-                sink.Error("exit.tangent", "glyph.exit.tangent", $"exit.tangent differs by {Num(angle)} degrees from the direction at the end of the last stroke (limit {Num(GlyphLimits.TangentMatchDegrees)})");
-            }
+            sink.Error("exit.tangent", "glyph.exit.tangent", $"exit.tangent differs by {Num(exitAngle)} degrees from the direction at the end of the last stroke (limit {Num(GlyphLimits.TangentMatchDegrees)})");
         }
 
         if (glyph.LeadIn is { } leadIn)
@@ -319,13 +336,10 @@ internal static partial class GlyphValidator
                 sink.Error("leadIn.segments", "glyph.leadIn.end", $"leadIn ends at {Pt(leadIn.End)} but entry.point is {Pt(glyph.Entry.Point)} (distance {Num(gap)})");
             }
 
-            if (glyph.Entry.Tangent.Length >= 0.1)
+            double entryAngle = AngleDegrees(glyph.Entry.Tangent, leadIn.EndTangent);
+            if (entryAngle > GlyphLimits.TangentMatchDegrees)
             {
-                double angle = AngleDegrees(glyph.Entry.Tangent, leadIn.EndTangent);
-                if (angle > GlyphLimits.TangentMatchDegrees)
-                {
-                    sink.Error("entry.tangent", "glyph.entry.tangent", $"entry.tangent differs by {Num(angle)} degrees from the direction at the end of leadIn (limit {Num(GlyphLimits.TangentMatchDegrees)})");
-                }
+                sink.Error("entry.tangent", "glyph.entry.tangent", $"entry.tangent differs by {Num(entryAngle)} degrees from the direction at the end of leadIn (limit {Num(GlyphLimits.TangentMatchDegrees)})");
             }
         }
 
@@ -335,6 +349,18 @@ internal static partial class GlyphValidator
             if (gap > GlyphLimits.PointTolerance)
             {
                 sink.Error("leadOut.segments", "glyph.leadOut.start", $"leadOut starts at {Pt(leadOut.Start)} but exit.point is {Pt(glyph.Exit.Point)} (distance {Num(gap)})");
+            }
+
+            double leadOutAngle = AngleDegrees(glyph.Exit.Tangent, leadOut.StartTangent);
+            if (leadOutAngle > GlyphLimits.TangentMatchDegrees)
+            {
+                sink.Error("exit.tangent", "glyph.leadOut.tangent", $"exit.tangent differs by {Num(leadOutAngle)} degrees from the direction at the start of leadOut (limit {Num(GlyphLimits.TangentMatchDegrees)})");
+            }
+
+            double joinAngle = AngleDegrees(last.Path.EndTangent, leadOut.StartTangent);
+            if (glyph.Exit.Class != ExitClass.None && joinAngle > GlyphLimits.LeadOutG1Degrees)
+            {
+                sink.Error("leadOut.segments[0]", "glyph.leadOut.g1", $"the body ends with a corner of {Num(joinAngle)} degrees into leadOut (limit {Num(GlyphLimits.LeadOutG1Degrees)}); the exit must be G1");
             }
         }
     }
@@ -508,15 +534,34 @@ internal static partial class GlyphValidator
         for (int i = 0; i < checks.Reach.Length; i++)
         {
             ReachCheck reach = checks.Reach[i];
-            double expected = reach.Target ?? style.Lines.ValueOf(reach.Line);
+            double expected = reach.Target ?? style.Lines.ValueOf(reach.Line!.Value);
             double actual = reach.Extreme == ExtremeKind.Max ? max : min;
             if (Math.Abs(actual - expected) > GlyphLimits.ReachTolerance)
             {
-                sink.Error($"checks.reach[{Str(i)}]", "glyph.checks.reach", $"the {(reach.Extreme == ExtremeKind.Max ? "highest" : "lowest")} point of the strokes is v = {Num(actual)} but the check expects {Num(expected)} ({(reach.Target is null ? WireNames.Name(reach.Line) + " line" : "target")}, tolerance {Num(GlyphLimits.ReachTolerance)})");
+                string what = reach.Target is not null ? "target" : WireNames.Name(reach.Line!.Value) + " line";
+                sink.Error($"checks.reach[{Str(i)}]", "glyph.checks.reach", $"the {(reach.Extreme == ExtremeKind.Max ? "highest" : "lowest")} point of the strokes is v = {Num(actual)} but the check expects {Num(expected)} ({what}, tolerance {Num(GlyphLimits.ReachTolerance)})");
             }
         }
 
         ValidateRanges(glyph, checks.Closed, "checks.closed", sink);
+        for (int i = 0; i < checks.Closed.Length; i++)
+        {
+            StrokeRange range = checks.Closed[i];
+            GlyphStroke? stroke = glyph.FindStroke(range.StrokeId);
+            if (stroke is null || !(range.From < range.To))
+            {
+                continue;
+            }
+
+            Vec2 from = stroke.Path.PointAtFraction(range.From);
+            Vec2 to = stroke.Path.PointAtFraction(range.To);
+            double gap = Vec2.Distance(from, to);
+            if (gap > GlyphLimits.ClosedTolerance)
+            {
+                sink.Error($"checks.closed[{Str(i)}]", "glyph.checks.closed", $"the closed part of stroke '{range.StrokeId}' does not close: at t = {Num(range.To)} the pen is {Num(gap)} away from where it was at t = {Num(range.From)} (tolerance {Num(GlyphLimits.ClosedTolerance)})");
+            }
+        }
+
         ValidateRanges(glyph, checks.Loops, "checks.loops", sink);
 
         for (int i = 0; i < checks.Retrace.Length; i++)
@@ -583,7 +628,15 @@ internal static partial class GlyphValidator
                 continue;
             }
 
-            double distance = PolylineMath.DistanceToPolyline(number.At, stroke.Path.Flatten(GlyphLimits.FlattenTolerance));
+            // Анимируемый штрих первого основного — входящий штрих и тело: номер ставят у начала всего пути.
+            var points = new List<Vec2>();
+            if (glyph.LeadIn is { } leadIn && penStrokes.Length > 0 && penStrokes[0].Id == number.StrokeId)
+            {
+                points.AddRange(leadIn.Flatten(GlyphLimits.FlattenTolerance));
+            }
+
+            points.AddRange(stroke.Path.Flatten(GlyphLimits.FlattenTolerance));
+            double distance = PolylineMath.DistanceToPolyline(number.At, [.. points]);
             if (distance > GlyphLimits.NumberMaxDistance)
             {
                 sink.Error(path + ".at", "glyph.animation.number.position", $"number for stroke '{number.StrokeId}' at {Pt(number.At)} is {Num(distance)} away from the stroke (limit {Num(GlyphLimits.NumberMaxDistance)})");

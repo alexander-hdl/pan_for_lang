@@ -109,6 +109,7 @@ public class StyleLoaderLayoutTests
         StyleManifest style = Shipped.Style;
 
         Assert.Equal(20.0, style.SlantDeg);
+        Assert.Equal(SlantScoring.Consistency, style.SlantScoring); // абсолютный наклон не сверен с прописью
         Assert.Equal(0.15, style.LetterSpacing);
         Assert.Equal(10, style.Joins.Rules.Length);
         Assert.Equal(EntryClass.UpTall, style.Joins.TallEntryClass);
@@ -126,19 +127,22 @@ public class StyleLoaderLayoutTests
     }
 
     [Fact]
-    public void A_null_slant_and_a_missing_animation_block_are_accepted()
+    public void A_null_slant_is_accepted_while_only_the_consistency_is_scored()
     {
-        StyleLoadResult result = new PackBuilder()
-            .EditStyle(s =>
-            {
-                s["slantDeg"] = null;
-                s.Remove("animation");
-            })
-            .Load();
+        StyleLoadResult result = new PackBuilder().EditStyle(s => s["slantDeg"] = null).Load();
 
         Assert.True(result.Succeeded, string.Join("\n", result.Issues));
         Assert.Null(result.Pack!.Manifest.SlantDeg);
-        Assert.Equal(new AnimationSettings(), result.Pack.Manifest.Animation);
+        Assert.Equal(SlantScoring.Consistency, result.Pack.Manifest.SlantScoring);
+    }
+
+    [Fact]
+    public void Absolute_slant_scoring_is_accepted_with_a_numeric_slant()
+    {
+        StyleLoadResult result = new PackBuilder().EditStyle(s => s["slantScoring"] = "absolute").Load();
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Issues));
+        Assert.Equal(SlantScoring.Absolute, result.Pack!.Manifest.SlantScoring);
     }
 
     [Fact]

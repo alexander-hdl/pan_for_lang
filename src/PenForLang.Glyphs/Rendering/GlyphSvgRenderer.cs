@@ -47,6 +47,8 @@ public static class GlyphSvgRenderer
     private const double MarginAbove = 0.30;
     private const double MarginBelow = 0.30;
     private const double CaptionHeight = 0.30;
+    private const double CaptionCharWidth = 6.4;
+    private const double CaptionPadding = 8.0;
     private const double StrokeWidth = 5.0;
     private const double ArrowSize = 0.075;
     private const double BadgeRadius = 0.085;
@@ -75,6 +77,12 @@ public static class GlyphSvgRenderer
         (double minU, double maxU) = HorizontalExtent(glyph, options);
         minU -= MarginU;
         maxU += MarginU;
+        if (options.ShowCaption)
+        {
+            // Подпись должна поместиться в ширину изображения (у узких букв вроде i она иначе обрезается).
+            string captionText = Caption(glyph);
+            maxU = Math.Max(maxU, minU + ((captionText.Length * CaptionCharWidth) + (2.0 * CaptionPadding)) / Scale);
+        }
         double topV = style.Lines.Ascender + MarginAbove;
         double bottomV = style.Lines.Descender - MarginBelow - (options.ShowCaption ? CaptionHeight : 0.0);
 
@@ -146,8 +154,7 @@ public static class GlyphSvgRenderer
 
         if (options.ShowCaption)
         {
-            string review = glyph.Meta.Reviewed ? "reviewed" : "not reviewed";
-            string caption = $"{glyph.Id} | {glyph.Meta.Source} | {review}";
+            string caption = Caption(glyph);
             sb.Append("<text x=\"").Append(F(minU * Scale + 8.0)).Append("\" y=\"").Append(F(-(bottomV * Scale) - 8.0))
                 .Append("\" font-family=\"sans-serif\" font-size=\"11\" fill=\"#5e5c64\">").Append(Escape(caption)).Append("</text>\n");
         }
@@ -155,6 +162,9 @@ public static class GlyphSvgRenderer
         sb.Append("</svg>\n");
         return sb.ToString();
     }
+
+    private static string Caption(Glyph glyph) =>
+        $"{glyph.Id} | {glyph.Meta.Source} | {(glyph.Meta.Reviewed ? "reviewed" : "not reviewed")}";
 
     private static (double Min, double Max) HorizontalExtent(Glyph glyph, SvgRenderOptions options)
     {

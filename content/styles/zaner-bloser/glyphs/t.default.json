@@ -2,21 +2,22 @@
   "schema": "pfl.glyph/1",
   "id": "zaner-bloser/t.default",
   "char": "t", "case": "lower", "variant": "default",
-  "advance": 0.695,
-  "entry": { "class": "E-UP", "height": 1.5, "point": [0.846, 1.5], "tangent": [0.388, 0.922] },
-  "exit": { "class": "X-BASE", "point": [0.695, 0.15], "tangent": [0.862, 0.508] },
+  "advance": 0.548,
+  "entry": { "class": "E-UP", "height": 1.5, "point": [0.459, 1.5], "tangent": [0.388, 0.922] },
+  "exit": { "class": "X-BASE", "point": [0.548, 0.15], "tangent": [0.811, 0.585] },
   "leadIn": { "segments": [
-    { "c": [[-0.2, 0.0], [0.067, 0.02], [0.551, 0.8], [0.846, 1.5]], "label": "t.up" }
+    { "c": [[-0.587, 0.0], [-0.319, 0.02], [0.165, 0.8], [0.459, 1.5]], "label": "t.up" }
   ] },
   "leadOut": { "segments": [
-    { "c": [[0.695, 0.15], [0.817, 0.222], [1.078, 0.49], [1.244, 0.67]], "label": "t.undercurveOut" }
+    { "c": [[0.548, 0.15], [0.664, 0.234], [0.932, 0.49], [1.097, 0.67]], "label": "t.undercurveOut" }
   ] },
   "strokes": [
     {
       "id": "s1", "order": 1,
       "segments": [
-        { "l": [[0.846, 1.5], [0.402, 0.28]], "retrace": true, "label": "t.downSameLine" },
-        { "c": [[0.402, 0.28], [0.336, 0.1], [0.44, 0.0], [0.695, 0.15]], "label": "t.undercurveOut" }
+        { "l": [[0.459, 1.5], [0.332, 1.15]], "retrace": true, "label": "t.downSameLine" },
+        { "l": [[0.332, 1.15], [0.015, 0.28]], "label": "t.downSameLine" },
+        { "c": [[0.015, 0.28], [-0.054, 0.09], [0.108, -0.168], [0.548, 0.15]], "label": "t.undercurveOut" }
       ]
     }
   ],
@@ -24,25 +25,25 @@
     {
       "id": "bar", "kind": "bar", "direction": "ltr",
       "segments": [
-        { "l": [[0.304, 1.0], [1.024, 1.0]], "label": "t.bar" }
+        { "l": [[0.027, 1.0], [0.527, 1.0]], "label": "t.bar" }
       ],
-      "anchor": { "stroke": "s1", "t": 0.297, "offset": [0.0, 0.0] }
+      "anchor": { "stroke": "s1", "t": 0.255, "offset": [0.0, 0.0] }
     }
   ],
   "keypoints": [
     { "type": "start", "stroke": "s1", "t": 0.0 },
-    { "type": "baselineTouch", "stroke": "s1", "t": 0.876 },
+    { "type": "baselineTouch", "stroke": "s1", "t": 0.813 },
     { "type": "end", "stroke": "s1", "t": 1.0 }
   ],
   "features": ["retrace", "deferred"],
   "checks": {
-    "reach": [ { "line": "xHeight", "extreme": "max", "target": 1.5 } ],
+    "reach": [ { "extreme": "max", "target": 1.5 } ],
     "retrace": [ { "stroke": "s1", "segment": 0 } ]
   },
   "animation": {
     "startDot": "leadIn",
-    "numbers": [{ "stroke": "s1", "at": [1.066, 1.56] }, { "stroke": "bar", "at": [0.134, 1.0] }],
-    "arrows": [{ "stroke": "s1", "t": 0.475 }, { "stroke": "s1", "t": 0.851 }, { "stroke": "bar", "t": 0.8 }]
+    "numbers": [{ "stroke": "s1", "at": [-0.687, 0.22] }, { "stroke": "bar", "at": [-0.143, 1.0] }],
+    "arrows": [{ "stroke": "s1", "t": 0.375 }, { "stroke": "s1", "t": 0.776 }, { "stroke": "bar", "t": 0.8 }]
   },
-  "meta": { "author": "agent:V0.4", "source": "illustrative", "reviewed": false, "license": "project data", "notes": "Illustrative shape, not checked against the Zaner-Bloser copybook. Slant 20 deg; t height 1.5 x-height." }
+  "meta": { "author": "agent:V0.4", "source": "illustrative", "reviewed": false, "license": "project data", "notes": "Illustrative shape, not checked against the Zaner-Bloser copybook. Slant 20 deg. t height 1.5 x-height." }
 }

@@ -6,8 +6,8 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema", "id", "version", "role", "script", "language", "displayName", "lines", "slantDeg", "letterSpacing", "wordSpacing",
-    "joins", "variantRules", "motorFamilies", "capitals", "deferred"
+    "schema", "id", "version", "role", "script", "language", "displayName", "lines", "slantDeg", "slantScoring", "letterSpacing", "wordSpacing",
+    "joins", "variantRules", "motorFamilies", "capitals", "deferred", "animation"
   ],
   "properties": {
     "schema": { "const": "pfl.style/1" },
@@ -35,7 +35,8 @@
         "descender": { "type": "number", "minimum": -3, "maximum": 0 }
       }
     },
-    "slantDeg": { "type": ["number", "null"], "minimum": -45, "maximum": 45, "description": "Degrees from vertical, positive = to the right; null = only consistency is scored." },
+    "slantDeg": { "type": ["number", "null"], "minimum": -45, "maximum": 45, "description": "Degrees from vertical, positive = to the right. Used for geometry and ruler guides even while slantScoring is 'consistency'." },
+    "slantScoring": { "enum": ["consistency", "absolute"], "description": "'consistency': the evaluator checks only that the slant is constant (the absolute slant is not verified against the copybook); 'absolute' needs a numeric slantDeg and is allowed only once the style is reviewed." },
     "letterSpacing": { "type": "number", "minimum": 0, "maximum": 2 },
     "wordSpacing": { "type": "number", "minimum": 0, "maximum": 5 },
     "joins": {
@@ -113,6 +114,7 @@
     "animation": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["speedXhPerSec", "cuspPauseMs", "joinSlowdown", "strokeGapMs", "deferredGapMs", "startHoldMs", "endHoldMs", "dotMs"],
       "properties": {
         "speedXhPerSec": { "type": "number", "minimum": 0.05, "maximum": 10 },
         "cuspPauseMs": { "type": "integer", "minimum": 0, "maximum": 5000 },

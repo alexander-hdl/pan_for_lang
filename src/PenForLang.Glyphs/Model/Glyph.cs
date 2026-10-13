@@ -148,11 +148,11 @@ public sealed record DeferredStroke(string Id, DeferredKind Kind, DeferredDirect
 /// <param name="T">Доля длины дуги штриха, [0, 1].</param>
 public sealed record GlyphKeyPoint(KeyPointType Type, string StrokeId, double T);
 
-/// <summary>Проверка достижения линии: экстремум v основных штрихов лежит на линии стиля (или на <see cref="Target"/>).</summary>
-/// <param name="Line">Линия.</param>
+/// <summary>Проверка достижения: экстремум v основных штрихов лежит на <see cref="Target"/> или, если он не задан, на линии стиля.</summary>
+/// <param name="Line">Линия; может быть <c>null</c>, если задан <paramref name="Target"/>.</param>
 /// <param name="Extreme">Какой экстремум.</param>
 /// <param name="Target">Явная высота v вместо линии (например, 1,5 для t) или <c>null</c>.</param>
-public sealed record ReachCheck(LineName Line, ExtremeKind Extreme, double? Target);
+public sealed record ReachCheck(LineName? Line, ExtremeKind Extreme, double? Target);
 
 /// <summary>Участок штриха по доле длины дуги.</summary>
 /// <param name="StrokeId">Основной штрих.</param>

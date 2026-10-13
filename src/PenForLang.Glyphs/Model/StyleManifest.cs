@@ -49,6 +49,16 @@ public enum DeferredTeachTiming
     AfterLetter,
 }
 
+/// <summary>Как оценщик использует наклон стиля (<c>slantScoring</c>).</summary>
+public enum SlantScoring
+{
+    /// <summary>Только постоянство наклона: абсолютное значение <see cref="StyleManifest.SlantDeg"/> не сверено с прописью.</summary>
+    Consistency,
+
+    /// <summary>Абсолютный наклон: допустим, когда <see cref="StyleManifest.SlantDeg"/> сверен человеком.</summary>
+    Absolute,
+}
+
 /// <summary>Линии линейки стиля в x-height относительно базовой линии (ARCHITECTURE.md §3.1).</summary>
 /// <param name="Ascender">Линия асцендеров.</param>
 /// <param name="Cap">Линия заглавных.</param>
@@ -99,8 +109,8 @@ public sealed record JoinPolicy(ImmutableArray<JoinRule> Rules, EntryClass TallE
 public sealed record VariantRule(string Symbol, ExitClass PrevExit, string Variant);
 
 /// <summary>
-/// Настройки анимации стиля (ARCHITECTURE.md §3.2.2, <c>animation</c>). Значения по умолчанию — инженерные стартовые,
-/// чтобы старый <c>style.json</c> без новых полей продолжал загружаться.
+/// Настройки анимации стиля (ARCHITECTURE.md §3.2.2, <c>animation</c>). Значения задаёт только <c>style.json</c>
+/// (единственная точка истины): блок и все поля обязательны, значений по умолчанию в коде нет.
 /// </summary>
 /// <param name="SpeedXhPerSec">Скорость пера, x-height в секунду.</param>
 /// <param name="CuspPauseMs">Пауза в точке возврата и резком изгибе, мс.</param>
@@ -111,14 +121,14 @@ public sealed record VariantRule(string Symbol, ExitClass PrevExit, string Varia
 /// <param name="EndHoldMs">Выдержка в конце, мс.</param>
 /// <param name="DotMs">Длительность постановки точки, мс.</param>
 public sealed record AnimationSettings(
-    double SpeedXhPerSec = 1.6,
-    int CuspPauseMs = 120,
-    double JoinSlowdown = 0.6,
-    int StrokeGapMs = 400,
-    int DeferredGapMs = 500,
-    int StartHoldMs = 300,
-    int EndHoldMs = 600,
-    int DotMs = 180);
+    double SpeedXhPerSec,
+    int CuspPauseMs,
+    double JoinSlowdown,
+    int StrokeGapMs,
+    int DeferredGapMs,
+    int StartHoldMs,
+    int EndHoldMs,
+    int DotMs);
 
 /// <summary>Описание стиля письма (<c>style.json</c>, схема <c>pfl.style/1</c>).</summary>
 /// <param name="Id">Внутренний идентификатор стиля (в UI не показывается).</param>
@@ -128,8 +138,9 @@ public sealed record AnimationSettings(
 /// <param name="Language">Язык алфавита (<c>en</c>).</param>
 /// <param name="DisplayName">Отображаемое имя по языкам UI (<c>ru</c>, <c>en</c>) — без товарного знака.</param>
 /// <param name="Lines">Линии линейки.</param>
-/// <param name="SlantDeg">Наклон в градусах от вертикали вправо или <c>null</c> (оценивается только консистентность).</param>
-/// <param name="LetterSpacing">Зазор между буквами, x-height.</param>
+/// <param name="SlantDeg">Наклон в градусах от вертикали вправо (для геометрии и линеек) или <c>null</c>.</param>
+/// <param name="SlantScoring">Что оценщик делает с наклоном: <see cref="SlantScoring.Consistency"/> — только постоянство, пока наклон не сверен.</param>
+/// <param name="LetterSpacing">Зазор между буквами, x-height: следующий глиф ставится в <c>u = advance + letterSpacing</c> предыдущего.</param>
 /// <param name="WordSpacing">Пробел между словами, x-height.</param>
 /// <param name="Joins">Правила соединений.</param>
 /// <param name="VariantRules">Правила вариантов глифов.</param>
@@ -146,6 +157,7 @@ public sealed record StyleManifest(
     IReadOnlyDictionary<string, string> DisplayName,
     GuideLines Lines,
     double? SlantDeg,
+    SlantScoring SlantScoring,
     double LetterSpacing,
     double WordSpacing,
     JoinPolicy Joins,

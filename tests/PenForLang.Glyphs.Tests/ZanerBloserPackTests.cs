@@ -72,6 +72,90 @@ public class ZanerBloserPackTests
         }
 
         Assert.True(doubledArea > 0, "the oval must be written counter-clockwise");
+
+        // Овал замкнут: к моменту closed.To перо вернулось туда, где начало (по доле длины дуги).
+        Vec2 from = a.Strokes[0].Path.PointAtFraction(closed.From);
+        Vec2 to = a.Strokes[0].Path.PointAtFraction(closed.To);
+        Assert.True(Vec2.Distance(from, to) <= 0.05, $"the oval is open: {Vec2.Distance(from, to):0.###} between t={closed.From} and t={closed.To}");
+        Assert.True(closed.To > 0.5 && closed.To < 0.9, "the oval closes after the bottom, before the stem turns");
+    }
+
+    [Fact]
+    public void Every_body_touches_the_baseline_at_its_lowest_point()
+    {
+        foreach (Glyph glyph in Shipped.Pack.Glyphs)
+        {
+            double minV = glyph.Strokes.Min(s => s.Path.GetBounds().Min.Y);
+            Assert.InRange(minV, -0.03, 0.03);
+            foreach (GlyphKeyPoint keyPoint in glyph.KeyPoints.Where(k => k.Type == KeyPointType.BaselineTouch))
+            {
+                double v = glyph.FindStroke(keyPoint.StrokeId)!.Path.PointAtFraction(keyPoint.T).Y;
+                Assert.InRange(v, -0.03, 0.03);
+            }
+        }
+    }
+
+    [Fact]
+    public void Retrace_flag_stands_only_on_segments_that_overlap_earlier_ink()
+    {
+        foreach (Glyph glyph in Shipped.Pack.Glyphs)
+        {
+            GlyphPath path = glyph.Strokes[0].Path;
+            for (int i = 0; i < path.Segments.Length; i++)
+            {
+                var earlier = new List<Vec2>();
+                if (glyph.LeadIn is { } lead)
+                {
+                    earlier.AddRange(lead.Flatten(0.004));
+                }
+
+                for (int k = 0; k < i - (path.Segments[i].Retrace ? 0 : 1); k++)
+                {
+                    earlier.AddRange(new GlyphPath([path.Segments[k]]).Flatten(0.004));
+                }
+
+                Vec2[] own = new GlyphPath([path.Segments[i]]).Flatten(0.004);
+                if (path.Segments[i].Retrace)
+                {
+                    double worst = own.Max(p => PolylineMath.DistanceToPolyline(p, [.. earlier]));
+                    Assert.True(worst <= 0.06, $"{glyph.Id}: segment {i} is marked retrace but leaves the ink by {worst:0.###}");
+                }
+                else if (i > 0)
+                {
+                    double middle = PolylineMath.DistanceToPolyline(own[own.Length / 2], [.. earlier]);
+                    Assert.True(middle > 0.03, $"{glyph.Id}: segment {i} lies on earlier ink ({middle:0.###}) but is not marked retrace");
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void Horizontal_placement_invariants_hold_for_every_glyph()
+    {
+        foreach (Glyph glyph in Shipped.Pack.Glyphs)
+        {
+            Assert.True(glyph.Advance > 0, $"{glyph.Id}: advance");
+            Assert.InRange(glyph.Exit.Point.X - glyph.Advance, -0.1, 0.1);
+            Assert.InRange(glyph.Entry.Point.X, -0.5, glyph.Advance);
+            double left = glyph.Strokes.Min(s => s.Path.GetBounds().Min.X);
+            Assert.InRange(left, -0.05, 0.05); // u = 0 — левый край тела
+            Assert.Equal(1.0, glyph.Entry.Tangent.Length, 6);
+            Assert.Equal(1.0, glyph.Exit.Tangent.Length, 6);
+            Assert.True(Vec2.Dot(glyph.Exit.Tangent, glyph.LeadOut!.StartTangent) > Math.Cos(10.0 * Math.PI / 180.0), $"{glyph.Id}: exit is G1 into leadOut");
+        }
+    }
+
+    [Fact]
+    public void The_first_number_sits_at_the_start_of_the_animated_path_and_the_bar_is_short()
+    {
+        foreach (Glyph glyph in Shipped.Pack.Glyphs)
+        {
+            Vec2 first = glyph.Animation.Numbers.First(n => n.StrokeId == glyph.Strokes[0].Id).At;
+            Assert.True(Vec2.Distance(first, glyph.LeadIn!.Start) < 0.4, $"{glyph.Id}: number 1 is far from the start of leadIn");
+        }
+
+        DeferredStroke bar = Shipped.Glyph("t").Deferred[0];
+        Assert.InRange(bar.Path.Length, 0.45, 0.55);
     }
 
     [Fact]
@@ -109,7 +193,7 @@ public class ZanerBloserPackTests
     [Theory]
     [InlineData("i", 0)]
     [InlineData("t", 0)]
-    [InlineData("a", 4)]
+    [InlineData("a", 5)]
     public void Straight_stems_lean_forward_by_the_style_slant(string symbol, int segment)
     {
         Glyph glyph = Shipped.Glyph(symbol);

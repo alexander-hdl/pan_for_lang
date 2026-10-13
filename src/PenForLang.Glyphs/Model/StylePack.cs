@@ -8,9 +8,6 @@ namespace PenForLang.Glyphs;
 /// </summary>
 public sealed class StylePack
 {
-    /// <summary>Язык меток по умолчанию при отсутствии запрошенного.</summary>
-    public const string FallbackLanguage = "en";
-
     private const string PhraseSeparator = " — ";
 
     /// <summary>Создаёт пакет. Не проверяет согласованность — для этого есть <see cref="Loading.StyleLoader"/>.</summary>

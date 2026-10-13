@@ -71,6 +71,13 @@ internal static class WireNames
             ["break"] = JoinShape.Break,
         };
 
+    public static readonly IReadOnlyDictionary<string, SlantScoring> SlantScorings =
+        new Dictionary<string, SlantScoring>(StringComparer.Ordinal)
+        {
+            ["consistency"] = SlantScoring.Consistency,
+            ["absolute"] = SlantScoring.Absolute,
+        };
+
     public static readonly IReadOnlyDictionary<string, CapitalJoinMode> CapitalJoinModes =
         new Dictionary<string, CapitalJoinMode>(StringComparer.Ordinal)
         {

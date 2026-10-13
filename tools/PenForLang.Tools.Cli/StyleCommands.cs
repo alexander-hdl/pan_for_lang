@@ -23,7 +23,7 @@ public static class StyleCommands
     public static Command CreateValidateCommand()
     {
         var directory = new Argument<string>("style-dir") { Description = "Style package directory, e.g. content/styles/zaner-bloser." };
-        var command = new Command("validate", "Validate a style package: schema, invariants, label keys (ARCHITECTURE.md 3.2.7).");
+        var command = new Command("validate", "Validate a style package with the loader: structure, invariants (strokes, continuity, anchors, keypoints, ...), label keys. JSON Schemas in schemas/ are checked by the test suite.");
         command.Arguments.Add(directory);
         command.SetAction(parseResult =>
             Validate(parseResult.GetRequiredValue(directory), parseResult.InvocationConfiguration.Output, parseResult.InvocationConfiguration.Error));

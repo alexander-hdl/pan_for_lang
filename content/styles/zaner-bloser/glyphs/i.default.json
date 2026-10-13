@@ -2,21 +2,21 @@
   "schema": "pfl.glyph/1",
   "id": "zaner-bloser/i.default",
   "char": "i", "case": "lower", "variant": "default",
-  "advance": 0.635,
-  "entry": { "class": "E-UP", "point": [0.604, 1.0], "tangent": [0.497, 0.868] },
-  "exit": { "class": "X-BASE", "point": [0.635, 0.15], "tangent": [0.862, 0.508] },
+  "advance": 0.319,
+  "entry": { "class": "E-UP", "point": [0.289, 1.0], "tangent": [0.497, 0.868] },
+  "exit": { "class": "X-BASE", "point": [0.319, 0.15], "tangent": [0.693, 0.721] },
   "leadIn": { "segments": [
-    { "c": [[-0.3, 0.0], [-0.013, 0.02], [0.329, 0.52], [0.604, 1.0]], "label": "i.up" }
+    { "c": [[-0.615, 0.0], [-0.328, 0.02], [0.014, 0.52], [0.289, 1.0]], "label": "i.up" }
   ] },
   "leadOut": { "segments": [
-    { "c": [[0.635, 0.15], [0.757, 0.222], [1.018, 0.49], [1.184, 0.67]], "label": "i.undercurveOut" }
+    { "c": [[0.319, 0.15], [0.418, 0.253], [0.703, 0.49], [0.868, 0.67]], "label": "i.undercurveOut" }
   ] },
   "strokes": [
     {
       "id": "s1", "order": 1,
       "segments": [
-        { "l": [[0.604, 1.0], [0.342, 0.28]], "label": "i.slantDown" },
-        { "c": [[0.342, 0.28], [0.276, 0.1], [0.38, 0.0], [0.635, 0.15]], "label": "i.undercurveOut" }
+        { "l": [[0.289, 1.0], [0.026, 0.28]], "label": "i.slantDown" },
+        { "c": [[0.026, 0.28], [-0.043, 0.09], [0.013, -0.168], [0.319, 0.15]], "label": "i.undercurveOut" }
       ]
     }
   ],
@@ -24,14 +24,14 @@
     {
       "id": "dot", "kind": "dot", "direction": "any",
       "segments": [
-        { "l": [[0.756, 1.45], [0.78, 1.45]], "label": "i.dot" }
+        { "l": [[0.44, 1.45], [0.464, 1.45]], "label": "i.dot" }
       ],
       "anchor": { "stroke": "s1", "t": 0.0, "offset": [0.164, 0.45] }
     }
   ],
   "keypoints": [
     { "type": "start", "stroke": "s1", "t": 0.0 },
-    { "type": "baselineTouch", "stroke": "s1", "t": 0.824 },
+    { "type": "baselineTouch", "stroke": "s1", "t": 0.796 },
     { "type": "end", "stroke": "s1", "t": 1.0 }
   ],
   "features": ["deferred"],
@@ -40,8 +40,8 @@
   },
   "animation": {
     "startDot": "leadIn",
-    "numbers": [{ "stroke": "s1", "at": [0.804, 1.06] }, { "stroke": "dot", "at": [0.968, 1.5] }],
-    "arrows": [{ "stroke": "s1", "t": 0.335 }, { "stroke": "s1", "t": 0.788 }]
+    "numbers": [{ "stroke": "s1", "at": [-0.715, 0.22] }, { "stroke": "dot", "at": [0.652, 1.5] }],
+    "arrows": [{ "stroke": "s1", "t": 0.306 }, { "stroke": "s1", "t": 0.764 }]
   },
   "meta": { "author": "agent:V0.4", "source": "illustrative", "reviewed": false, "license": "project data", "notes": "Illustrative shape, not checked against the Zaner-Bloser copybook. Slant 20 deg." }
 }

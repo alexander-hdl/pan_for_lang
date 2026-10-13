@@ -109,9 +109,9 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["line", "extreme"],
+            "required": ["extreme"],
             "properties": {
-              "line": { "enum": ["ascender", "cap", "xHeight", "baseline", "descender"] },
+              "line": { "enum": ["ascender", "cap", "xHeight", "baseline", "descender"], "description": "Optional when target is given; otherwise required (the loader enforces 'line or target')." },
               "extreme": { "enum": ["max", "min"] },
               "target": { "type": "number", "minimum": -3, "maximum": 4 }
             }

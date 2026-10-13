@@ -164,12 +164,99 @@ public class StyleLoaderRejectionTests
         ["duplicate_join_rule"] = new(
             b => b.EditStyle(s => Arr(Obj(s["joins"])["rules"]).Add(JsonNode.Parse(Arr(Obj(s["joins"])["rules"])[0]!.ToJsonString()))),
             "style.joins.duplicate", "style.json", "joins.rules[10]", "duplicate join rule for exit/entry pair"),
+        ["char_differs_from_id"] = new(
+            b => b.EditGlyph(g => g["char"] = "x"),
+            "glyph.id.char", "glyphs/i.default.json", "char", "does not match the character 'i' in id"),
+        ["variant_differs_from_id"] = new(
+            b => b.EditGlyph(g => g["variant"] = "alt"),
+            "glyph.id.variant", "glyphs/i.default.json", "variant", "does not match the variant 'default' in id"),
+        ["open_oval"] = new(
+            b => b.EditGlyph(g => g["checks"] = JsonNode.Parse("{ \"closed\": [ { \"stroke\": \"s1\", \"from\": 0.0, \"to\": 0.5 } ] }")),
+            "glyph.checks.closed", "glyphs/i.default.json", "checks.closed[0]", "does not close"),
+        ["lead_out_leaves_in_another_direction"] = new(
+            b => b.EditGlyph(g => Obj(g["exit"])["tangent"] = JsonNode.Parse("[0.2, 0.98]")),
+            "glyph.leadOut.tangent", "glyphs/i.default.json", "exit.tangent", "start of leadOut"),
+        ["body_turns_into_lead_out"] = new(
+            b => b.EditGlyph(g =>
+            {
+                JsonObject exit = Obj(g["exit"]);
+                double x = (double)Arr(exit["point"])[0]!;
+                double y = (double)Arr(exit["point"])[1]!;
+                double angle = Math.Atan2((double)Arr(exit["tangent"])[1]!, (double)Arr(exit["tangent"])[0]!) + (12.0 * Math.PI / 180.0);
+                JsonObject leadOut = Obj(Arr(Obj(g["leadOut"])["segments"])[0]);
+                Arr(leadOut["c"])[1] = JsonNode.Parse(FormattableString.Invariant($"[{x + (0.12 * Math.Cos(angle))}, {y + (0.12 * Math.Sin(angle))}]"));
+            }),
+            "glyph.leadOut.g1", "glyphs/i.default.json", "leadOut.segments[0]", "the exit must be G1"),
+        ["body_not_at_the_origin"] = new(
+            b => b.EditGlyph(g => ShiftStrokes(g, 0.25)),
+            "glyph.origin", "glyphs/i.default.json", "strokes", "u = 0 is the left edge of the body"),
+        ["advance_far_from_exit"] = new(
+            b => b.EditGlyph(g => g["advance"] = 0.9),
+            "glyph.advance.exit", "glyphs/i.default.json", "advance", "the next glyph is placed at u = advance + letterSpacing"),
+        ["entry_beyond_the_advance"] = new(
+            b => b.EditGlyph(g => Shift(Obj(g["entry"])["point"], 1.0, 0.0)),
+            "glyph.entry.range", "glyphs/i.default.json", "entry.point", "must lie within"),
+        ["reach_without_line_or_target"] = new(
+            b => b.EditGlyph(g => g["checks"] = JsonNode.Parse("{ \"reach\": [ { \"extreme\": \"max\" } ] }")),
+            "glyph.checks.reach", "glyphs/i.default.json", "checks.reach[0]", "needs a 'line' or a 'target'"),
+        ["zero_entry_tangent"] = new(
+            b => b.EditGlyph(g => Obj(g["entry"])["tangent"] = JsonNode.Parse("[0.0, 0.0]")),
+            "glyph.tangent.zero", "glyphs/i.default.json", "entry.tangent", "must be a non-zero direction"),
+        ["number_far_from_its_stroke"] = new(
+            b => b.EditGlyph(g => Obj(Arr(Obj(g["animation"])["numbers"])[0])["at"] = JsonNode.Parse("[0.3, 3.0]")),
+            "glyph.animation.number.position", "glyphs/i.default.json", "animation.numbers[0].at", "away from the stroke"),
+        ["absolute_slant_without_a_value"] = new(
+            b => b.EditStyle(s =>
+            {
+                s["slantDeg"] = null;
+                s["slantScoring"] = "absolute";
+            }),
+            "style.slantScoring", "style.json", "slantScoring", "needs a numeric slantDeg"),
+        ["slant_scoring_missing"] = new(
+            b => b.EditStyle(s => s.Remove("slantScoring")),
+            "json.missing", "style.json", "slantScoring", "required property 'slantScoring' is missing"),
+        ["animation_block_missing"] = new(
+            b => b.EditStyle(s => s.Remove("animation")),
+            "json.missing", "style.json", "animation", "required property 'animation' is missing"),
+        ["animation_field_missing"] = new(
+            b => b.EditStyle(s => Obj(s["animation"]).Remove("dotMs")),
+            "json.missing", "style.json", "animation.dotMs", "required property 'dotMs' is missing"),
         ["style_directory_differs_from_id"] = new(
             b => b.InDirectory("styles/other"),
             "style.id.directory", "style.json", "id", "does not match the package directory name 'other'"),
     };
 
     public static TheoryData<string> FixtureNames => [.. Fixtures.Keys];
+
+    /// <summary>Сдвигает по u каждую точку <c>[u, v]</c> внутри <c>strokes</c>.</summary>
+    private static void ShiftStrokes(JsonObject glyph, double du)
+    {
+        static void Walk(JsonNode? node, double du)
+        {
+            if (node is JsonArray array)
+            {
+                if (array.Count == 2 && array[0] is JsonValue && array[1] is JsonValue)
+                {
+                    array[0] = (double)array[0]! + du;
+                    return;
+                }
+
+                foreach (JsonNode? child in array)
+                {
+                    Walk(child, du);
+                }
+            }
+            else if (node is JsonObject obj)
+            {
+                foreach (KeyValuePair<string, JsonNode?> pair in obj)
+                {
+                    Walk(pair.Value, du);
+                }
+            }
+        }
+
+        Walk(glyph["strokes"], du);
+    }
 
     private static void RemoveRules(JsonObject style, Func<JsonObject, bool> remove)
     {

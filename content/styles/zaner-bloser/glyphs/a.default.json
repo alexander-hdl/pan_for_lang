@@ -2,47 +2,48 @@
   "schema": "pfl.glyph/1",
   "id": "zaner-bloser/a.default",
   "char": "a", "case": "lower", "variant": "default",
-  "advance": 1.255,
-  "entry": { "class": "E-C", "point": [1.02, 0.91], "tangent": [0.684, 0.729] },
-  "exit": { "class": "X-BASE", "point": [1.255, 0.15], "tangent": [0.862, 0.508] },
+  "advance": 1.052,
+  "entry": { "class": "E-C", "point": [0.989, 0.91], "tangent": [0.7, 0.714] },
+  "exit": { "class": "X-BASE", "point": [1.052, 0.15], "tangent": [0.693, 0.721] },
   "leadIn": { "segments": [
-    { "c": [[-0.32, 0.0], [0.047, 0.02], [0.711, 0.58], [1.02, 0.91]], "label": "a.rollUp" }
+    { "c": [[-0.522, 0.0], [-0.155, 0.02], [0.607, 0.52], [0.989, 0.91]], "label": "a.rollUp" }
   ] },
   "leadOut": { "segments": [
-    { "c": [[1.255, 0.15], [1.377, 0.222], [1.638, 0.49], [1.804, 0.67]], "label": "a.tail" }
+    { "c": [[1.052, 0.15], [1.151, 0.253], [1.436, 0.49], [1.601, 0.67]], "label": "a.tail" }
   ] },
   "strokes": [
     {
       "id": "s1", "order": 1,
       "segments": [
-        { "c": [[1.02, 0.91], [0.84, 1.142], [0.389, 0.905], [0.242, 0.5]], "label": "a.backAround", "pauseBeforeMs": 80 },
-        { "c": [[0.242, 0.5], [0.141, 0.224], [0.239, 0.0], [0.46, 0.0]], "label": "a.backAround" },
-        { "c": [[0.46, 0.0], [0.681, 0.0], [0.941, 0.224], [1.042, 0.5]], "label": "a.up" },
-        { "l": [[1.042, 0.5], [1.224, 1.0]], "label": "a.up" },
-        { "l": [[1.224, 1.0], [0.962, 0.28]], "retrace": true, "label": "a.downSameLine", "pauseBeforeMs": 120 },
-        { "c": [[0.962, 0.28], [0.896, 0.1], [1.0, 0.0], [1.255, 0.15]], "label": "a.tail" }
+        { "c": [[0.989, 0.91], [0.994, 0.98], [0.862, 1.0], [0.622, 1.0]], "label": "a.backAround", "pauseBeforeMs": 80 },
+        { "c": [[0.622, 1.0], [0.401, 1.0], [0.14, 0.776], [0.04, 0.5]], "label": "a.backAround" },
+        { "c": [[0.04, 0.5], [-0.061, 0.224], [0.037, 0.0], [0.258, 0.0]], "label": "a.backAround" },
+        { "c": [[0.258, 0.0], [0.478, 0.0], [0.739, 0.224], [0.84, 0.5]], "label": "a.up" },
+        { "l": [[0.84, 0.5], [1.022, 1.0]], "label": "a.up" },
+        { "l": [[1.022, 1.0], [0.759, 0.28]], "retrace": true, "label": "a.downSameLine", "pauseBeforeMs": 120 },
+        { "c": [[0.759, 0.28], [0.69, 0.09], [0.746, -0.168], [1.052, 0.15]], "label": "a.tail" }
       ]
     }
   ],
   "deferred": [],
   "keypoints": [
     { "type": "start", "stroke": "s1", "t": 0.0 },
-    { "type": "ymax", "stroke": "s1", "t": 0.052 },
-    { "type": "ymin", "stroke": "s1", "t": 0.394 },
-    { "type": "cusp", "stroke": "s1", "t": 0.707 },
-    { "type": "baselineTouch", "stroke": "s1", "t": 0.948 },
+    { "type": "ymax", "stroke": "s1", "t": 0.088 },
+    { "type": "ymin", "stroke": "s1", "t": 0.407 },
+    { "type": "cusp", "stroke": "s1", "t": 0.7 },
+    { "type": "baselineTouch", "stroke": "s1", "t": 0.939 },
     { "type": "end", "stroke": "s1", "t": 1.0 }
   ],
   "features": ["closedOval", "retrace"],
   "checks": {
     "reach": [ { "line": "xHeight", "extreme": "max" }, { "line": "baseline", "extreme": "min" } ],
-    "closed": [ { "stroke": "s1", "from": 0.0, "to": 0.707 } ],
-    "retrace": [ { "stroke": "s1", "segment": 4 } ]
+    "closed": [ { "stroke": "s1", "from": 0.0, "to": 0.679 } ],
+    "retrace": [ { "stroke": "s1", "segment": 5 } ]
   },
   "animation": {
     "startDot": "leadIn",
-    "numbers": [{ "stroke": "s1", "at": [1.071, 1.24] }],
-    "arrows": [{ "stroke": "s1", "t": 0.16 }, { "stroke": "s1", "t": 0.471 }, { "stroke": "s1", "t": 0.796 }]
+    "numbers": [{ "stroke": "s1", "at": [-0.622, 0.22] }],
+    "arrows": [{ "stroke": "s1", "t": 0.179 }, { "stroke": "s1", "t": 0.489 }, { "stroke": "s1", "t": 0.783 }]
   },
   "meta": { "author": "agent:V0.4", "source": "illustrative", "reviewed": false, "license": "project data", "notes": "Illustrative shape, not checked against the Zaner-Bloser copybook. Slant 20 deg." }
 }

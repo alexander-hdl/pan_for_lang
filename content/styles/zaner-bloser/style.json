@@ -8,6 +8,7 @@
   "displayName": { "ru": "Американская пропись", "en": "American cursive" },
   "lines": { "ascender": 2.0, "cap": 2.0, "xHeight": 1.0, "baseline": 0.0, "descender": -1.0 },
   "slantDeg": 20.0,
+  "slantScoring": "consistency",
   "letterSpacing": 0.15,
   "wordSpacing": 0.9,
   "joins": {

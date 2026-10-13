@@ -10,6 +10,8 @@ internal static partial class GlyphParser
 {
     public const string SchemaName = "pfl.glyph/1";
 
+    private const double MinDirectionLength = 0.1;
+
     [GeneratedRegex(@"^[a-z][a-z0-9-]{0,31}$")]
     private static partial Regex VariantName();
 
@@ -54,6 +56,18 @@ internal static partial class GlyphParser
         if (variant is not null && !VariantName().IsMatch(variant))
         {
             sink.Error("variant", "glyph.variant", $"variant '{variant}' must match [a-z][a-z0-9-]*");
+            variant = null;
+        }
+
+        if (idText is not null && symbol is not null && !string.Equals(symbol, id.Symbol, StringComparison.Ordinal))
+        {
+            sink.Error("char", "glyph.id.char", $"char '{symbol}' does not match the character '{id.Symbol}' in id '{idText}'");
+            symbol = null;
+        }
+
+        if (idText is not null && variant is not null && !string.Equals(variant, id.Variant, StringComparison.Ordinal))
+        {
+            sink.Error("variant", "glyph.id.variant", $"variant '{variant}' does not match the variant '{id.Variant}' in id '{idText}'");
             variant = null;
         }
 
@@ -110,7 +124,7 @@ internal static partial class GlyphParser
 
         double? height = o.Number("height", 0.0, CoordinateLimits.MaxV, required: false);
         Vec2? point = o.Point("point");
-        Vec2? tangent = o.Point("tangent");
+        Vec2? tangent = ReadDirection(o, "tangent");
         o.RejectUnknown();
         return classText is null || point is not { } p || tangent is not { } t ? null : new GlyphEntry(entryClass, p, t, height);
     }
@@ -131,9 +145,26 @@ internal static partial class GlyphParser
         }
 
         Vec2? point = o.Point("point");
-        Vec2? tangent = o.Point("tangent");
+        Vec2? tangent = ReadDirection(o, "tangent");
         o.RejectUnknown();
         return classText is null || point is not { } p || tangent is not { } t ? null : new GlyphExit(exitClass, p, t);
+    }
+
+    /// <summary>Направление: точка <c>[dx, dv]</c> ненулевой длины; в модель попадает единичный вектор.</summary>
+    private static Vec2? ReadDirection(ObjectReader o, string name)
+    {
+        if (o.Point(name) is not { } direction)
+        {
+            return null;
+        }
+
+        if (direction.Length < MinDirectionLength)
+        {
+            o.Sink.Error(o.ChildPath(name), "glyph.tangent.zero", $"{name} must be a non-zero direction (length at least 0.1)");
+            return null;
+        }
+
+        return direction.Normalized();
     }
 
     private static GlyphPath? ParseLead(ObjectReader parent, string name, IssueSink sink)
@@ -436,13 +467,18 @@ internal static partial class GlyphParser
                     continue;
                 }
 
-                LineName? line = r.EnumValue("line", WireNames.Lines);
-                ExtremeKind? extreme = r.EnumValue("extreme", WireNames.Extremes);
                 double? target = r.Number("target", CoordinateLimits.MinV, CoordinateLimits.MaxV, required: false);
-                r.RejectUnknown();
-                if (line is { } lineValue && extreme is { } extremeValue)
+                LineName? line = r.EnumValue("line", WireNames.Lines, required: false);
+                ExtremeKind? extreme = r.EnumValue("extreme", WireNames.Extremes);
+                if (line is null && target is null && r.Get("line", required: false) is null)
                 {
-                    reach.Add(new ReachCheck(lineValue, extremeValue, target));
+                    sink.Error(ObjectReader.Index("checks.reach", i - 1), "glyph.checks.reach", "a reach check needs a 'line' or a 'target'");
+                }
+
+                r.RejectUnknown();
+                if (extreme is { } extremeValue && (line is not null || target is not null))
+                {
+                    reach.Add(new ReachCheck(line, extremeValue, target));
                 }
             }
         }
