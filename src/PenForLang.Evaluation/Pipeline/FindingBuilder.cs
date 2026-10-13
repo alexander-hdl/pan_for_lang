@@ -89,7 +89,7 @@ internal static class FindingBuilder
         }
 
         AddStrokeCountFindings(a, list);
-        AddDeferredFindings(a, list);
+        AddDeferredFindings(a.Deferred, a.Config, a.AcceptPolicy, _ => LetterIndex, m => (LetterIndex, NearestSpan(a, m)), list);
         AddFormFindings(a, list, scale);
 
         list.Sort(Compare);
@@ -131,26 +131,36 @@ internal static class FindingBuilder
         }
     }
 
-    private static void AddDeferredFindings(LetterAnalysis a, List<Finding> list)
+    /// <summary>
+    /// Находки по отложенным штрихам (D1–D4, направление перекладины): общая для буквы и слова; индекс буквы слота
+    /// даёт <paramref name="letterOf"/>, буква и участок эталона рядом с лишней чертой — <paramref name="markOf"/>.
+    /// </summary>
+    public static void AddDeferredFindings(
+        DeferredOutcome outcome,
+        ScoringConfig config,
+        DeferredAcceptPolicy acceptPolicy,
+        Func<DeferredAssignment, int> letterOf,
+        Func<ChildStroke, (int Letter, TemplateSpan Span)> markOf,
+        List<Finding> list)
     {
-        ScoringConfig config = a.Config;
         FindingsConfig f = config.Findings;
         DeferredConfig d = config.Deferred;
-        foreach (DeferredAssignment slot in a.Deferred.Slots)
+        foreach (DeferredAssignment slot in outcome.Slots)
         {
             string id = slot.Slot.Id;
+            int letter = letterOf(slot);
             var whole = new TemplateSpan(id, TemplatePart.Body, 0.0, 1.0);
             if (slot.Stroke is not { } stroke)
             {
                 list.Add(new Finding(
                     ErrorCode.D1,
-                    new FindingLocation(FindingPlace.Deferred, LetterIndex, id, null),
+                    new FindingLocation(FindingPlace.Deferred, letter, id, null),
                     Fixed(f, ErrorCode.D1),
                     whole));
                 continue;
             }
 
-            var where = new FindingLocation(FindingPlace.Deferred, LetterIndex, id, stroke.InkIndex);
+            var where = new FindingLocation(FindingPlace.Deferred, letter, id, stroke.InkIndex);
             if (!slot.Near)
             {
                 // Либо слишком далеко от ожидаемого места (эллиптический допуск; измеренное — в долях допуска), либо перекладина мимо ствола.
@@ -169,7 +179,7 @@ internal static class FindingBuilder
 
             if (slot.Timing == DeferredTiming.Immediate)
             {
-                bool strict = a.AcceptPolicy == DeferredAcceptPolicy.AfterWord;
+                bool strict = acceptPolicy == DeferredAcceptPolicy.AfterWord;
                 list.Add(new Finding(
                     ErrorCode.D4,
                     where,
@@ -179,13 +189,14 @@ internal static class FindingBuilder
             }
         }
 
-        foreach (ChildStroke mark in a.Deferred.ExtraMarks)
+        foreach (ChildStroke mark in outcome.ExtraMarks)
         {
+            (int markLetter, TemplateSpan span) = markOf(mark);
             list.Add(new Finding(
                 ErrorCode.D3,
-                new FindingLocation(FindingPlace.Deferred, LetterIndex, null, mark.InkIndex),
+                new FindingLocation(FindingPlace.Deferred, markLetter, null, mark.InkIndex),
                 Fixed(f, ErrorCode.D3),
-                NearestSpan(a, mark)));
+                span));
         }
     }
 
@@ -277,7 +288,7 @@ internal static class FindingBuilder
         new(code, new FindingLocation(FindingPlace.Letter, LetterIndex, null, null), severity, span, FindingKind.Error, measured, threshold);
 
     /// <summary>Тяжесть: <c>base</c> на пороге, 1 при превышении порога в <c>severityFullAtMultiple</c> раз.</summary>
-    private static double Severity(FindingsConfig f, double value, double threshold)
+    internal static double Severity(FindingsConfig f, double value, double threshold)
     {
         if (!(threshold > 0.0))
         {
@@ -288,7 +299,7 @@ internal static class FindingBuilder
         return f.SeverityBase + ((1.0 - f.SeverityBase) * Math.Clamp(over, 0.0, 1.0));
     }
 
-    private static double Fixed(FindingsConfig f, ErrorCode code) => f.FixedSeverity.TryGetValue(code, out double value) ? value : 1.0;
+    internal static double Fixed(FindingsConfig f, ErrorCode code) => f.FixedSeverity.TryGetValue(code, out double value) ? value : 1.0;
 
     /// <summary>Участок эталона рядом с лишним штрихом: ближайший основной штрих целиком.</summary>
     private static TemplateSpan NearestSpan(LetterAnalysis a, ChildStroke stroke)
@@ -310,9 +321,15 @@ internal static class FindingBuilder
     }
 
     /// <summary>Порядок по приоритету методики §7.3 (P перед F и D), затем по штриху эталона и штриху рукописи.</summary>
-    private static int Compare(Finding x, Finding y)
+    internal static int Compare(Finding x, Finding y)
     {
         int c = Rank(x.Code).CompareTo(Rank(y.Code));
+        if (c != 0)
+        {
+            return c;
+        }
+
+        c = x.Where.LetterIndex.CompareTo(y.Where.LetterIndex);
         if (c != 0)
         {
             return c;
@@ -342,6 +359,10 @@ internal static class FindingBuilder
         ErrorCode.P4 => 41,
         ErrorCode.P5 => 42,
         ErrorCode.P6 => 43,
+        ErrorCode.J1 => 50,
+        ErrorCode.J2 => 51,
+        ErrorCode.J3 => 52,
+        ErrorCode.J4 => 53,
         ErrorCode.F2 or ErrorCode.F3 => 60,
         ErrorCode.D1 or ErrorCode.D2 or ErrorCode.D3 => 70,
         ErrorCode.F4 or ErrorCode.F5 => 80,

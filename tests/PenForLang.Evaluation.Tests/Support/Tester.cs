@@ -11,6 +11,20 @@ internal static class Tester
 
     public static readonly SynthInkGenerator Synth = new(Shipped.Style);
 
+    public static readonly WordEvaluator Words = new(Shipped.Config);
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, WordTemplate> Templates = new(StringComparer.Ordinal);
+
+    /// <summary>Эталон слова (кеш: оценщик кеширует подготовленный эталон по экземпляру).</summary>
+    public static WordTemplate Word(string text) => Templates.GetOrAdd(text, t => WordTemplateBuilder.Build(Shipped.Pack, t));
+
+    public static EvaluationResult EvaluateWord(
+        RulerInk ink,
+        string text,
+        ToleranceProfile tolerance = ToleranceProfile.Learning,
+        DeferredAcceptPolicy? policy = null) =>
+        Words.Evaluate(new WordEvaluationRequest(ink, Word(text), tolerance, policy));
+
     /// <summary>Буквы пакета v0.</summary>
     public static readonly string[] Letters = ["a", "i", "t"];
 

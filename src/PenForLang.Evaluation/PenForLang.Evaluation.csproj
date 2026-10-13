@@ -4,8 +4,12 @@
     <IsDomainProject>true</IsDomainProject>
     <BanNumericIntrinsics>true</BanNumericIntrinsics>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Description>Оценщик почерка: изолированная буква v0 (V0.7). В v0 ссылается на Ink и Glyphs напрямую (Evaluation.Abstractions появится в M0).</Description>
+    <Description>Оценщик почерка: изолированная буква v0 (V0.7) и слово (V0.10: выравнивание по цели, соединения, границы букв). В v0 ссылается на Ink и Glyphs напрямую (Evaluation.Abstractions появится в M0).</Description>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PenForLang.Evaluation.Tests" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\PenForLang.Core\PenForLang.Core.csproj" />

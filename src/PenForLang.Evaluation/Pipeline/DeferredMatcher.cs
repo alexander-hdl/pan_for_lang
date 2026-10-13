@@ -46,6 +46,11 @@ internal sealed class DeferredOutcome
     public required List<ChildStroke> ExtraMain { get; init; }
 }
 
+/// <summary>Привязка слота к реальному стволу рукописи: ожидаемая середина штриха и ломаная ствола (для проверки пересечения).</summary>
+/// <param name="Expected">Ожидаемая середина отложенного штриха: точка на стволе в доле якоря плюс смещение (нормализованные координаты).</param>
+/// <param name="Stem">Нормализованные точки ствола рукописи.</param>
+internal sealed record DeferredAnchor(Vec2 Expected, IReadOnlyList<Vec2> Stem);
+
 /// <summary>
 /// Назначение отложенных штрихов (§6.4.8): слоты — отложенные штрихи глифа, якорь пересчитывается по реальному стволу
 /// рукописи (через выравнивание DTW), назначение — Венгерский алгоритм с неназначением; время — по хронологии штрихов.
@@ -58,24 +63,56 @@ internal static class DeferredMatcher
         IReadOnlyList<PairMetrics> pairs,
         ScoringConfig config)
     {
+        int lastMainChrono = -1;
+        foreach (PairMetrics pair in pairs)
+        {
+            lastMainChrono = Math.Max(lastMainChrono, pair.Child.Chrono);
+        }
+
+        return Assign(
+            leftover,
+            reference.Deferred,
+            j =>
+            {
+                RefDeferred slot = reference.Deferred[j];
+                PairMetrics? pair = pairs.FirstOrDefault(p => p.Ref.Id == slot.AnchorStrokeId);
+                return pair is null ? null : new DeferredAnchor(ExpectedCenter(slot, pair), pair.Child.NPos);
+            },
+            lastMainChrono,
+            config);
+    }
+
+    /// <summary>
+    /// Общее ядро назначения для буквы и для слова. <paramref name="anchorOf"/> даёт привязку слота к реальному стволу или
+    /// <c>null</c>, если ствола нет (P5): положение судить не по чему, назначается любой подходящий штрих.
+    /// </summary>
+    /// <param name="leftover">Штрихи рукописи, не вошедшие в основной след.</param>
+    /// <param name="slots">Слоты отложенных штрихов.</param>
+    /// <param name="anchorOf">Привязка слота (по индексу) к стволу рукописи.</param>
+    /// <param name="lastMainChrono">Хронологический номер последнего штриха основного следа (−1, если его нет).</param>
+    /// <param name="config">Конфигурация.</param>
+    public static DeferredOutcome Assign(
+        IReadOnlyList<ChildStroke> leftover,
+        IReadOnlyList<RefDeferred> slots,
+        Func<int, DeferredAnchor?> anchorOf,
+        int lastMainChrono,
+        ScoringConfig config)
+    {
         DeferredConfig d = config.Deferred;
         int rows = leftover.Count;
-        int cols = reference.Deferred.Length;
+        int cols = slots.Count;
         var costs = new double[rows * cols];
-        var anchored = new bool[cols];
-        var expectedCenters = new Vec2[cols];
+        var anchors = new DeferredAnchor?[cols];
         for (int j = 0; j < cols; j++)
         {
-            RefDeferred slot = reference.Deferred[j];
-            anchored[j] = pairs.Any(p => p.Ref.Id == slot.AnchorStrokeId);
-            Vec2 expected = ExpectedCenter(slot, pairs);
-            expectedCenters[j] = expected;
+            RefDeferred slot = slots[j];
+            anchors[j] = anchorOf(j);
             for (int i = 0; i < rows; i++)
             {
                 // Нет ствола, к которому привязан слот (P5): положение судить не по чему, назначается любой подходящий штрих.
                 costs[(i * cols) + j] = !Compatible(leftover[i], slot, d)
                     ? double.PositiveInfinity
-                    : (anchored[j] ? Vec2.Distance(leftover[i].NCenter, expected) : 0.0);
+                    : (anchors[j] is { } anchor ? Vec2.Distance(leftover[i].NCenter, anchor.Expected) : 0.0);
             }
         }
 
@@ -90,41 +127,36 @@ internal static class DeferredMatcher
             Array.Fill(rowToCol, -1);
         }
 
-        int lastMainChrono = -1;
-        foreach (PairMetrics pair in pairs)
-        {
-            lastMainChrono = Math.Max(lastMainChrono, pair.Child.Chrono);
-        }
-
-        var slots = new List<DeferredAssignment>(cols);
+        var result = new List<DeferredAssignment>(cols);
         var assigned = new HashSet<int>();
         for (int j = 0; j < cols; j++)
         {
-            RefDeferred slot = reference.Deferred[j];
+            RefDeferred slot = slots[j];
             int row = Array.IndexOf(rowToCol, j);
             if (row < 0)
             {
-                slots.Add(new DeferredAssignment { Slot = slot, Timing = DeferredTiming.None });
+                result.Add(new DeferredAssignment { Slot = slot, Timing = DeferredTiming.None });
                 continue;
             }
 
             assigned.Add(row);
             ChildStroke stroke = leftover[row];
-            double distance = anchored[j] ? costs[(row * cols) + j] : 0.0;
+            DeferredAnchor? anchored = anchors[j];
+            double distance = anchored is not null ? costs[(row * cols) + j] : 0.0;
             double? normalized = null;
             double? crossGap = null;
             bool crossFailed = false;
             bool near = true;
-            if (anchored[j])
+            if (anchored is not null)
             {
-                Vec2 delta = stroke.NCenter - expectedCenters[j];
+                Vec2 delta = stroke.NCenter - anchored.Expected;
                 double nearV = slot.Kind == DeferredKind.Dot && delta.Y > 0.0 ? d.NearVUpDot : d.NearV;
                 normalized = Math.Sqrt(Math.Pow(delta.X / d.NearU, 2) + Math.Pow(delta.Y / nearV, 2));
                 near = normalized <= 1.0;
                 if (d.BarMustCrossStem && slot.Kind != DeferredKind.Dot)
                 {
-                    PairMetrics stem = pairs.First(p => p.Ref.Id == slot.AnchorStrokeId);
-                    crossGap = stroke.NPos.Min(p => PolylineMath.DistanceToPolyline(p, stem.Child.NPos));
+                    Vec2[] stem = [.. anchored.Stem];
+                    crossGap = stroke.NPos.Min(p => PolylineMath.DistanceToPolyline(p, stem));
                     crossFailed = crossGap > d.BarCrossTolerance;
                     near &= !crossFailed;
                 }
@@ -138,11 +170,11 @@ internal static class DeferredMatcher
                 wrongDirection = net < -config.Process.Direction.BarMinDirectionalShare * stroke.Length;
             }
 
-            slots.Add(new DeferredAssignment
+            result.Add(new DeferredAssignment
             {
                 Slot = slot,
                 Stroke = stroke,
-                Distance = anchored[j] ? distance : null,
+                Distance = anchored is not null ? distance : null,
                 NormalizedDistance = normalized,
                 CrossGap = crossGap,
                 CrossFailed = crossFailed,
@@ -164,11 +196,11 @@ internal static class DeferredMatcher
             (IsMark(leftover[i], d) ? extraMarks : extraMain).Add(leftover[i]);
         }
 
-        return new DeferredOutcome { Slots = slots, ExtraMarks = extraMarks, ExtraMain = extraMain };
+        return new DeferredOutcome { Slots = result, ExtraMarks = extraMarks, ExtraMain = extraMain };
     }
 
     /// <summary>Лишняя черта (точка или короткая горизонтальная перекладина), а не лишний штрих основного следа.</summary>
-    private static bool IsMark(ChildStroke stroke, DeferredConfig d)
+    public static bool IsMark(ChildStroke stroke, DeferredConfig d)
     {
         if (stroke.Extent <= d.DotMaxLength)
         {
@@ -195,21 +227,11 @@ internal static class DeferredMatcher
         return ratio >= d.BarMinLengthRatio && ratio <= d.BarMaxLengthRatio;
     }
 
-    /// <summary>Ожидаемая середина штриха: точка на реальном стволе рукописи в доле якоря плюс смещение; без ствола — по эталону.</summary>
-    private static Vec2 ExpectedCenter(RefDeferred slot, IReadOnlyList<PairMetrics> pairs)
+    /// <summary>Ожидаемая середина штриха: точка на реальном стволе рукописи в доле якоря плюс смещение.</summary>
+    private static Vec2 ExpectedCenter(RefDeferred slot, PairMetrics pair)
     {
-        foreach (PairMetrics pair in pairs)
-        {
-            if (pair.Ref.Id != slot.AnchorStrokeId)
-            {
-                continue;
-            }
-
-            int j = pair.Ref.IndexOfBodyFraction(slot.AnchorT);
-            int i = pair.ChildOfRef[j];
-            return pair.Child.NPos[i] + slot.AnchorOffset;
-        }
-
-        return slot.ExpectedCenter;
+        int j = pair.Ref.IndexOfBodyFraction(slot.AnchorT);
+        int i = pair.ChildOfRef[j];
+        return pair.Child.NPos[i] + slot.AnchorOffset;
     }
 }

@@ -86,6 +86,19 @@ public sealed record LetterSummary(
     bool SegmentationConfident,
     ProcessSummary Process);
 
+/// <summary>
+/// Итог по соединению двух соседних букв слова (ARCHITECTURE.md §6.2, §6.4.9). Вне слова соединений нет.
+/// </summary>
+/// <param name="Index">Индекс соединения, с 0.</param>
+/// <param name="Left">Индекс левой буквы.</param>
+/// <param name="Right">Индекс правой буквы.</param>
+/// <param name="Family">Семейство правила стиля (<c>JF1</c>…) или <c>null</c> для разрыва.</param>
+/// <param name="Tall">Вход правой буквы высокий (подъём к верху буквы).</param>
+/// <param name="Present">J1 не выдаётся (§6.4.9): в диапазоне соединения нет отрыва пера, либо отрыв помечен <paramref name="LiftExpected"/>.</param>
+/// <param name="LiftExpected">В диапазоне есть отрыв, и он ожидаем: разрыв по правилу стиля или рядом поставлен отложенный штрих «сразу» (A03).</param>
+/// <param name="Score">Качество соединения, [0, 1]: 1 — нарисовано без замечаний или отрыв ожидаем, 0 — отрыв (J1) либо замечания J2–J4.</param>
+public sealed record JoinSummary(int Index, int Left, int Right, string? Family, bool Tall, bool Present, bool LiftExpected, double Score);
+
 /// <summary>Итог по слоту отложенного штриха.</summary>
 /// <param name="LetterIndex">Индекс буквы в цели.</param>
 /// <param name="StrokeId">Идентификатор слота в глифе (<c>dot</c>, <c>bar</c>).</param>
@@ -107,6 +120,7 @@ public sealed record DeferredSummary(int LetterIndex, string StrokeId, DeferredK
 /// <param name="Letters">Итоги по буквам.</param>
 /// <param name="Deferred">Итоги по отложенным штрихам.</param>
 /// <param name="Findings">Находки в детерминированном порядке (по приоритету методики §7.3, затем по месту).</param>
+/// <remarks>Для слова добавлено <see cref="Joins"/> (поля фасада только добавляются, §6.2): итоги по соединениям.</remarks>
 public sealed record EvaluationSummary(
     EvaluatorInfo Info,
     TargetKind Kind,
@@ -118,6 +132,9 @@ public sealed record EvaluationSummary(
     ImmutableArray<DeferredSummary> Deferred,
     ImmutableArray<Finding> Findings)
 {
+    /// <summary>Итоги по соединениям слова (пусто для буквы).</summary>
+    public ImmutableArray<JoinSummary> Joins { get; init; } = [];
+
     /// <summary>Форма единственной буквы цели.</summary>
     public double Form => Letters.IsDefaultOrEmpty ? 0.0 : Letters[0].Form;
 

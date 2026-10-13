@@ -19,7 +19,14 @@ namespace PenForLang.Evaluation;
 /// <item>отложенные штрихи: назначение по реальному стволу, D1, D2, D3, время (D4, информационно);</item>
 /// <item>форма: коридор, покрытие, Фреше, замкнутость, петли, достижение линий, подбаллы и <c>form</c>.</item>
 /// </list>
-/// Числа берутся из <see cref="ScoringConfig"/>. Идентичность буквы (L*) и контексты слова не поддержаны (V0.10+).
+/// Числа берутся из <see cref="ScoringConfig"/>. Идентичность буквы (L*) не поддержана (гипотезы — позже).
+/// <para>
+/// <b>Контекст слова (V0.10, §6.4.9).</b> <see cref="LetterContext.WordFirst"/> и <see cref="LetterContext.WordInner"/> применяются
+/// к подвыборке чернил одной буквы, вырезанной по выравниванию слова (<see cref="WordEvaluator"/>), и к эталону буквы без
+/// отложенных штрихов: допуски формы умножаются на <c>word.contextToleranceScale</c>; порядок и число штрихов (P3–P5) не
+/// выдаются (отрывы внутри слова — <c>LiftsInsideLetter</c>); у внутренней буквы нет и P1 (вход задаёт соединение, J3);
+/// <c>process_ok</c> первой буквы: старт, направление, ретрейс; внутренней: направление, ретрейс.
+/// </para>
 /// <para>
 /// <b>Старт изолированной буквы (P1).</b> Допустимы начало тела и (при <c>animation.startDot = leadIn</c>) любое место подхода:
 /// вся ломаная входящего штриха и её продолжение вдоль линии начала подхода (подход бывает длиннее или короче эталонного),
@@ -77,11 +84,6 @@ public sealed class LetterEvaluator : ILetterEvaluator
         ArgumentNullException.ThrowIfNull(request.Ink);
         ArgumentNullException.ThrowIfNull(request.Glyph);
         ArgumentNullException.ThrowIfNull(request.Style);
-        if (request.Context != LetterContext.Isolated)
-        {
-            throw new NotSupportedException("V0.7 evaluates isolated letters only; word contexts arrive in V0.10.");
-        }
-
         Glyph glyph = request.Glyph;
         LetterReference reference = _references.GetValue(glyph, g => LetterReference.Build(g, request.Style.Lines, _config, _filter));
         List<ChildStroke> children = ChildInk.Prepare(request.Ink, reference, _config, _filter);
@@ -128,7 +130,7 @@ public sealed class LetterEvaluator : ILetterEvaluator
             }
         }
 
-        double toleranceScale = _config.ToleranceScaleOf(request.Tolerance);
+        double toleranceScale = _config.ToleranceScaleOf(request.Tolerance) * (request.Context == LetterContext.Isolated ? 1.0 : _config.Word.ContextToleranceScale);
         var pairs = new List<PairMetrics>(matched.Count);
         foreach ((int childIndex, int refIndex) in matched)
         {
@@ -244,7 +246,7 @@ public sealed class LetterEvaluator : ILetterEvaluator
         }
 
         (double form, ImmutableArray<FormComponent> components) = FormScorer.Score(analysis);
-        ImmutableArray<Finding> findings = FindingBuilder.Build(analysis);
+        ImmutableArray<Finding> findings = ContextFindings(request.Context, FindingBuilder.Build(analysis));
         return Assemble(request, analysis, form, components, findings, refinement);
     }
 
@@ -370,6 +372,24 @@ public sealed class LetterEvaluator : ILetterEvaluator
     }
 
     /// <summary>
+    /// Находки, применимые в контексте буквы (§6.4.9): внутри слова порядок и число штрихов не судятся (P3–P5), а старт (P1)
+    /// не судится у внутренней буквы — её вход задаёт соединение (J3).
+    /// </summary>
+    private static ImmutableArray<Finding> ContextFindings(LetterContext context, ImmutableArray<Finding> findings)
+    {
+        if (context == LetterContext.Isolated)
+        {
+            return findings;
+        }
+
+        return
+        [
+            .. findings.Where(f => f.Code is not (ErrorCode.P3 or ErrorCode.P4 or ErrorCode.P5)
+                && !(context == LetterContext.WordInner && f.Code == ErrorCode.P1)),
+        ];
+    }
+
+    /// <summary>
     /// Результат «не распознано» (U0, §6.4.7): решение без находок и формы, с низкой уверенностью. Числа, по которым принято
     /// решение, остаются в диагностике — по ним видно, почему буква не опознана.
     /// </summary>
@@ -383,7 +403,7 @@ public sealed class LetterEvaluator : ILetterEvaluator
             Decision.Unrecognized,
             symbol,
             Confidence.Low,
-            [new LetterSummary(0, symbol, symbol, LetterContext.Isolated, null, 0.0, null, false, ProcessSummary.NotEvaluated)],
+            [new LetterSummary(0, symbol, symbol, request.Context, null, 0.0, null, false, ProcessSummary.NotEvaluated)],
             [],
             []);
         ImmutableSortedDictionary<string, double>.Builder diagnostics = ImmutableSortedDictionary.CreateBuilder<string, double>(StringComparer.Ordinal);
@@ -432,8 +452,23 @@ public sealed class LetterEvaluator : ILetterEvaluator
         bool orderOk = a.OrderViolation is null;
 
         // Нет ни одного сопоставленного основного штриха (например, только точка): процесс не верен (P5).
-        bool processOk = a.Pairs.Count > 0 && a.StartOk && a.DirectionOk && orderOk && a.StrokeCountDelta < _config.Process.StrokeCount.ExtraForStop;
-        var process = new ProcessSummary(a.StartOk, a.DirectionOk, orderOk, a.StrokeCountDelta, a.RetraceOk);
+        bool processOk;
+        ProcessSummary process;
+        switch (request.Context)
+        {
+            case LetterContext.WordFirst:
+                processOk = a.Pairs.Count > 0 && a.StartOk && a.DirectionOk && a.RetraceOk;
+                process = new ProcessSummary(a.StartOk, a.DirectionOk, null, null, a.RetraceOk);
+                break;
+            case LetterContext.WordInner:
+                processOk = a.Pairs.Count > 0 && a.DirectionOk && a.RetraceOk;
+                process = new ProcessSummary(null, a.DirectionOk, null, null, a.RetraceOk);
+                break;
+            default:
+                processOk = a.Pairs.Count > 0 && a.StartOk && a.DirectionOk && orderOk && a.StrokeCountDelta < _config.Process.StrokeCount.ExtraForStop;
+                process = new ProcessSummary(a.StartOk, a.DirectionOk, orderOk, a.StrokeCountDelta, a.RetraceOk);
+                break;
+        }
 
         var deferredSummary = ImmutableArray.CreateBuilder<DeferredSummary>(a.Deferred.Slots.Count);
         var deferredDetail = ImmutableArray.CreateBuilder<DeferredMatch>(a.Deferred.Slots.Count);
@@ -492,7 +527,7 @@ public sealed class LetterEvaluator : ILetterEvaluator
             Decision.Target,
             symbol,
             confidence,
-            [new LetterSummary(0, symbol, symbol, LetterContext.Isolated, null, form, processOk, true, process)],
+            [new LetterSummary(0, symbol, symbol, request.Context, null, form, processOk, true, process)],
             deferredSummary.MoveToImmutable(),
             findings);
         var detail = new EvaluationDetail(

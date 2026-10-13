@@ -18,7 +18,7 @@ namespace PenForLang.Testing.SynthInk;
 /// Синтетика проверяет регрессию реализации (находит ли оценщик ровно внесённую ошибку), но не точность на реальных детях;
 /// решения go/no-go по ней не принимаются (A08).
 /// </remarks>
-public sealed class SynthInkGenerator
+public sealed partial class SynthInkGenerator
 {
     private const double SampleStepMs = 5.0;
     private const double ApproachStep = 0.03;
@@ -225,14 +225,16 @@ public sealed class SynthInkGenerator
 
     // ---------- Построение эталонной траектории ----------
 
-    private List<IdealStroke> BuildIdeal(Glyph glyph)
+    private List<IdealStroke> BuildIdeal(Glyph glyph) =>
+        IdealFromScript(AnimationScriptBuilder.Build(glyph, _style.Animation, new AnimationOptions(IncludeLeads: true)));
+
+    private static List<IdealStroke> IdealFromScript(AnimationScript script)
     {
-        AnimationScript script = AnimationScriptBuilder.Build(glyph, _style.Animation, new AnimationOptions(IncludeLeads: true));
         double origin = script.Strokes[0].StartMs;
         var result = new List<IdealStroke>(script.Strokes.Length);
         foreach (AnimatedStroke animated in script.Strokes)
         {
-            var stroke = new IdealStroke(animated.StrokeId, animated.IsDeferred, animated.BodyStart, animated.BodyLength);
+            var stroke = new IdealStroke(animated.StrokeId, animated.IsDeferred, animated.BodyStart, animated.BodyLength) { PenIndex = animated.IsDeferred ? -1 : result.Count };
             double end = animated.EndMs;
             for (double ms = animated.StartMs; ; ms += SampleStepMs)
             {
@@ -535,10 +537,12 @@ public sealed class SynthInkGenerator
         return new RulerInk([.. result], null, _options.MmPerUnit, false);
     }
 
-    private static Pcg32 Rng(Glyph glyph, ulong seed)
+    private static Pcg32 Rng(Glyph glyph, ulong seed) => Rng(glyph.Id.ToString(), seed);
+
+    private static Pcg32 Rng(string id, ulong seed)
     {
         ulong stream = 0;
-        foreach (char c in glyph.Id.ToString())
+        foreach (char c in id)
         {
             stream = (stream * 131UL) + c;
         }
@@ -591,6 +595,9 @@ public sealed class SynthInkGenerator
 
         public double BodyLength { get; }
 
+        /// <summary>Номер основного штриха слова (для штрихов слова) или −1.</summary>
+        public int PenIndex { get; init; } = -1;
+
         public List<Vec2> Points { get; } = [];
 
         public List<double> TimesMs { get; } = [];
@@ -604,7 +611,7 @@ public sealed class SynthInkGenerator
 
         public IdealStroke Clone()
         {
-            var copy = new IdealStroke(Id + ".copy", IsDeferred, BodyStartDistance, BodyLength);
+            var copy = new IdealStroke(Id + ".copy", IsDeferred, BodyStartDistance, BodyLength) { PenIndex = PenIndex };
             copy.Points.AddRange(Points);
             copy.TimesMs.AddRange(TimesMs);
             copy.Distances.AddRange(Distances);

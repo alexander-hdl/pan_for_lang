@@ -47,13 +47,20 @@ public class ApiContractTests
         Assert.True(result.Summary.Has(ErrorCode.P5), "the stem is missing");
     }
 
-    [Fact]
-    public void Word_contexts_are_not_supported_in_v0()
+    [Theory]
+    [InlineData(LetterContext.WordFirst)]
+    [InlineData(LetterContext.WordInner)]
+    public void Word_contexts_are_evaluated_and_reported_as_such(LetterContext context)
     {
         Glyph glyph = Shipped.Glyph("a");
-        var request = new LetterEvaluationRequest(Tester.Synth.Ideal(glyph), glyph, Shipped.Style, Context: LetterContext.WordInner);
+        var request = new LetterEvaluationRequest(Tester.Synth.Ideal(glyph), glyph, Shipped.Style, Context: context);
 
-        Assert.Throws<NotSupportedException>(() => Tester.Evaluator.Evaluate(request));
+        EvaluationResult result = Tester.Evaluator.Evaluate(request);
+
+        Assert.Equal(context, result.Summary.Letters[0].Context);
+        Assert.DoesNotContain(result.Summary.Findings, f => f.Code is ErrorCode.P3 or ErrorCode.P4 or ErrorCode.P5);
+        Assert.True(result.Summary.Letters[0].ProcessOk);
+        Assert.Null(result.Summary.Letters[0].Process.OrderOk);
     }
 
     [Fact]

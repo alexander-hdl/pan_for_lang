@@ -1,6 +1,6 @@
 namespace PenForLang.Evaluation;
 
-/// <summary>Что оценивается (ARCHITECTURE.md §6.2). В v0 реализована только <see cref="Letter"/>.</summary>
+/// <summary>Что оценивается (ARCHITECTURE.md §6.2). В v0 реализованы <see cref="Letter"/> и <see cref="Word"/>.</summary>
 public enum TargetKind
 {
     /// <summary>Изолированная буква.</summary>
@@ -19,7 +19,7 @@ public enum TargetKind
     Sequence,
 }
 
-/// <summary>Контекст буквы (ARCHITECTURE.md §6.4.9). В v0 поддержан только <see cref="Isolated"/>.</summary>
+/// <summary>Контекст буквы (ARCHITECTURE.md §6.4.9): изолированная, первая буква слова, буква внутри слова.</summary>
 public enum LetterContext
 {
     /// <summary>Изолированная буква.</summary>
@@ -140,6 +140,9 @@ public enum FindingPlace
 
     /// <summary>Слот отложенного штриха.</summary>
     Deferred,
+
+    /// <summary>Соединение между буквами слова (<see cref="FindingLocation.LetterIndex"/> — левая буква).</summary>
+    Join,
 }
 
 /// <summary>Часть штриха эталона, к которой относится участок.</summary>
@@ -153,4 +156,7 @@ public enum TemplatePart
 
     /// <summary>Выходящий штрих изолированной буквы (<c>t</c> — доля его длины).</summary>
     LeadOut,
+
+    /// <summary>Соединение между буквами слова (<c>t</c> — доля его длины).</summary>
+    Join,
 }

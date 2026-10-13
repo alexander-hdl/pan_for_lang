@@ -277,6 +277,63 @@ public sealed record FindingsConfig(
 /// <param name="MediumMeanDtw">Среднее отклонение больше — уверенность не выше Medium.</param>
 public sealed record ConfidenceConfig(double UnrecognizedMeanDtw, double UnrecognizedCoverage, double UnrecognizedInkShare, double MediumMeanDtw);
 
+/// <summary>Выравнивание рукописи по эталону слова (<c>TargetAligner</c>, §6.4.4).</summary>
+/// <param name="BandU">Полуширина полосы по x после деслантинга и нормализации (A09), x-height.</param>
+/// <param name="OutOfBandCost">Штраф за пару вне полосы («мягкая» полоса: путь существует всегда).</param>
+/// <param name="LiftJoinPenalty">Цена отрыва пера в диапазоне соединения (отрыв — альтернатива геометрии; A03): прибавляется к стоимости пути.</param>
+/// <param name="LiftInLetterPenalty">Цена отрыва внутри тела буквы (<c>LiftsInsideLetter</c>, не стоп-ошибка).</param>
+/// <param name="SkipBodyCostPerPoint">Цена каждой пропущенной точки тела эталона при отрыве (пропуск соединения бесплатен).</param>
+/// <param name="ContinuousBreakCostPerPoint">Цена каждой точки рукописи, прошедшей ожидаемый разрыв слитно (break — «отрыв или слитно»).</param>
+/// <param name="JoinSlackU">Допуск у границ тел, x-height: отрыв, начатый в пределах допуска перед концом тела эталона или закончившийся в пределах допуска после начала тела следующей буквы, — отрыв на соединении (размер букв ребёнка и эталона различается); пропущенные точки тела в допуске стоят <c>skipBodyCostPerPoint</c>.</param>
+public sealed record AlignerConfig(
+    double BandU,
+    double OutOfBandCost,
+    double LiftJoinPenalty,
+    double LiftInLetterPenalty,
+    double SkipBodyCostPerPoint,
+    double ContinuousBreakCostPerPoint,
+    double JoinSlackU);
+
+/// <summary>Границы букв и их уверенность (§6.4.5).</summary>
+/// <param name="ShiftU">Сдвиг границы, при котором измеряется рост стоимости пути, x-height (0,3).</param>
+/// <param name="MinRiseCost">Наименьший рост полной стоимости пути при сдвиге границы на <paramref name="ShiftU"/> в каждую сторону; меньше — граница неуверенная (пологий минимум).</param>
+/// <param name="LiftSnapU">Если перо оторвано не дальше этого (x-height) за границей тела, граница — край штриха: тело кончается там, где оторвано перо (на гладком продолжении тела соединением положение границы по форме неопределённо).</param>
+public sealed record BoundaryConfig(double ShiftU, double MinRiseCost, double LiftSnapU);
+
+/// <summary>«Не распознано» для слова (§6.4.7).</summary>
+/// <param name="MeanDtw">Среднее отклонение выровненных точек больше (x-height) — U0.</param>
+/// <param name="Coverage">Доля тел эталона, покрытых рукописью в коридоре, меньше — U0.</param>
+/// <param name="InkShare">Доля точек основного следа в коридоре эталона меньше — U0 (каракули).</param>
+/// <param name="MediumMeanDtw">Среднее отклонение больше — уверенность не выше Medium.</param>
+public sealed record WordUnrecognizedConfig(double MeanDtw, double Coverage, double InkShare, double MediumMeanDtw);
+
+/// <summary>Числа оценки слова (ключ <c>word</c> в <c>scoring.json</c>).</summary>
+/// <param name="ContextToleranceScale">Множитель допусков формы буквы внутри слова (<c>wordContextTolerance</c>, §6.4.9).</param>
+/// <param name="Aligner">Выравнивание.</param>
+/// <param name="Boundaries">Границы.</param>
+/// <param name="Unrecognized">«Не распознано».</param>
+/// <param name="RetraceCoveredShare">Ретрейс по соединению проверяется, только если нужное соединение нарисовано: эталонное окно перед ретрейсом покрыто путём не меньше этой доли.</param>
+public sealed record WordConfig(
+    double ContextToleranceScale,
+    AlignerConfig Aligner,
+    BoundaryConfig Boundaries,
+    WordUnrecognizedConfig Unrecognized,
+    double RetraceCoveredShare);
+
+/// <summary>Углы и петли в соединении (J4, §6.4.9).</summary>
+/// <param name="ExcessDeg">Угол поворота внутри соединения рукописи больше эталонного на это (градусы) — лишний угол.</param>
+/// <param name="WindowU">Окно измерения поворота по длине дуги, x-height.</param>
+/// <param name="EdgeMarginU">Концы соединения (стык с телами букв, где углы допустимы) не проверяются на этом отрезке, x-height.</param>
+public sealed record JoinCornerConfig(double ExcessDeg, double WindowU, double EdgeMarginU);
+
+/// <summary>Метрики соединений (J1–J4, §6.4.9; ключ <c>joins</c> в <c>scoring.json</c>).</summary>
+/// <param name="HighMinHeight">Наименьшая высота v высокого соединения (флаг <c>high</c> правила стиля; единственное место числа, A25), x-height; J2.</param>
+/// <param name="DrawnShare">Соединение нарисовано, если рукопись прошла не меньше этой доли точек его эталона.</param>
+/// <param name="EntryErr">Вход в тело следующей буквы дальше от эталонного на столько (x-height) — J3.</param>
+/// <param name="Corner">Лишние углы.</param>
+/// <param name="MinLoopArea">Наименьшая площадь петли в соединении, засчитываемой как лишняя (J4), x-height².</param>
+public sealed record JoinsConfig(double HighMinHeight, double DrawnShare, double EntryErr, JoinCornerConfig Corner, double MinLoopArea);
+
 /// <summary>
 /// Числа оценщика изолированной буквы (<c>content/config/scoring.json</c>, схема <c>pfl.config.scoring/1</c>).
 /// Неизменяема; хеш идентифицирует снимок (ARCHITECTURE.md §6.6). Все значения в файле — инженерные стартовые, до калибровки
@@ -296,6 +353,8 @@ public sealed record ConfidenceConfig(double UnrecognizedMeanDtw, double Unrecog
 /// <param name="Deferred">Отложенные штрихи.</param>
 /// <param name="Findings">Находки.</param>
 /// <param name="Confidence">Уверенность.</param>
+/// <param name="Word">Слово: выравнивание, границы букв.</param>
+/// <param name="Joins">Соединения.</param>
 public sealed record ScoringConfig(
     string Version,
     string ConfigHash,
@@ -310,7 +369,9 @@ public sealed record ScoringConfig(
     FormConfig Form,
     DeferredConfig Deferred,
     FindingsConfig Findings,
-    ConfidenceConfig Confidence)
+    ConfidenceConfig Confidence,
+    WordConfig Word,
+    JoinsConfig Joins)
 {
     /// <summary>Путь к файлу конфигурации в <see cref="PenForLang.Core.IContentSource"/>.</summary>
     public const string DefaultPath = "config/scoring.json";

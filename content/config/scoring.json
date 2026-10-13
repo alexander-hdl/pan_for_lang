@@ -2,7 +2,7 @@
   "schema": "pfl.config.scoring/1",
   "version": "0.1.0",
   "meta": {
-    "task": "V0.7",
+    "task": "V0.7, V0.10 (word, joins)",
     "status": "engineering starting values; not calibrated on real data (ARCHITECTURE.md 6.7)",
     "units": "x-height of the ruler unless a key name says Deg or Ms",
     "ownerNote": "process.startTolerance is also listed under thresholds.json in ARCHITECTURE.md 3.6; until thresholds.json exists the evaluator owns it here (open question)"
@@ -95,7 +95,21 @@
     "f6SlantDeviationDeg": 8,
     "severityBase": 0.3,
     "severityFullAtMultiple": 3.0,
-    "fixedSeverity": { "P2": 0.7, "P3": 0.6, "P5": 0.8, "P6": 0.5, "F3": 0.4, "D1": 0.5, "D3": 0.3 }
+    "fixedSeverity": { "P2": 0.7, "P3": 0.6, "P5": 0.8, "P6": 0.5, "F3": 0.4, "D1": 0.5, "D3": 0.3, "J1": 0.6 }
   },
-  "confidence": { "unrecognizedMeanDtw": 0.5, "unrecognizedCoverage": 0.25, "unrecognizedInkShare": 0.6, "mediumMeanDtw": 0.2 }
+  "confidence": { "unrecognizedMeanDtw": 0.5, "unrecognizedCoverage": 0.25, "unrecognizedInkShare": 0.6, "mediumMeanDtw": 0.2 },
+  "word": {
+    "contextToleranceScale": 1.25,
+    "aligner": { "bandU": 0.8, "outOfBandCost": 1.0, "liftJoinPenalty": 0.02, "liftInLetterPenalty": 0.5, "skipBodyCostPerPoint": 0.1, "continuousBreakCostPerPoint": 0.02, "joinSlackU": 0.5 },
+    "boundaries": { "shiftU": 0.3, "minRiseCost": 0.05, "liftSnapU": 0.12 },
+    "unrecognized": { "meanDtw": 0.4, "coverage": 0.3, "inkShare": 0.55, "mediumMeanDtw": 0.12 },
+    "retraceCoveredShare": 0.5
+  },
+  "joins": {
+    "highMinHeight": 0.7,
+    "drawnShare": 0.5,
+    "entryErr": 0.4,
+    "corner": { "excessDeg": 70, "windowU": 0.2, "edgeMarginU": 0.2 },
+    "minLoopArea": 0.03
+  }
 }
