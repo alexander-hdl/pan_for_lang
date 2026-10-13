@@ -2,7 +2,7 @@ using System.Windows;
 
 namespace PenForLang.App.Wpf;
 
-/// <summary>Приложение. Корень композиции V0.5: параметры командной строки и окно-холст.</summary>
+/// <summary>Приложение. Корень композиции: параметры командной строки и окно урока (V0.8) либо окно-песочница (<c>--sandbox</c>).</summary>
 public partial class App : Application
 {
     /// <summary>Параметры командной строки; задаются в <see cref="Program.Main"/> до создания приложения.</summary>
@@ -20,7 +20,8 @@ public partial class App : Application
                 window.WriteCrashReport(args.Exception);
             }
         };
-        MainWindow = new MainWindow(Options);
+        // Основной экран — фиксированный урок (V0.8); песочница V0.6 с протоколом железа и отчётом — по --sandbox.
+        MainWindow = Options.Sandbox ? new MainWindow(Options) : new LessonWindow(Options);
         MainWindow.Show();
     }
 }

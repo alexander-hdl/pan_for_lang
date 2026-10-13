@@ -20,6 +20,9 @@ namespace PenForLang.App.Wpf;
 /// видимой обратной связи по давлению; клавиша P переключает на лету).</item>
 /// <item><c>--penlog-dir &lt;папка&gt;</c> (V0.6) — писать penlog сюда вместо <c>%LOCALAPPDATA%\PenForLang\dev\penlogs</c>.</item>
 /// <item><c>--content-dir &lt;папка&gt;</c> (V0.6) — корень контента (в нём <c>styles/zaner-bloser</c>) вместо найденного рядом с программой.</item>
+/// <item><c>--sandbox</c> (V0.8) — открыть «урок-песочницу» V0.6 (режим протокола железа и отчёта V0.5/V0.6) вместо фиксированного сценария урока.</item>
+/// <item><c>--lang ru|en</c> (V0.8) — язык интерфейса урока при запуске (переключается кнопкой в полосе).</item>
+/// <item><c>--letter a|i|t</c> (V0.8) — буква урока при запуске.</item>
 /// <item><c>--xheight-mm &lt;мм&gt;</c> (V0.6) — x-height линейки прописи в миллиметрах (по умолчанию 15).</item>
 /// <item><c>--latency</c> (V0.6) — сразу открыть режим замера задержки «перо → пиксель» (клавиша L переключает его).</item>
 /// </list>
@@ -38,6 +41,9 @@ namespace PenForLang.App.Wpf;
 /// <param name="StartInLatencyMode">Открыть режим замера задержки.</param>
 /// <param name="XHeightMm">x-height линейки, мм.</param>
 /// <param name="PressureWidth">Ширина линии от давления (только разработчик).</param>
+/// <param name="Sandbox">Открыть песочницу V0.6 вместо сценария урока.</param>
+/// <param name="Language">Язык интерфейса урока (<c>ru</c>, <c>en</c>).</param>
+/// <param name="Letter">Буква урока (a, i, t).</param>
 public sealed record AppOptions(
     bool UseMouse,
     bool KeepWpfStylus,
@@ -52,7 +58,10 @@ public sealed record AppOptions(
     string? ContentDirectory = null,
     bool StartInLatencyMode = false,
     double XHeightMm = SandboxLayout.DefaultXHeightMm,
-    bool PressureWidth = false)
+    bool PressureWidth = false,
+    bool Sandbox = false,
+    string Language = "ru",
+    string Letter = "a")
 {
     /// <summary>Имя переключателя WPF, отключающего WISP/стилус (ARCHITECTURE.md §7.1).</summary>
     public const string DisableStylusSwitch = "Switch.System.Windows.Input.Stylus.DisableStylusAndTouchSupport";
@@ -77,6 +86,9 @@ public sealed record AppOptions(
         string? contentDir = null;
         bool latency = false;
         double xHeightMm = SandboxLayout.DefaultXHeightMm;
+        bool sandbox = false;
+        string language = "ru";
+        string letter = "a";
         var unknown = new List<string>();
 
         for (int i = 0; i < args.Count; i++)
@@ -149,6 +161,33 @@ public sealed record AppOptions(
                 case "--latency":
                     latency = true;
                     break;
+                case "--sandbox":
+                    sandbox = true;
+                    break;
+                case "--lang":
+                    if (i + 1 < args.Count && args[i + 1].ToLowerInvariant() is "ru" or "en")
+                    {
+                        language = args[i + 1].ToLowerInvariant();
+                        i++;
+                    }
+                    else
+                    {
+                        unknown.Add(arg);
+                    }
+
+                    break;
+                case "--letter":
+                    if (i + 1 < args.Count && args[i + 1].ToLowerInvariant() is "a" or "i" or "t")
+                    {
+                        letter = args[i + 1].ToLowerInvariant();
+                        i++;
+                    }
+                    else
+                    {
+                        unknown.Add(arg);
+                    }
+
+                    break;
                 case "--xheight-mm":
                     if (i + 1 < args.Count
                         && double.TryParse(args[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out double xh)
@@ -194,6 +233,6 @@ public sealed record AppOptions(
             }
         }
 
-        return new AppOptions(mouse, wpfStylus || wpfPointer, wpfPointer, windowed, exitAfter, monitor, reportDir, unknown, dev, penLogDir, contentDir, latency, xHeightMm, pressureWidth);
+        return new AppOptions(mouse, wpfStylus || wpfPointer, wpfPointer, windowed, exitAfter, monitor, reportDir, unknown, dev, penLogDir, contentDir, latency, xHeightMm, pressureWidth, sandbox, language, letter);
     }
 }

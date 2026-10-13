@@ -1,0 +1,35 @@
+{
+  "schema": "pfl.config.lesson/1",
+  "version": "0.1.0",
+  "meta": {
+    "task": "V0.8",
+    "status": "engineering starting values for the fixed scenario; not calibrated (METHODOLOGY 4.2, 7)",
+    "note": "E03 here is tracing under the pen and E04 is copying beside the model: the naming of the V0.8 task, not the catalogue of METHODOLOGY 6.2"
+  },
+  "scenario": [
+    { "code": "E01", "kind": "demo", "attempts": 0, "level": "L4" },
+    { "code": "E03", "kind": "trace", "attempts": 3, "level": "L4", "liveCue": true },
+    { "code": "E04", "kind": "copy", "attempts": 2, "level": "L3", "liveCue": false }
+  ],
+  "feedback": {
+    "repeatLimit": 3,
+    "maxWords": 12,
+    "unrecognizedRetries": 1,
+    "restartsBeforeReplay": 2,
+    "raisedAidsAttempts": 2,
+    "stopCodes": ["P1", "P2", "P3"],
+    "processCodes": ["P1", "P2", "P3", "P4", "P5", "P6"],
+    "frequency": {
+      "masteredEveryN": 3,
+      "stableFormFloor": 0.7,
+      "processErrorsToRaise": 2
+    }
+  },
+  "liveCue": {
+    "enabled": true,
+    "startClearance": 0.8,
+    "durationMs": 1600,
+    "maxPerAttempt": 1,
+    "pulsePeriodMs": 800
+  }
+}

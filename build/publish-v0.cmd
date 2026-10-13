@@ -1,6 +1,6 @@
 @echo off
 rem Developer script: builds the self-contained V0 package for the protocol docs\spikes\V0-hardware.md.
-rem Result: publish\win-x64\ (the program + 0-mouse.cmd ... 5-latency.cmd) and publish\PenForLang-V0-win-x64.zip.
+rem Result: publish\win-x64\ (the program, 0-mouse.cmd ... 5-latency.cmd for the sandbox protocol and lesson-*.cmd for the V0.8 playtest) and publish\PenForLang-V0-win-x64.zip.
 rem Run from anywhere; requires the .NET SDK from global.json.
 setlocal
 cd /d "%~dp0.."
