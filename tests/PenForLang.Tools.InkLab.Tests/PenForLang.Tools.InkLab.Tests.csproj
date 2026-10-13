@@ -11,4 +11,15 @@
     <ProjectReference Include="..\..\tools\PenForLang.Testing\PenForLang.Testing.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- В WPF-проектах System.IO не входит в неявные using; нужен и тестам, и связанным файлам Glyphs.Tests. -->
+    <Using Include="System.IO" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Проверка файлов разметки по JSON Schema: тот же минимальный проверяющий, что у тестов глифов. -->
+    <Compile Include="..\PenForLang.Glyphs.Tests\Support\MiniJsonSchema.cs" Link="Support\MiniJsonSchema.cs" />
+    <Compile Include="..\PenForLang.Glyphs.Tests\Support\Repo.cs" Link="Support\Repo.cs" />
+  </ItemGroup>
+
 </Project>

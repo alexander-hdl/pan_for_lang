@@ -121,6 +121,17 @@ public class AttemptCaptureTests
     }
 
     [Fact]
+    public void Nothing_written_after_the_last_restart_means_nothing_to_save()
+    {
+        var capture = new AttemptCapture(_clock);
+        capture.Begin();
+        capture.AddSamples([Sample(0, PenPhase.Down), Sample(1000, PenPhase.Up)]);
+        capture.Restart();
+
+        Assert.Null(capture.Complete(TestData.Header()));
+    }
+
+    [Fact]
     public void Restart_counts_and_records_the_event()
     {
         var capture = new AttemptCapture(_clock);
@@ -130,6 +141,8 @@ public class AttemptCaptureTests
         capture.Restart();
 
         Assert.Equal(1, capture.Restarts);
+        Assert.Equal(0, capture.ContactSamplesSinceRestart);
+        capture.AddSamples([Sample(2000, PenPhase.Down), Sample(3000, PenPhase.Up)]);
         PenLog log = capture.Complete(TestData.Header())!;
         Assert.Single(log.Events, e => e.Name == InkEvent.Names.RestartButton);
         Assert.Equal(InkCompletion.DoneButton, log.ToInkAttempt().Completion);
@@ -289,8 +302,8 @@ public class SceneAndViewTests
     {
         Junction[] junctions =
         [
-            new(0, JunctionKind.Connected, new StrokePoint(0, 10), new StrokePoint(0, 14)),
-            new(1, JunctionKind.Connected, new StrokePoint(0, 30), new StrokePoint(0, 30)),
+            new(0, JunctionKind.Connected, new PointRef(0, 10, 0), new PointRef(0, 14, 0)),
+            new(1, JunctionKind.Connected, new PointRef(0, 30, 0), new PointRef(0, 30, 0)),
         ];
 
         Assert.Equal(0, SceneBuilder.GroupOf(junctions, new StrokePoint(0, 3)));
@@ -306,7 +319,7 @@ public class SceneAndViewTests
     public void Polylines_split_at_junctions_share_the_boundary_point_so_the_line_is_continuous()
     {
         ImmutableArray<InkStroke> strokes = TestData.Strokes(TestData.AtWordJoined());
-        Junction[] junctions = [new(0, JunctionKind.Connected, new StrokePoint(0, 20), new StrokePoint(0, 20))];
+        Junction[] junctions = [new(0, JunctionKind.Connected, new PointRef(0, 20, 0), new PointRef(0, 20, 0))];
 
         InkScene scene = SceneBuilder.FromAnnotation(strokes, TestData.Frame, SceneGuides.Default, "at", junctions, []);
 

@@ -1,6 +1,7 @@
 <UserControl x:Class="PenForLang.Tools.InkLab.Views.ReplayTab"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:PenForLang.Tools.InkLab.Views">
   <Grid>
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="340" />
@@ -47,7 +48,7 @@
       </WrapPanel>
 
       <Border Grid.Row="1" BorderBrush="#FFB0A58A" BorderThickness="1">
-        <Border x:Name="StrokeHost" />
+        <views:StrokeView Scene="{Binding Scene}" />
       </Border>
 
       <StackPanel Grid.Row="2" Margin="0,8,0,0">

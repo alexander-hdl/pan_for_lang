@@ -117,7 +117,7 @@ internal static class TestData
         ]);
 
     /// <summary>Слово «at» слитно: два штриха; штрих 0 — a и ствол t (стык внутри штриха, точка 20 из 41), штрих 1 — перекладина.</summary>
-    public static PenLog AtWordJoined(string taskId = "inklab-v0.9/at-crossbar-001")
+    public static PenLog AtWordJoined(string taskId = "inklab-v0.9/at-joined-001")
     {
         (double, double)[] line = [.. Line(0.0, 0.5, 1.0, 0.5, 21), .. Line(1.0, 0.5, 1.4, 0.0, 21).Skip(1)];
         return Log(taskId, "word:at", [Stroke(0, 1, line), Stroke(400_000, 1, Line(1.0, 1.0, 1.6, 1.0, 11))]);
@@ -141,4 +141,29 @@ internal static class TestData
     }
 
     public static ImmutableArray<InkStroke> Strokes(PenLog log) => log.ToInkAttempt().Strokes;
+
+    /// <summary>Штрихи с заданным числом точек: время точки <c>s * 1_000_000 + i * 1000</c> мкс — для проверок разметки без записи.</summary>
+    public static ImmutableArray<InkStroke> StrokesOf(params int[] sizes)
+    {
+        var strokes = ImmutableArray.CreateBuilder<InkStroke>(sizes.Length);
+        for (int s = 0; s < sizes.Length; s++)
+        {
+            ImmutableArray<PenSample>.Builder samples = ImmutableArray.CreateBuilder<PenSample>(sizes[s]);
+            for (int i = 0; i < sizes[s]; i++)
+            {
+                PenPhase phase = i == 0 ? PenPhase.Down : (i == sizes[s] - 1 ? PenPhase.Up : PenPhase.Move);
+                samples.Add(new PenSample(Time(s, i), 100 + i, 100, 0.5f, 0, 0, phase, PenButtons.None, SampleFlags.None, 1));
+            }
+
+            strokes.Add(new InkStroke(s, samples.ToImmutable()));
+        }
+
+        return strokes.ToImmutable();
+    }
+
+    /// <summary>Время точки <paramref name="sample"/> штриха <paramref name="stroke"/> в <see cref="StrokesOf"/>.</summary>
+    public static long Time(int stroke, int sample) => (stroke * 1_000_000L) + (sample * 1000L);
+
+    /// <summary>Достоверный хеш для проверок без записи.</summary>
+    public const string Sha = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 }

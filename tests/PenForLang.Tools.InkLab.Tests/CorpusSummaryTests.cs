@@ -29,6 +29,7 @@ public sealed class CorpusSummaryTests : IDisposable
                 vm.SelectedLetter = 1;
                 vm.ToggleDeferred(vm.Strokes.Length - 1);
                 vm.HandleClick(0.93, 0.5);
+                vm.HandleClick(1.2, 1.48);
             }
         }
         else
@@ -44,7 +45,7 @@ public sealed class CorpusSummaryTests : IDisposable
         // Субъект 1: два слова «с отрывом» (одно размечено верно, одно начато), одно «слитно» (без разметки), одна буква i (брак).
         string lift1 = TestData.WriteLog(Subject("s1"), "at-lift-001", TestData.AtWordLifted("inklab-v0.9/at-lift-001"));
         string lift2 = TestData.WriteLog(Subject("s1"), "at-lift-002", TestData.AtWordLifted("inklab-v0.9/at-lift-002"));
-        TestData.WriteLog(Subject("s1"), "at-crossbar-001", TestData.AtWordJoined("inklab-v0.9/at-crossbar-001"));
+        TestData.WriteLog(Subject("s1"), "at-joined-001", TestData.AtWordJoined("inklab-v0.9/at-joined-001"));
         string i1 = TestData.WriteLog(Subject("s1"), "i-001", TestData.LetterI("inklab-v0.9/i-001"));
 
         // Субъект 2: одна буква i без разметки.
@@ -68,7 +69,7 @@ public sealed class CorpusSummaryTests : IDisposable
         Assert.Equal("tester", lift1.Subject);
         Assert.Equal(AnnotationState.Valid, lift1.Annotation);
         Assert.Equal(AnnotationState.Draft, entries.Single(e => e.FileName.StartsWith("at-lift-002", StringComparison.Ordinal)).Annotation);
-        Assert.Equal(AnnotationState.None, entries.Single(e => e.FileName.StartsWith("at-crossbar-001", StringComparison.Ordinal)).Annotation);
+        Assert.Equal(AnnotationState.None, entries.Single(e => e.FileName.StartsWith("at-joined-001", StringComparison.Ordinal)).Annotation);
         Assert.Equal(AnnotationState.Rejected, entries.Single(e => e.Target == "glyph:i" && e.Annotation != AnnotationState.None).Annotation);
         Assert.Equal("word:at · lift", lift1.Group);
     }
@@ -83,8 +84,8 @@ public sealed class CorpusSummaryTests : IDisposable
 
         SummaryRow lift = summary.ByGroup.Single(r => r.Name == "word:at · lift");
         Assert.Equal(new SummaryRow("word:at · lift", 2, Valid: 1, Rejected: 0, Draft: 1, None: 0), lift);
-        SummaryRow crossbar = summary.ByGroup.Single(r => r.Name == "word:at · crossbar");
-        Assert.Equal(new SummaryRow("word:at · crossbar", 1, 0, 0, 0, 1), crossbar);
+        SummaryRow crossbar = summary.ByGroup.Single(r => r.Name == "word:at · joined");
+        Assert.Equal(new SummaryRow("word:at · joined", 1, 0, 0, 0, 1), crossbar);
         SummaryRow letters = summary.ByGroup.Single(r => r.Name == "glyph:i");
         Assert.Equal(2, letters.Recordings);
         Assert.Equal(1, letters.Rejected);
@@ -177,9 +178,10 @@ public sealed class CorpusSummaryTests : IDisposable
     {
         string path = TestData.WriteLog(Subject("s1"), "x", TestData.AtWordLifted());
         AnnotationFile stale = new(
-            AnnotationFormat.Schema, "x", "word:at", "A", null, "at", QualityMark.Good, [10, 10, 10],
-            [new Junction(0, JunctionKind.Lifted, new StrokePoint(0, 9), new StrokePoint(1, 0))], []);
-        AnnotationJson.Save(CorpusStore.AnnotationPathFor(path), stale);
+            AnnotationFormat.Schema, "x", CorpusStore.ComputeSha256(path), AnnotationFormat.Indexing, "word:at", "lift", "A", null, "InkLab", "at", QualityMark.Good,
+            [new StrokeInfo(10, 0, 9000), new StrokeInfo(10, 0, 9000), new StrokeInfo(10, 0, 9000)],
+            [new Junction(0, JunctionKind.Lifted, new PointRef(0, 9, 9000), new PointRef(1, 0, 0))], []);
+        AnnotationJson.Save(CorpusStore.AnnotationPathFor(path, "A"), stale);
 
         Assert.Equal(AnnotationState.Draft, CorpusIndex.Describe(path).Annotation);
     }
@@ -189,10 +191,128 @@ public sealed class CorpusSummaryTests : IDisposable
     {
         string log = Path.Combine("c", "s1", "a-001-x.pfl.jsonl.gz");
 
-        string annotation = CorpusStore.AnnotationPathFor(log);
+        string annotation = CorpusStore.AnnotationPathFor(log, "Иван/Т");
+        string legacy = CorpusStore.LegacyAnnotationPathFor(log);
 
-        Assert.EndsWith("a-001-x.pfl.jsonl.gz.ann.json", annotation, StringComparison.Ordinal);
+        Assert.EndsWith("a-001-x.pfl.jsonl.gz.ann.Иван_Т.json", annotation, StringComparison.Ordinal);
+        Assert.EndsWith("a-001-x.pfl.jsonl.gz.ann.json", legacy, StringComparison.Ordinal);
         Assert.Equal(log, CorpusStore.PenLogPathFor(annotation));
+        Assert.Equal(log, CorpusStore.PenLogPathFor(legacy));
         Assert.Throws<ArgumentException>(() => CorpusStore.PenLogPathFor("x.json"));
+        Assert.Throws<ArgumentException>(() => CorpusStore.AnnotationPathFor(log, " "));
+    }
+
+    [Fact]
+    public void Superseding_moves_the_recording_and_all_its_annotations_with_one_common_prefix_on_a_name_clash()
+    {
+        string path = TestData.WriteLog(Subject("s1"), "x", TestData.LetterI());
+        File.WriteAllText(path + ".ann.A.json", "{}");
+        File.WriteAllText(path + ".ann.B.json", "{}");
+        string superseded = Path.Combine(Subject("s1"), CorpusStore.SupersededFolder);
+
+        CorpusStore.Supersede(path);
+        Assert.True(File.Exists(Path.Combine(superseded, "x.pfl.jsonl.gz")));
+        Assert.True(File.Exists(Path.Combine(superseded, "x.pfl.jsonl.gz.ann.A.json")));
+        Assert.True(File.Exists(Path.Combine(superseded, "x.pfl.jsonl.gz.ann.B.json")));
+
+        // Та же запись и снова разметка: имена заняты — вся пара получает ОДИН префикс «2-», файлы не расходятся.
+        string again = TestData.WriteLog(Subject("s1"), "x", TestData.LetterI());
+        File.WriteAllText(again + ".ann.A.json", "{}");
+        CorpusStore.Supersede(again);
+
+        Assert.True(File.Exists(Path.Combine(superseded, "2-x.pfl.jsonl.gz")));
+        Assert.True(File.Exists(Path.Combine(superseded, "2-x.pfl.jsonl.gz.ann.A.json")));
+        Assert.False(File.Exists(again));
+        Assert.Empty(CorpusStore.FindAnnotationFiles(again));
+    }
+
+    [Fact]
+    public void Writing_files_is_atomic_keeps_a_backup_and_leaves_no_temporary_file()
+    {
+        string path = Path.Combine(_folder.Path, "state.json");
+
+        AtomicFile.WriteText(path, "one", keepBackup: true);
+        Assert.False(File.Exists(path + ".bak"));
+        AtomicFile.WriteText(path, "two", keepBackup: true);
+
+        Assert.Equal("two", File.ReadAllText(path));
+        Assert.Equal("one", File.ReadAllText(path + ".bak"));
+        Assert.False(File.Exists(path + ".tmp"));
+
+        string fresh = Path.Combine(_folder.Path, "log.bin");
+        AtomicFile.WriteNew(fresh, stream => stream.WriteByte(7));
+        Assert.Equal([(byte)7], File.ReadAllBytes(fresh));
+        Assert.Throws<IOException>(() => AtomicFile.WriteNew(fresh, stream => stream.WriteByte(9)));
+        Assert.Equal([(byte)7], File.ReadAllBytes(fresh)); // существующий файл не затёрт
+        Assert.False(File.Exists(fresh + ".tmp"));
+    }
+
+    [Fact]
+    public void The_recording_hash_is_the_sha256_of_the_uncompressed_jsonl()
+    {
+        string path = TestData.WriteLog(Subject("s1"), "x", TestData.LetterI());
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read);
+        using var gzip = new System.IO.Compression.GZipStream(file, System.IO.Compression.CompressionMode.Decompress);
+        string expected = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(gzip));
+
+        Assert.Equal(expected, CorpusStore.ComputeSha256(path));
+        Assert.Matches("^[0-9a-f]{64}$", expected);
+    }
+
+    [Fact]
+    public void Summary_has_a_source_table_and_warns_about_mouse_recordings()
+    {
+        CorpusSummary summary = CorpusSummary.Build(BuildCorpus());
+
+        SummaryRow mouse = Assert.Single(summary.BySource);
+        Assert.Equal("Mouse", mouse.Name);
+        Assert.Equal(5, mouse.Recordings);
+        Assert.Contains(summary.Warnings, w => w.Contains("мышью", StringComparison.Ordinal) && w.Contains('5'));
+        string text = summary.ToMarkdown();
+        Assert.Contains("## Предупреждения", text, StringComparison.Ordinal);
+        Assert.Contains("## По источнику пера", text, StringComparison.Ordinal);
+        Assert.Contains("| Mouse | 5 |", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Duplicate_task_ids_in_one_subject_folder_are_marked_and_reported()
+    {
+        TestData.WriteLog(Subject("s1"), "i-001-a", TestData.LetterI("inklab-v0.9/i-001"));
+        TestData.WriteLog(Subject("s1"), "i-001-b", TestData.LetterI("inklab-v0.9/i-001"));
+        TestData.WriteLog(Subject("s1"), "i-002", TestData.LetterI("inklab-v0.9/i-002"));
+
+        IReadOnlyList<CorpusEntry> entries = CorpusIndex.Scan(_folder.Path);
+        CorpusSummary summary = CorpusSummary.Build(entries);
+
+        Assert.Equal(2, entries.Count(e => e.DuplicateTaskId));
+        Assert.DoesNotContain(entries.Single(e => e.FileName.StartsWith("i-002", StringComparison.Ordinal)).StateText, "дубль", StringComparison.Ordinal);
+        Assert.Contains("дубль", entries.First(e => e.DuplicateTaskId).StateText, StringComparison.Ordinal);
+        Assert.Contains(summary.Warnings, w => w.Contains("Дубль задания", StringComparison.Ordinal) && w.Contains("i-001", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Scan_reports_the_annotator_of_every_annotation_file()
+    {
+        string path = TestData.WriteLog(Subject("s1"), "at-lift-001", TestData.AtWordLifted());
+        foreach (string id in new[] { "A", "B" })
+        {
+            var vm = new AnnotateTabViewModel(null, () => DateTimeOffset.UnixEpoch, id);
+            vm.Load(path);
+            vm.IsUsable = id == "A" ? vm.IsUsable : false;
+            if (id == "A")
+            {
+                vm.SelectedLetter = 1;
+                vm.ToggleDeferred(2);
+                vm.HandleClick(0.93, 0.5);
+                vm.HandleClick(1.2, 1.48);
+            }
+
+            vm.Save();
+        }
+
+        CorpusEntry entry = CorpusIndex.Describe(path);
+
+        Assert.Equal(["A", "B"], entry.AnnotatorStates.Select(a => a.Annotator).Order().ToArray());
+        Assert.Equal(AnnotationState.Valid, entry.Annotation);
     }
 }

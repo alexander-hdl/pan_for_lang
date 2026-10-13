@@ -35,6 +35,12 @@ public sealed class SummaryTabViewModel : ViewModelBase
     /// <summary>Строки по субъектам.</summary>
     public ObservableCollection<SummaryRow> BySubject { get; } = [];
 
+    /// <summary>Строки по источнику пера (планшет или мышь).</summary>
+    public ObservableCollection<SummaryRow> BySource { get; } = [];
+
+    /// <summary>Предупреждения: пробные записи мышью, дубли заданий, нечитаемые файлы.</summary>
+    public ObservableCollection<string> Warnings { get; } = [];
+
     /// <summary>Команда «Обновить».</summary>
     public RelayCommand RefreshCommand => _refreshCommand;
 
@@ -85,6 +91,18 @@ public sealed class SummaryTabViewModel : ViewModelBase
         foreach (SummaryRow row in _summary.BySubject)
         {
             BySubject.Add(row);
+        }
+
+        BySource.Clear();
+        foreach (SummaryRow row in _summary.BySource)
+        {
+            BySource.Add(row);
+        }
+
+        Warnings.Clear();
+        foreach (string warning in _summary.Warnings)
+        {
+            Warnings.Add(warning);
         }
 
         Text = _summary.ToMarkdown(_folder);

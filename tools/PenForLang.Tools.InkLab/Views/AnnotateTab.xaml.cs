@@ -1,26 +1,23 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using Microsoft.Win32;
 using PenForLang.Tools.InkLab.ViewModels;
 
 namespace PenForLang.Tools.InkLab.Views;
 
-/// <summary>Вкладка «Разметка»: след записи, список записей и редактор стыков и отложенных штрихов. Логика — в <see cref="AnnotateTabViewModel"/>.</summary>
+/// <summary>Вкладка «Разметка»: след записи, список записей и редактор отложенных штрихов и стыков. Логика — в <see cref="AnnotateTabViewModel"/>.</summary>
 public partial class AnnotateTab : UserControl
 {
     private AnnotateTabViewModel? _vm;
-    private readonly StrokeView _strokes = new();
     private bool _updatingLetters;
 
     /// <summary>Создаёт вкладку.</summary>
     public AnnotateTab()
     {
         InitializeComponent();
-
-        // Вид следа создаётся в коде (см. MainWindow.xaml: XAML без ссылок на локальные типы).
-        _strokes.SetBinding(StrokeView.SceneProperty, new System.Windows.Data.Binding("Scene"));
-        StrokeHost.Child = _strokes;
+        PreviewKeyDown += OnPreviewKeyDown;
     }
 
     /// <summary>Связывает вкладку с ViewModel.</summary>
@@ -29,9 +26,24 @@ public partial class AnnotateTab : UserControl
         ArgumentNullException.ThrowIfNull(vm);
         _vm = vm;
         DataContext = vm;
-        _strokes.RulerClicked += vm.HandleClick;
+        Strokes.RulerClicked += vm.HandleClick;
         vm.PropertyChanged += OnViewModelChanged;
         RefreshLetters();
+    }
+
+    /// <summary>Стрелки ← и → сдвигают последнюю поставленную точку стыка на одну точку записи (когда фокус не в поле ввода).</summary>
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (_vm is null || e.OriginalSource is TextBox || (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        {
+            return;
+        }
+
+        if (e.Key is Key.Left or Key.Right)
+        {
+            _vm.Nudge(e.Key == Key.Left ? -1 : 1);
+            e.Handled = true;
+        }
     }
 
     private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e)
@@ -39,6 +51,12 @@ public partial class AnnotateTab : UserControl
         if (e.PropertyName is nameof(AnnotateTabViewModel.Text))
         {
             RefreshLetters();
+        }
+        else if (e.PropertyName is nameof(AnnotateTabViewModel.Tool))
+        {
+            bool deferred = _vm?.Tool == AnnotateTool.Deferred;
+            DeferredTool.IsChecked = deferred;
+            BoundaryTool.IsChecked = !deferred;
         }
     }
 
@@ -91,11 +109,5 @@ public partial class AnnotateTab : UserControl
         }
     }
 
-    private void OnRefresh(object sender, RoutedEventArgs e)
-    {
-        if (_vm is not null && _vm.Folder.Length > 0)
-        {
-            _vm.OpenFolder(_vm.Folder);
-        }
-    }
+    private void OnRefresh(object sender, RoutedEventArgs e) => _vm?.Refresh();
 }

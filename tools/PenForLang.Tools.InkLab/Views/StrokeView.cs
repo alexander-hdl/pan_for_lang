@@ -39,8 +39,8 @@ public sealed class StrokeView : FrameworkElement
         SnapsToDevicePixels = false;
     }
 
-    /// <summary>Пользователь кликнул левой кнопкой: координаты <c>u</c> и <c>v</c> линейки (x-height).</summary>
-    public event Action<double, double>? RulerClicked;
+    /// <summary>Пользователь кликнул левой кнопкой: координаты <c>u</c> и <c>v</c> линейки (x-height) и нажат ли Shift.</summary>
+    public event Action<double, double, bool>? RulerClicked;
 
     /// <summary>Сцена.</summary>
     public InkScene Scene
@@ -84,7 +84,7 @@ public sealed class StrokeView : FrameworkElement
         ArgumentNullException.ThrowIfNull(e);
         Point p = e.GetPosition(this);
         ViewTransform t = ViewTransform.Fit(Scene, ActualWidth, ActualHeight);
-        RulerClicked?.Invoke(t.U(p.X), t.V(p.Y));
+        RulerClicked?.Invoke(t.U(p.X), t.V(p.Y), (Keyboard.Modifiers & ModifierKeys.Shift) != 0);
         e.Handled = true;
     }
 
@@ -154,8 +154,14 @@ public sealed class StrokeView : FrameworkElement
 
     private void DrawMarker(DrawingContext dc, SceneMarker marker, ViewTransform t, SceneGuides guides)
     {
-        var pen = new Pen(Brushes.Black, 1.4);
         double x = t.X(marker.U);
+        if (marker.Kind == MarkerKind.Info)
+        {
+            dc.DrawEllipse(null, new Pen(new SolidColorBrush(Color.FromRgb(0xDC, 0x26, 0x26)), 2.2), new Point(x, t.Y(marker.V)), 7, 7);
+            return;
+        }
+
+        var pen = new Pen(Brushes.Black, 1.4);
         dc.DrawLine(pen, new Point(x, t.Y(guides.XHeight + 0.15)), new Point(x, t.Y(guides.Baseline - 0.15)));
         dc.DrawEllipse(Brushes.Black, null, new Point(x, t.Y(marker.V)), 3.2, 3.2);
         if (marker.Label.Length > 0)

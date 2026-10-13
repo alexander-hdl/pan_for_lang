@@ -65,7 +65,8 @@ public sealed class PromptItem : ViewModelBase
     private static string VariantText(string? variant) => variant switch
     {
         PromptVariants.Lift => " · с отрывом",
-        PromptVariants.Crossbar => " · перекладина сразу",
+        PromptVariants.Joined => " · слитно",
+        PromptVariants.Dot => " · с точкой",
         _ => string.Empty,
     };
 }
@@ -93,6 +94,9 @@ public sealed class RecordTabViewModel : ViewModelBase
     private ProtocolSession? _session;
     private SubjectInfo? _subject;
     private PenLog? _unsaved;
+    private RecordingContext? _attemptContext;
+    private bool _contextChanged;
+    private bool _progressUnsaved;
     private bool _stimulusOpen;
     private bool _isInputEnabled;
 
@@ -182,7 +186,13 @@ public sealed class RecordTabViewModel : ViewModelBase
     public string SubjectId
     {
         get => _subjectId;
-        set => Set(ref _subjectId, value ?? string.Empty);
+        set
+        {
+            if (Set(ref _subjectId, value ?? string.Empty) && _session is null)
+            {
+                PrefillFromSavedProgress();
+            }
+        }
     }
 
     /// <summary>Ведущая рука — левая.</summary>
@@ -217,7 +227,30 @@ public sealed class RecordTabViewModel : ViewModelBase
     public RecordingContext? Context
     {
         get => _context;
-        set => Set(ref _context, value);
+        set
+        {
+            if (!Set(ref _context, value))
+            {
+                return;
+            }
+
+            // Линейка фиксируется на первом касании попытки (F13): чернила нарисованы по ней. Если после этого размер окна, DPI или
+            // монитор изменились, записанные координаты и заголовок разойдутся — «Готово» откажет, пока попытку не начнут заново.
+            if (!HasInk)
+            {
+                _attemptContext = value;
+                _contextChanged = false;
+            }
+            else if (_attemptContext is null)
+            {
+                _attemptContext = value;
+            }
+            else if (value != _attemptContext)
+            {
+                _contextChanged = true;
+                Message = "Размер, масштаб или положение холста изменились во время попытки: нажмите «Заново» и напишите ещё раз.";
+            }
+        }
     }
 
     /// <summary>Вкладка видима и принимает перо.</summary>
@@ -252,8 +285,8 @@ public sealed class RecordTabViewModel : ViewModelBase
             CultureInfo.InvariantCulture,
             $"Записано {_session.DoneCount} из {Protocol.Prompts.Length} · пропущено {_session.SkippedCount}");
 
-    /// <summary>Хотя бы одна точка контакта в текущей попытке.</summary>
-    public bool HasInk => _capture.ContactSamples > 0;
+    /// <summary>Хотя бы одна точка контакта в текущей попытке (после последнего «Заново»).</summary>
+    public bool HasInk => _capture.ContactSamplesSinceRestart > 0;
 
     /// <summary>Перо касается холста.</summary>
     public bool IsPenDown => _capture.IsPenDown;
@@ -263,6 +296,9 @@ public sealed class RecordTabViewModel : ViewModelBase
 
     /// <summary>Сколько раз нажато «Заново» в текущей попытке.</summary>
     public int Restarts => _capture.Restarts;
+
+    /// <summary>Прогресс не удалось записать на диск (он сохранится при следующем действии или будет восстановлен по записям).</summary>
+    public bool IsProgressUnsaved => _progressUnsaved;
 
     /// <summary>Путь последней записанной попытки (для сообщений и тестов).</summary>
     public string? LastWrittenPath { get; private set; }
@@ -296,6 +332,11 @@ public sealed class RecordTabViewModel : ViewModelBase
 
         bool hadInk = HasInk;
         bool wasDown = IsPenDown;
+        if (!hadInk && ContainsContact(samples))
+        {
+            _attemptContext = _context ?? _attemptContext;
+            _contextChanged = false;
+        }
 
         // Первое касание во время показа: показ считается законченным (событие stimulus-end).
         if (_stimulusOpen && ContainsDown(samples))
@@ -403,14 +444,44 @@ public sealed class RecordTabViewModel : ViewModelBase
             consent = parsedConsent;
         }
 
-        var subject = new SubjectInfo(_subjectId.Trim(), _leftHanded ? SubjectInfo.Left : SubjectInfo.Right, age, consent);
+        var formSubject = new SubjectInfo(_subjectId.Trim(), _leftHanded ? SubjectInfo.Left : SubjectInfo.Right, age, consent);
+        var notes = new List<string>();
+        SubjectInfo subject = formSubject;
         try
         {
             var store = new CorpusStore(_corpusRoot);
-            ProtocolProgress progress = store.LoadProgress(subject, Protocol.Id);
+            ProgressLoad load = store.LoadProgress(formSubject, Protocol.Id);
+            ProtocolProgress progress = load.Progress;
+            if (load.Existed)
+            {
+                // Метаданные субъекта берутся из сохранённого прогресса: они должны быть одинаковыми во всех записях (F12).
+                subject = progress.Subject;
+                if (subject != formSubject)
+                {
+                    notes.Add("Рука, возраст и согласие взяты из сохранённого прогресса субъекта (в форме было иначе).");
+                    ApplySubjectToForm(subject);
+                }
+
+                if (load.RecoveredFromBackup)
+                {
+                    notes.Add("progress.json не читался: взята резервная копия progress.json.bak.");
+                }
+            }
+            else if (load.Unreadable)
+            {
+                notes.Add("Файл прогресса повреждён: состояние восстановлено по файлам записей.");
+            }
+
+            // Сверка с файлами: запись есть, а прогресс о ней не знает (сбой при «Готово»), или наоборот (F7, F8).
+            ReconcileReport report = ProgressReconciler.Reconcile(store, subject, Protocol, progress);
+            if (report.HasFindings)
+            {
+                notes.Add(string.Join(" ", report.Messages));
+            }
+
+            _session = new ProtocolSession(Protocol, progress);
             _store = store;
             _subject = subject;
-            _session = new ProtocolSession(Protocol, progress);
             store.SaveProgress(progress);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or FormatException)
@@ -424,8 +495,45 @@ public sealed class RecordTabViewModel : ViewModelBase
 
         RebuildPromptItems();
         string resumed = _session.DoneCount > 0 || _session.SkippedCount > 0 ? " Продолжаем с места остановки." : string.Empty;
-        BeginPrompt($"Запись субъекта «{subject.Id}».{resumed}");
+        string extra = notes.Count > 0 ? " " + string.Join(" ", notes) : string.Empty;
+        BeginPrompt($"Запись субъекта «{subject.Id}».{resumed}{extra}");
         RaiseSessionChanged();
+    }
+
+    private void ApplySubjectToForm(SubjectInfo subject)
+    {
+        _leftHanded = string.Equals(subject.Handedness, SubjectInfo.Left, StringComparison.Ordinal);
+        _ageText = subject.AgeYears?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+        _consentText = subject.ConsentId?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+        Raise(nameof(IsLeftHanded));
+        Raise(nameof(AgeText));
+        Raise(nameof(ConsentText));
+    }
+
+    /// <summary>У субъекта уже есть прогресс: поля формы берутся из него (рука, возраст, согласие), чтобы записи не расходились.</summary>
+    private void PrefillFromSavedProgress()
+    {
+        if (!SubjectInfo.IsValidId(_subjectId))
+        {
+            return;
+        }
+
+        try
+        {
+            string path = Path.Combine(_corpusRoot, SubjectInfo.SanitizeForFolder(_subjectId), CorpusStore.ProgressFileName);
+            if (!File.Exists(path))
+            {
+                return;
+            }
+
+            SubjectInfo saved = ProtocolProgress.FromJson(File.ReadAllText(path)).Subject;
+            ApplySubjectToForm(saved);
+            Message = "Для этого субъекта есть сохранённый прогресс: рука, возраст и согласие взяты из него.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException)
+        {
+            // Прогресс не читается — при «Начать» сработает резервная копия или восстановление по записям.
+        }
     }
 
     /// <summary>Заканчивает запись этого субъекта (прогресс сохранён) — можно выбрать другого.</summary>
@@ -465,20 +573,27 @@ public sealed class RecordTabViewModel : ViewModelBase
                 return;
             }
 
-            if (_capture.ContactSamples == 0)
+            if (_capture.ContactSamplesSinceRestart == 0)
             {
                 Message = "На холсте нет штрихов: напишите, затем нажмите «Готово» (или «Пропустить»).";
                 return;
             }
 
-            if (_context is null)
+            if (_contextChanged)
+            {
+                Message = "Размер, масштаб или положение холста изменились во время попытки: нажмите «Заново» и напишите ещё раз.";
+                return;
+            }
+
+            RecordingContext? context = _attemptContext ?? _context;
+            if (context is null)
             {
                 Message = "Линейка холста ещё не построена: подождите секунду и повторите «Готово».";
                 return;
             }
 
             EndStimulus();
-            PenLogHeader header = RecordingHeaders.Build(_context, _subject, Protocol.Id, prompt);
+            PenLogHeader header = RecordingHeaders.Build(context, _subject, Protocol.Id, prompt);
             _unsaved = _capture.Complete(header);
         }
 
@@ -490,30 +605,72 @@ public sealed class RecordTabViewModel : ViewModelBase
 
         PromptProgress entry = session.Progress.Entry(prompt.Id);
         string? previous = entry.Status == PromptStatus.Done && entry.File is not null
-            ? Path.Combine(_store.SubjectDirectory(_subject), entry.File)
+            ? Path.Combine(_store.SubjectDirectory(_subject), entry.File.Replace('/', Path.DirectorySeparatorChar))
             : null;
         int restarts = _unsaved.Entries.OfType<PenLogEventEntry>().Count(e => e.Event.Name == InkEvent.Names.RestartButton);
+
+        // Шаг 1: запись. Не получилась — попытка остаётся в памяти, повторное «Готово» запишет её снова (данные не теряются).
+        string path;
         try
         {
             string stem = prompt.Id + "-" + _now().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
-            string path = _store.WritePenLog(_subject, stem, _unsaved);
-            LastWrittenPath = path;
-            string relative = Path.GetRelativePath(_store.SubjectDirectory(_subject), path).Replace('\\', '/');
-            _unsaved = null;
-            session.MarkDone(relative, restarts);
-            _store.SaveProgress(session.Progress);
-            if (previous is not null && File.Exists(previous))
-            {
-                CorpusStore.Supersede(previous);
-            }
-
-            RefreshItems();
-            BeginPrompt("Сохранено: " + Path.GetFileName(path));
+            path = _store.WritePenLog(_subject, stem, _unsaved);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Данные не потеряны: попытка остаётся в памяти, повторное «Готово» запишет её снова.
             Message = "Не удалось сохранить запись: " + ex.Message + " Исправьте причину и снова нажмите «Готово».";
+            return;
+        }
+
+        LastWrittenPath = path;
+        _unsaved = null;
+        string relative = Path.GetRelativePath(_store.SubjectDirectory(_subject), path).Replace('\\', '/');
+        session.MarkDone(relative, restarts);
+        var problems = new List<string>();
+
+        // Шаг 2: прогресс. Запись уже на диске; сбой прогресса не должен терять её: он будет сохранён при следующем действии,
+        // а при новом запуске файл подхватит сверка по заголовкам (ProgressReconciler).
+        if (!TrySaveProgress(out string? progressError))
+        {
+            problems.Add("Запись сохранена, но прогресс записать не удалось (" + progressError + "); он сохранится при следующем действии.");
+        }
+
+        // Шаг 3: прежняя запись этой подсказки уходит в superseded. Сбой не отменяет новую запись: лишний файл уберёт сверка при запуске.
+        if (previous is not null && !string.Equals(previous, path, StringComparison.OrdinalIgnoreCase) && File.Exists(previous))
+        {
+            try
+            {
+                CorpusStore.Supersede(previous);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                problems.Add("Прежнюю запись не удалось перенести в superseded (" + ex.Message + "): она останется в папке до следующего запуска.");
+            }
+        }
+
+        RefreshItems();
+        BeginPrompt("Сохранено: " + Path.GetFileName(path) + (problems.Count > 0 ? " " + string.Join(" ", problems) : string.Empty));
+    }
+
+    private bool TrySaveProgress(out string? error)
+    {
+        error = null;
+        if (_store is null || _session is null)
+        {
+            return true;
+        }
+
+        try
+        {
+            _store.SaveProgress(_session.Progress);
+            _progressUnsaved = false;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _progressUnsaved = true;
+            error = ex.Message;
+            return false;
         }
     }
 
@@ -532,6 +689,8 @@ public sealed class RecordTabViewModel : ViewModelBase
         }
 
         _capture.Restart();
+        _attemptContext = _context;
+        _contextChanged = false;
         ClearInkRequested?.Invoke();
         Message = "Холст очищен. Пишите ещё раз.";
         Raise(nameof(HasInk));
@@ -587,6 +746,19 @@ public sealed class RecordTabViewModel : ViewModelBase
         }
     }
 
+    private static bool ContainsContact(ReadOnlySpan<PenSample> samples)
+    {
+        foreach (PenSample sample in samples)
+        {
+            if (sample.IsContact)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static bool ContainsDown(ReadOnlySpan<PenSample> samples)
     {
         foreach (PenSample sample in samples)
@@ -618,9 +790,20 @@ public sealed class RecordTabViewModel : ViewModelBase
         _unsaved = null;
         _stimulusOpen = false;
         _capture.Discard();
+        _attemptContext = _context;
+        _contextChanged = false;
         if (_session?.Current is { } prompt)
         {
             _capture.Begin();
+
+            // Подсказка и вариант попадают в запись сразу (а не только вместе с показом эталона): без них вариант пришлось бы угадывать по имени.
+            var data = new Dictionary<string, string> { ["key"] = prompt.StimulusKey, ["promptId"] = prompt.Id };
+            if (prompt.Variant is not null)
+            {
+                data["variant"] = prompt.Variant;
+            }
+
+            _capture.RecordEvent("prompt", data);
             Message = message;
             ClearInkRequested?.Invoke();
             ReferenceRequested?.Invoke(prompt);
@@ -636,18 +819,9 @@ public sealed class RecordTabViewModel : ViewModelBase
 
     private void SaveProgressSafely()
     {
-        if (_store is null || _session is null)
+        if (!TrySaveProgress(out string? error))
         {
-            return;
-        }
-
-        try
-        {
-            _store.SaveProgress(_session.Progress);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Message = "Не удалось сохранить прогресс: " + ex.Message;
+            Message = "Не удалось сохранить прогресс: " + error;
         }
     }
 

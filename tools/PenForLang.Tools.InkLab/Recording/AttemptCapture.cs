@@ -17,6 +17,7 @@ public sealed class AttemptCapture
     private AttemptTimeRebaser? _rebaser;
     private long _lastTimeUs;
     private int _contactSamples;
+    private int _sinceRestart;
     private int _restarts;
     private bool _penDown;
 
@@ -34,6 +35,9 @@ public sealed class AttemptCapture
     /// <summary>Сколько точек контакта принято.</summary>
     public int ContactSamples => _contactSamples;
 
+    /// <summary>Сколько точек контакта принято после последнего «Заново» (только они попадают в попытку).</summary>
+    public int ContactSamplesSinceRestart => _sinceRestart;
+
     /// <summary>Сколько раз нажато «Заново».</summary>
     public int Restarts => _restarts;
 
@@ -47,6 +51,7 @@ public sealed class AttemptCapture
         _rebaser = AttemptTimeRebaser.Start(_clock);
         _lastTimeUs = 0;
         _contactSamples = 0;
+        _sinceRestart = 0;
         _restarts = 0;
         _penDown = false;
     }
@@ -85,6 +90,7 @@ public sealed class AttemptCapture
             _lastTimeUs = toWrite.TimeUs;
             _entries.Add(new PenLogSampleEntry(toWrite));
             _contactSamples++;
+            _sinceRestart++;
             _penDown = toWrite.Phase != PenPhase.Up;
         }
     }
@@ -108,6 +114,7 @@ public sealed class AttemptCapture
     public void Restart()
     {
         _restarts++;
+        _sinceRestart = 0;
         _penDown = false;
         RecordEvent(InkEvent.Names.RestartButton);
     }
@@ -127,7 +134,7 @@ public sealed class AttemptCapture
         }
 
         RecordEvent(InkEvent.Names.Completed, new Dictionary<string, string> { ["by"] = completedBy });
-        PenLog? log = _contactSamples == 0 ? null : new PenLog(header, [.. _entries]);
+        PenLog? log = _sinceRestart == 0 ? null : new PenLog(header, [.. _entries]);
         Discard();
         return log;
     }

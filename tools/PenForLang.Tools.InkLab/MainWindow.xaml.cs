@@ -29,10 +29,6 @@ public partial class MainWindow : Window, IPenHost
     private readonly LabContent? _content;
     private readonly string _contentProblem = string.Empty;
 
-    private readonly RecordTab _recordView = new();
-    private readonly ReplayTab _replayView = new();
-    private readonly AnnotateTab _annotateView = new();
-    private readonly SummaryTab _summaryView = new();
     private HwndSource? _hwndSource;
     private HwndPenSourceBase? _source;
     private IReadOnlyList<MonitorDescription> _monitors = [];
@@ -64,17 +60,9 @@ public partial class MainWindow : Window, IPenHost
         _vm = new MainViewModel(options, _clock, new SystemClock(), _content?.SceneGuides);
         InitializeComponent();
         DataContext = _vm;
-        foreach (UIElement tab in new UIElement[] { _recordView, _replayView, _annotateView, _summaryView })
-        {
-            TabHost.Children.Add(tab);
-        }
-
-        _replayView.Visibility = Visibility.Collapsed;
-        _annotateView.Visibility = Visibility.Collapsed;
-        _summaryView.Visibility = Visibility.Collapsed;
-        _replayView.Initialize(_vm.Replay);
-        _annotateView.Initialize(_vm.Annotate);
-        _summaryView.Initialize(_vm.Summary);
+        ReplayView.Initialize(_vm.Replay);
+        AnnotateView.Initialize(_vm.Annotate);
+        SummaryView.Initialize(_vm.Summary);
 
         SourceInitialized += OnSourceInitialized;
         Loaded += OnLoaded;
@@ -142,7 +130,7 @@ public partial class MainWindow : Window, IPenHost
         HwndPenSourceBase source = _options.UseMouse ? new MousePenSource(_clock) : new Win32PointerPenSource(_clock);
         source.Attach(_hwndSource);
         _source = source;
-        _recordView.Initialize(_vm.Record, _content, this, _options.XHeightMm, showTip: !_options.UseMouse);
+        RecordView.Initialize(_vm.Record, _content, this, _options.XHeightMm, showTip: !_options.UseMouse);
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -163,13 +151,19 @@ public partial class MainWindow : Window, IPenHost
 
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        // Несохранённая разметка не должна пропасть: сохраняем как черновик.
-        if (_vm.Annotate.IsDirty)
+        // Несохранённая разметка не должна пропасть: не удалось сохранить — спрашиваем, закрывать ли без неё.
+        if (!_vm.Annotate.SaveIfDirty()
+            && MessageBox.Show(
+                _vm.Annotate.Status + Environment.NewLine + "Закрыть окно без сохранения разметки?",
+                "InkLab",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning) != MessageBoxResult.Yes)
         {
-            _vm.Annotate.Save();
+            e.Cancel = true;
+            return;
         }
 
-        _recordView.Shutdown();
+        RecordView.Shutdown();
         _vm.Replay.Dispose();
         if (_source is not null)
         {
@@ -181,7 +175,7 @@ public partial class MainWindow : Window, IPenHost
     private void OnTabClick(object sender, RoutedEventArgs e)
     {
         // Первое Checked приходит из InitializeComponent, когда остальные элементы окна ещё не созданы.
-        if (TabHost is null || StatusText is null)
+        if (SummaryView is null || StatusText is null)
         {
             return;
         }
@@ -194,10 +188,10 @@ public partial class MainWindow : Window, IPenHost
 
     private void SelectTab(int index)
     {
-        _recordView.Visibility = index == MainViewModel.Tabs.Record ? Visibility.Visible : Visibility.Collapsed;
-        _replayView.Visibility = index == MainViewModel.Tabs.Replay ? Visibility.Visible : Visibility.Collapsed;
-        _annotateView.Visibility = index == MainViewModel.Tabs.Annotate ? Visibility.Visible : Visibility.Collapsed;
-        _summaryView.Visibility = index == MainViewModel.Tabs.Summary ? Visibility.Visible : Visibility.Collapsed;
+        RecordView.Visibility = index == MainViewModel.Tabs.Record ? Visibility.Visible : Visibility.Collapsed;
+        ReplayView.Visibility = index == MainViewModel.Tabs.Replay ? Visibility.Visible : Visibility.Collapsed;
+        AnnotateView.Visibility = index == MainViewModel.Tabs.Annotate ? Visibility.Visible : Visibility.Collapsed;
+        SummaryView.Visibility = index == MainViewModel.Tabs.Summary ? Visibility.Visible : Visibility.Collapsed;
         _vm.SelectedTab = index;
         UpdateStatus();
     }

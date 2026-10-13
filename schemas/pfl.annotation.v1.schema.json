@@ -2,16 +2,20 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:pfl:schema:annotation:1",
   "title": "pfl.annotation/1",
-  "description": "Annotation of one pen recording (InkLab, V0.9): <recording>.pfl.jsonl.gz.ann.json next to the recording. Stroke and sample numbers follow PenLog.ToInkAttempt() (strokes after the last restart, from 0). Cross-field rules (junction count = letters - 1, monotone boundaries, lift geometry) are checked by AnnotationValidator in Tools.InkLab, not by this schema.",
+  "description": "Annotation of one pen recording by one annotator (InkLab, V0.9): <recording>.pfl.jsonl.gz.ann.<annotatorId>.json next to the recording (an older <recording>.pfl.jsonl.gz.ann.json is read as the file of the author named inside). NUMBERING: stroke and sample numbers follow indexing 'inkattempt-after-last-restart' = PenLog.ToInkAttempt() with its default: only strokes started after the last restart-button event, from 0; samples inside a stroke are contact samples in order (hover is not counted). The recording is identified by penlogSha256 (SHA-256 of the UNcompressed JSONL, lowercase hex); strokes[] and the t of every point (PenSample.TimeUs, microseconds from task start) let a reader detect a changed recording. MAIN TRACE: all strokes except 'deferred' ones, in writing order. JUNCTION CONVENTION: junction k lies between letters k and k+1; 'end' is where the BODY of the left letter ends (the exit of the glyph), 'start' is where the BODY of the right letter begins (the entry of the glyph; for t - the top of the up-stroke); the stretch end..start is the connecting stroke (end = start when there is none). kind 'connected' means end and start are in ONE stroke; 'lifted' means a pen lift of the main trace lies between them (end.stroke < start.stroke, no main stroke in between); the points may be anywhere inside their strokes. The body of letter k runs from start of junction k-1 (first letter: from the start of the main trace) to end of junction k (last letter: to the end of the main trace). 'deferred' strokes (dots, crossbars) are not part of the main trace; their 'timing' is DERIVED from stroke order (immediate = some main stroke is written after it) and stored; 'timingOpinion' is present only when the annotator disagrees. Cross-field rules (junction count = letters - 1, monotone boundaries, hash and point times match the recording, deferred warnings) are checked by AnnotationValidator in Tools.InkLab, not by this schema. Unknown properties are rejected; another version needs another schema id.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "penlog", "annotator", "text", "quality", "strokeSamples", "junctions", "deferred"],
+  "required": ["schema", "penlogSha256", "indexing", "annotator", "tool", "text", "quality", "strokes", "junctions", "deferred"],
   "properties": {
     "schema": { "const": "pfl.annotation/1" },
-    "penlog": { "type": "string", "description": "File name of the recording, without a path." },
-    "target": { "type": ["string", "null"], "description": "task.target of the recording, e.g. word:at." },
-    "annotator": { "type": "string" },
-    "annotatedAt": { "type": ["string", "null"], "description": "UTC, ISO 8601." },
+    "penlog": { "type": "string", "description": "File name of the recording, without a path (informational)." },
+    "penlogSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "indexing": { "const": "inkattempt-after-last-restart" },
+    "target": { "type": "string", "description": "task.target of the recording, e.g. word:at." },
+    "variant": { "type": "string", "description": "Variant of the task: lift, joined, dot." },
+    "annotator": { "type": "string", "minLength": 1 },
+    "annotatedAt": { "type": "string", "description": "UTC, ISO 8601." },
+    "tool": { "type": "string" },
     "text": { "type": "string", "description": "What was actually written: letters in order, no spaces." },
     "quality": {
       "type": "object",
@@ -20,21 +24,35 @@
       "properties": {
         "usable": { "type": "boolean" },
         "flags": { "type": "array", "items": { "enum": ["wrongContent", "corrected", "hesitation", "outOfGuides", "deviceGlitch", "other"] } },
-        "note": { "type": ["string", "null"] }
+        "note": { "type": "string" }
       }
     },
-    "strokeSamples": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "description": "Number of samples in each stroke when the annotation was made." },
+    "strokes": {
+      "type": "array",
+      "description": "The strokes of the recording at annotation time.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["n", "t0", "t1"],
+        "properties": {
+          "n": { "type": "integer", "minimum": 0, "description": "Number of samples." },
+          "t0": { "type": "integer", "minimum": 0, "description": "Time of the first sample, microseconds." },
+          "t1": { "type": "integer", "minimum": 0, "description": "Time of the last sample, microseconds." }
+        }
+      }
+    },
     "junctions": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["after", "kind", "end", "start"],
+        "required": ["after", "kind", "end", "start", "confidence"],
         "properties": {
           "after": { "type": "integer", "minimum": 0, "description": "Junction between letters after and after + 1." },
           "kind": { "enum": ["connected", "lifted"] },
-          "end": { "$ref": "#/$defs/point", "description": "Where the body of the left letter ends." },
-          "start": { "$ref": "#/$defs/point", "description": "Where the body of the right letter starts; equal to end when there is no connecting stroke." }
+          "end": { "$ref": "#/$defs/point" },
+          "start": { "$ref": "#/$defs/point" },
+          "confidence": { "enum": ["high", "medium", "low"] }
         }
       }
     },
@@ -48,7 +66,8 @@
           "stroke": { "type": "integer", "minimum": 0 },
           "letter": { "type": "integer", "minimum": 0 },
           "kind": { "enum": ["dot", "crossbar", "other"] },
-          "timing": { "enum": ["immediate", "afterWord"] }
+          "timing": { "enum": ["immediate", "afterWord"] },
+          "timingOpinion": { "enum": ["immediate", "afterWord"] }
         }
       }
     }
@@ -57,10 +76,11 @@
     "point": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["stroke", "sample"],
+      "required": ["stroke", "sample", "t"],
       "properties": {
         "stroke": { "type": "integer", "minimum": 0 },
-        "sample": { "type": "integer", "minimum": 0 }
+        "sample": { "type": "integer", "minimum": 0 },
+        "t": { "type": "integer", "minimum": 0, "description": "Time of the sample, microseconds from task start." }
       }
     }
   }

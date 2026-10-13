@@ -5,33 +5,43 @@ namespace PenForLang.Tools.InkLab.Tests;
 public class ProtocolTests
 {
     [Fact]
-    public void Default_protocol_has_30_a_30_i_30_t_and_20_at_in_that_order()
+    public void Default_protocol_is_variant_B_30_letters_each_and_30_words_in_three_variants()
     {
         RecordingProtocol protocol = RecordingProtocol.CreateDefault();
 
-        Assert.Equal(110, protocol.Prompts.Length);
+        Assert.Equal(120, protocol.Prompts.Length);
         Assert.Equal(30, protocol.Prompts.Count(p => p.Target == "glyph:a"));
         Assert.Equal(30, protocol.Prompts.Count(p => p.Target == "glyph:i"));
         Assert.Equal(30, protocol.Prompts.Count(p => p.Target == "glyph:t"));
         Assert.Equal(20, protocol.Prompts.Count(p => p.Target == "word:at"));
+        Assert.Equal(10, protocol.Prompts.Count(p => p.Target == "word:it"));
         Assert.Equal("a-001", protocol.Prompts[0].Id);
         Assert.Equal("i-001", protocol.Prompts[30].Id);
         Assert.Equal("t-001", protocol.Prompts[60].Id);
         Assert.Equal("at-lift-001", protocol.Prompts[90].Id);
+        Assert.Equal("at-joined-001", protocol.Prompts[91].Id);
+        Assert.Equal("it-dot-001", protocol.Prompts[110].Id);
         Assert.Equal(protocol.Prompts.Length, protocol.Prompts.Select(p => p.Id).Distinct().Count());
     }
 
     [Fact]
-    public void Word_prompts_are_split_evenly_between_lift_and_crossbar_variants()
+    public void Word_variants_have_ten_prompts_each_and_the_instructions_name_the_lift_and_the_dot()
     {
         RecordingProtocol protocol = RecordingProtocol.CreateDefault();
-        var words = protocol.Prompts.Where(p => p.IsWord).ToList();
 
-        Assert.Equal(10, words.Count(p => p.Variant == PromptVariants.Lift));
-        Assert.Equal(10, words.Count(p => p.Variant == PromptVariants.Crossbar));
-        Assert.Equal("at-crossbar-001", words[1].Id);
-        Assert.Contains("ОТРЫВОМ", words[0].Instruction, StringComparison.Ordinal);
-        Assert.Equal("word/at", words[0].StimulusKey);
+        Assert.Equal(10, protocol.Prompts.Count(p => p.Variant == PromptVariants.Lift));
+        Assert.Equal(10, protocol.Prompts.Count(p => p.Variant == PromptVariants.Joined));
+        Assert.Equal(10, protocol.Prompts.Count(p => p.Variant == PromptVariants.Dot));
+        RecordingPrompt lift = protocol.Prompts.First(p => p.Variant == PromptVariants.Lift);
+        RecordingPrompt joined = protocol.Prompts.First(p => p.Variant == PromptVariants.Joined);
+        RecordingPrompt dot = protocol.Prompts.First(p => p.Variant == PromptVariants.Dot);
+        Assert.Contains("ОТОРВИТЕ", lift.Instruction, StringComparison.Ordinal);
+        Assert.Contains("верха подъёма", lift.Instruction, StringComparison.Ordinal);
+        Assert.Contains("после слова", lift.Instruction, StringComparison.Ordinal);
+        Assert.Contains("СЛИТНО", joined.Instruction, StringComparison.Ordinal);
+        Assert.Contains("СРАЗУ поставьте точку", dot.Instruction, StringComparison.Ordinal);
+        Assert.Equal("word/at", lift.StimulusKey);
+        Assert.Equal("word/it", dot.StimulusKey);
         Assert.All(protocol.Prompts.Where(p => !p.IsWord), p => Assert.Null(p.Variant));
     }
 

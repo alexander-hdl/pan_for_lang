@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Text.RegularExpressions;
+using PenForLang.Ink;
 
 namespace PenForLang.Tools.InkLab.Annotation;
 
@@ -25,6 +27,15 @@ public static class IssueCodes
     /// <summary>Чужая схема.</summary>
     public const string Schema = "schema";
 
+    /// <summary>Другое правило нумерации.</summary>
+    public const string Indexing = "indexing";
+
+    /// <summary>Хеш записи записан неверно (не 64 hex-символа).</summary>
+    public const string HashFormat = "hash-format";
+
+    /// <summary>Хеш записи не совпадает: запись заменена или изменена после разметки.</summary>
+    public const string HashMismatch = "hash-mismatch";
+
     /// <summary>Текст пуст (для годной записи).</summary>
     public const string TextEmpty = "text-empty";
 
@@ -40,6 +51,9 @@ public static class IssueCodes
     /// <summary>Номер штриха или точки вне записи.</summary>
     public const string PointRange = "point-range";
 
+    /// <summary>Время <c>t</c> точки не совпадает со временем точки записи.</summary>
+    public const string PointTime = "point-time";
+
     /// <summary>Границы не идут по порядку вдоль следа.</summary>
     public const string NotMonotone = "not-monotone";
 
@@ -52,7 +66,7 @@ public static class IssueCodes
     /// <summary>У соединённого стыка начало и конец в разных штрихах.</summary>
     public const string ConnectedAcrossStrokes = "connected-across-strokes";
 
-    /// <summary>Отрыв: конец не в последней точке штриха или начало не в первой точке следующего основного штриха.</summary>
+    /// <summary>Отрыв: конец и начало в одном штрихе, начало раньше конца или между ними есть основной штрих.</summary>
     public const string LiftGeometry = "lift-geometry";
 
     /// <summary>Номер отложенного штриха вне записи.</summary>
@@ -64,32 +78,48 @@ public static class IssueCodes
     /// <summary>Отложенный штрих привязан к несуществующей букве.</summary>
     public const string DeferredLetter = "deferred-letter";
 
+    /// <summary>Предупреждение: у буквы i, j, t или f нет отложенного штриха (точки или перекладины).</summary>
+    public const string DeferredMissing = "deferred-missing";
+
+    /// <summary>Предупреждение: вид отложенного штриха не подходит букве (точка у t, перекладина у i).</summary>
+    public const string DeferredKind = "deferred-kind";
+
+    /// <summary>Предупреждение: записанное время отложенного штриха не совпадает с выведенным из порядка штрихов.</summary>
+    public const string TimingStale = "timing-stale";
+
+    /// <summary>Предупреждение: мнение разметчика о времени расходится с выведенным.</summary>
+    public const string TimingOpinion = "timing-opinion";
+
     /// <summary>Все штрихи отмечены отложенными: основного следа нет.</summary>
     public const string NoMainTrace = "no-main-trace";
 
-    /// <summary>Число штрихов или точек в записи не совпадает с сохранённым в разметке.</summary>
+    /// <summary>Сведения о штрихах (число точек, времена) не совпадают с записью.</summary>
     public const string StrokeMismatch = "stroke-mismatch";
 
     /// <summary>Неизвестный флаг качества.</summary>
     public const string UnknownFlag = "unknown-flag";
 
-    /// <summary>Годная запись помечена флагом «не то написано» или брак без причины.</summary>
+    /// <summary>Годная запись помечена флагом «не то написано».</summary>
     public const string QualityConsistency = "quality-consistency";
 }
 
 /// <summary>
-/// Проверка файла разметки <c>pfl.annotation/1</c>. Для годной записи требуется: текст из непробельных символов; стыков
-/// ровно «букв − 1», по одному на каждую пару соседних букв; точки существуют в записи; границы идут по порядку вдоль основного
-/// следа (конец левой буквы ≤ начало правой, тело каждой буквы непусто); стык не лежит на отложенном штрихе; «соединён» — стык
-/// внутри одного штриха; «отрыв» — конец в последней точке штриха, начало в первой точке следующего основного штриха;
-/// отложенные штрихи существуют, различны и привязаны к существующим буквам. Для брака проверяются только схема и ссылки.
+/// Проверка разметки <c>pfl.annotation/1</c>. Привязка к записи: хеш, штрихи (число точек и времена), время <c>t</c> точек.
+/// Для годной записи: текст из непробельных символов; стыков ровно «букв − 1»; границы идут по порядку вдоль основного следа
+/// (конец левой буквы ≤ начало правой, тело каждой буквы непусто); стык не лежит на отложенном штрихе; «соединены» — конец и
+/// начало в одном штрихе; «отрыв» — в разных, без основных штрихов между ними (точки — где угодно в своих штрихах); отложенные штрихи
+/// существуют, различны и привязаны к существующим буквам. Для брака проверяются только схема, привязка и ссылки отложенных штрихов.
 /// </summary>
-public static class AnnotationValidator
+public static partial class AnnotationValidator
 {
+    [GeneratedRegex("^[0-9a-f]{64}$")]
+    private static partial Regex Sha256Pattern();
+
     /// <summary>Проверяет разметку.</summary>
     /// <param name="annotation">Разметка.</param>
-    /// <param name="actualStrokeSamples">Сколько точек в штрихах записи; <c>null</c> — проверять только внутреннюю согласованность.</param>
-    public static IReadOnlyList<AnnotationIssue> Validate(AnnotationFile annotation, IReadOnlyList<int>? actualStrokeSamples = null)
+    /// <param name="strokes">Штрихи записи; <c>null</c> — проверять только внутреннюю согласованность (по <see cref="AnnotationFile.Strokes"/>).</param>
+    /// <param name="actualSha256">Хеш записи; <c>null</c> — хеш не сверять.</param>
+    public static IReadOnlyList<AnnotationIssue> Validate(AnnotationFile annotation, IReadOnlyList<InkStroke>? strokes = null, string? actualSha256 = null)
     {
         ArgumentNullException.ThrowIfNull(annotation);
         var issues = new List<AnnotationIssue>();
@@ -99,6 +129,20 @@ public static class AnnotationValidator
         if (!string.Equals(annotation.Schema, AnnotationFormat.Schema, StringComparison.Ordinal))
         {
             Error(IssueCodes.Schema, $"Схема должна быть '{AnnotationFormat.Schema}', а не '{annotation.Schema}'.");
+        }
+
+        if (!string.Equals(annotation.Indexing, AnnotationFormat.Indexing, StringComparison.Ordinal))
+        {
+            Error(IssueCodes.Indexing, $"Правило нумерации должно быть '{AnnotationFormat.Indexing}', а не '{annotation.Indexing}'.");
+        }
+
+        if (!Sha256Pattern().IsMatch(annotation.PenlogSha256))
+        {
+            Error(IssueCodes.HashFormat, "Хеш записи (penlogSha256) — 64 строчные hex-цифры.");
+        }
+        else if (actualSha256 is not null && !string.Equals(annotation.PenlogSha256, actualSha256, StringComparison.Ordinal))
+        {
+            Error(IssueCodes.HashMismatch, "Хеш записи не совпадает: запись заменена или изменена после разметки.");
         }
 
         foreach (string flag in annotation.Quality.Flags.Where(f => !QualityFlags.All.Contains(f)))
@@ -111,17 +155,19 @@ public static class AnnotationValidator
             Warn(IssueCodes.QualityConsistency, "Запись помечена годной, но с флагом «написано не то»: укажите в тексте, что написано на самом деле.");
         }
 
-        // Длины штрихов: из записи, иначе из разметки.
-        ImmutableArray<int> counts = annotation.StrokeSamples;
-        if (actualStrokeSamples is not null && !counts.IsEmpty && !counts.SequenceEqual(actualStrokeSamples))
+        if (strokes is not null)
         {
-            Error(
-                IssueCodes.StrokeMismatch,
-                $"Запись изменилась после разметки: в разметке {counts.Length} шт. штрихов ({string.Join(",", counts)}), в записи {actualStrokeSamples.Count} ({string.Join(",", actualStrokeSamples)}).");
+            ImmutableArray<StrokeInfo> actual = StrokeInfo.Of(strokes);
+            if (!annotation.Strokes.SequenceEqual(actual))
+            {
+                Error(
+                    IssueCodes.StrokeMismatch,
+                    $"Запись изменилась после разметки: в разметке {annotation.Strokes.Length} шт. штрихов ({Describe(annotation.Strokes)}), в записи {actual.Length} ({Describe(actual)}).");
+            }
         }
 
-        IReadOnlyList<int> sizes = actualStrokeSamples ?? counts;
-        CheckDeferred(annotation, sizes, Error);
+        int[] sizes = strokes is not null ? [.. strokes.Select(s => s.Samples.Length)] : [.. annotation.Strokes.Select(s => s.N)];
+        CheckDeferred(annotation, sizes, Error, Warn);
 
         if (!annotation.Quality.Usable)
         {
@@ -140,7 +186,8 @@ public static class AnnotationValidator
             return issues;
         }
 
-        CheckJunctions(annotation, sizes, Error);
+        CheckDeferredLetters(annotation, Warn);
+        CheckJunctions(annotation, sizes, strokes, Error);
         return issues;
     }
 
@@ -151,14 +198,26 @@ public static class AnnotationValidator
         return issues.All(i => i.Severity != IssueSeverity.Error);
     }
 
-    private static void CheckDeferred(AnnotationFile a, IReadOnlyList<int> sizes, Action<string, string> error)
+    /// <summary>Какой вид отложенного штриха ожидается у буквы: точка у i и j, перекладина у t и f, иначе <c>null</c>.</summary>
+    public static DeferredPartKind? ExpectedDeferredKind(char letter) => char.ToLowerInvariant(letter) switch
+    {
+        'i' or 'j' => DeferredPartKind.Dot,
+        't' or 'f' => DeferredPartKind.Crossbar,
+        _ => null,
+    };
+
+    private static string Describe(ImmutableArray<StrokeInfo> strokes) => string.Join(", ", strokes.Select(s => string.Create(CultureInfo.InvariantCulture, $"{s.N}")));
+
+    private static void CheckDeferred(AnnotationFile a, int[] sizes, Action<string, string> error, Action<string, string> warn)
     {
         var seen = new HashSet<int>();
+        HashSet<int> deferred = [.. a.Deferred.Select(d => d.Stroke)];
         foreach (DeferredMark mark in a.Deferred)
         {
-            if (mark.Stroke < 0 || mark.Stroke >= sizes.Count)
+            if (mark.Stroke < 0 || mark.Stroke >= sizes.Length)
             {
-                error(IssueCodes.DeferredRange, $"Отложенный штрих {mark.Stroke}: в записи штрихов {sizes.Count}.");
+                error(IssueCodes.DeferredRange, $"Отложенный штрих {mark.Stroke}: в записи штрихов {sizes.Length}.");
+                continue;
             }
 
             if (!seen.Add(mark.Stroke))
@@ -170,15 +229,48 @@ public static class AnnotationValidator
             {
                 error(IssueCodes.DeferredLetter, $"Отложенный штрих {mark.Stroke} привязан к букве {mark.Letter}, а букв {a.Text.Length}.");
             }
+
+            DeferredTiming derived = AnnotationFile.IsImmediate(mark.Stroke, sizes, deferred) ? DeferredTiming.Immediate : DeferredTiming.AfterWord;
+            if (mark.Timing != derived)
+            {
+                warn(IssueCodes.TimingStale, $"Штрих {mark.Stroke}: записано время «{mark.Timing}», а по порядку штрихов выходит «{derived}».");
+            }
+
+            if (mark.TimingOpinion is { } opinion && opinion != derived)
+            {
+                warn(IssueCodes.TimingOpinion, $"Штрих {mark.Stroke}: мнение разметчика «{opinion}» расходится с выведенным по порядку «{derived}».");
+            }
         }
 
-        if (a.Quality.Usable && sizes.Count > 0 && seen.Count(s => s >= 0 && s < sizes.Count) >= sizes.Count)
+        if (a.Quality.Usable && sizes.Length > 0 && seen.Count(s => s >= 0 && s < sizes.Length) >= sizes.Length)
         {
             error(IssueCodes.NoMainTrace, "Все штрихи отмечены отложенными: основного следа нет.");
         }
     }
 
-    private static void CheckJunctions(AnnotationFile a, IReadOnlyList<int> sizes, Action<string, string> error)
+    private static void CheckDeferredLetters(AnnotationFile a, Action<string, string> warn)
+    {
+        for (int i = 0; i < a.Text.Length; i++)
+        {
+            if (ExpectedDeferredKind(a.Text[i]) is not { } expected)
+            {
+                continue;
+            }
+
+            DeferredMark[] marks = [.. a.Deferred.Where(d => d.Letter == i)];
+            if (marks.Length == 0)
+            {
+                string what = expected == DeferredPartKind.Dot ? "точка" : "перекладина";
+                warn(IssueCodes.DeferredMissing, $"У буквы {i + 1} («{a.Text[i]}») не отмечена {what}: если она написана, отметьте её отложенным штрихом.");
+            }
+            else if (marks.All(m => m.Kind != expected))
+            {
+                warn(IssueCodes.DeferredKind, $"У буквы {i + 1} («{a.Text[i]}») вид отложенного штриха не подходит: ожидается {(expected == DeferredPartKind.Dot ? "точка" : "перекладина")}.");
+            }
+        }
+    }
+
+    private static void CheckJunctions(AnnotationFile a, int[] sizes, IReadOnlyList<InkStroke>? strokes, Action<string, string> error)
     {
         int letters = a.Text.Length;
         int expected = letters - 1;
@@ -199,7 +291,7 @@ public static class AnnotationValidator
         }
 
         HashSet<int> deferred = a.DeferredStrokes.ToHashSet();
-        int[] main = [.. Enumerable.Range(0, sizes.Count).Where(s => !deferred.Contains(s) && sizes[s] > 0)];
+        int[] main = [.. Enumerable.Range(0, sizes.Length).Where(s => !deferred.Contains(s) && sizes[s] > 0)];
         if (main.Length == 0)
         {
             return; // уже сообщено NoMainTrace; на пустом следе стыки проверять нечем
@@ -210,9 +302,9 @@ public static class AnnotationValidator
         bool pointsOk = true;
         foreach (Junction j in ordered)
         {
-            foreach ((StrokePoint point, string role) in new[] { (j.End, "конец"), (j.Start, "начало") })
+            foreach ((PointRef point, string role) in new[] { (j.End, "конец"), (j.Start, "начало") })
             {
-                if (point.Stroke < 0 || point.Stroke >= sizes.Count || point.Sample < 0 || point.Sample >= sizes[point.Stroke])
+                if (point.Stroke < 0 || point.Stroke >= sizes.Length || point.Sample < 0 || point.Sample >= sizes[point.Stroke])
                 {
                     error(IssueCodes.PointRange, $"Стык {Label(a, j)}: {role} ({point.Stroke}:{point.Sample}) вне записи.");
                     pointsOk = false;
@@ -220,6 +312,11 @@ public static class AnnotationValidator
                 else if (deferred.Contains(point.Stroke))
                 {
                     error(IssueCodes.JunctionOnDeferred, $"Стык {Label(a, j)}: {role} лежит на отложенном штрихе {point.Stroke}.");
+                    pointsOk = false;
+                }
+                else if (strokes is not null && strokes[point.Stroke].Samples[point.Sample].TimeUs != point.T)
+                {
+                    error(IssueCodes.PointTime, $"Стык {Label(a, j)}: время {role} (t={point.T}) не совпадает с точкой записи {point.Stroke}:{point.Sample}.");
                     pointsOk = false;
                 }
             }
@@ -234,26 +331,28 @@ public static class AnnotationValidator
         StrokePoint bodyStart = first;
         foreach (Junction j in ordered)
         {
-            if (j.End > j.Start)
+            StrokePoint end = j.End.Point;
+            StrokePoint start = j.Start.Point;
+            if (end > start)
             {
-                error(IssueCodes.NotMonotone, $"Стык {Label(a, j)}: конец левой буквы позже начала правой.");
+                error(IssueCodes.NotMonotone, $"Стык {Label(a, j)}: выход левой буквы позже входа правой.");
                 return;
             }
 
-            if (j.End < bodyStart)
+            if (end < bodyStart)
             {
                 error(IssueCodes.NotMonotone, $"Стык {Label(a, j)} стоит раньше начала буквы {j.After}: границы должны идти по порядку вдоль следа.");
                 return;
             }
 
-            if (j.End == bodyStart)
+            if (end == bodyStart)
             {
                 error(IssueCodes.EmptyLetter, $"Буква {j.After} ({a.Text[j.After]}) пуста: её тело состоит из одной точки, проверьте границы.");
                 return;
             }
 
-            CheckKind(a, j, sizes, deferred, error);
-            bodyStart = j.Start;
+            CheckKind(a, j, deferred, sizes, error);
+            bodyStart = start;
         }
 
         if (bodyStart >= last)
@@ -262,26 +361,33 @@ public static class AnnotationValidator
         }
     }
 
-    private static void CheckKind(AnnotationFile a, Junction j, IReadOnlyList<int> sizes, HashSet<int> deferred, Action<string, string> error)
+    private static void CheckKind(AnnotationFile a, Junction j, HashSet<int> deferred, int[] sizes, Action<string, string> error)
     {
+        bool sameStroke = j.End.Stroke == j.Start.Stroke;
         if (j.Kind == JunctionKind.Connected)
         {
-            if (j.End.Stroke != j.Start.Stroke)
+            if (!sameStroke)
             {
-                error(IssueCodes.ConnectedAcrossStrokes, $"Стык {Label(a, j)} «соединён», но конец и начало в разных штрихах: это отрыв пера.");
+                error(IssueCodes.ConnectedAcrossStrokes, $"Стык {Label(a, j)} «соединены», но выход и вход в разных штрихах: между ними отрыв пера.");
             }
 
             return;
         }
 
-        int next = NextMainStroke(j.End.Stroke, sizes, deferred);
-        bool endsStroke = j.End.Sample == sizes[j.End.Stroke] - 1;
-        bool startsNext = next >= 0 && j.Start.Stroke == next && j.Start.Sample == 0;
-        if (!endsStroke || !startsNext)
+        if (sameStroke)
         {
-            error(
-                IssueCodes.LiftGeometry,
-                $"Стык {Label(a, j)} «отрыв»: левая буква должна кончаться в последней точке штриха, правая — начинаться с первой точки следующего основного штриха.");
+            error(IssueCodes.LiftGeometry, $"Стык {Label(a, j)} «отрыв», но выход и вход в одном штрихе: отрыва пера между ними нет.");
+            return;
+        }
+
+        // Между выходом и входом — только отрыв (и, возможно, отложенные штрихи): основной штрих между ними принадлежал бы какой-то букве.
+        for (int s = j.End.Stroke + 1; s < j.Start.Stroke; s++)
+        {
+            if (!deferred.Contains(s) && sizes[s] > 0)
+            {
+                error(IssueCodes.LiftGeometry, $"Стык {Label(a, j)} «отрыв»: между выходом и входом есть основной штрих {s}.");
+                return;
+            }
         }
     }
 

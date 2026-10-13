@@ -5,6 +5,7 @@ using PenForLang.Ink;
 using PenForLang.Testing;
 using PenForLang.Tools.InkLab.Corpus;
 using PenForLang.Tools.InkLab.Protocol;
+using PenForLang.Tools.InkLab.Recording;
 using PenForLang.Tools.InkLab.Tests.Support;
 using PenForLang.Tools.InkLab.ViewModels;
 
@@ -329,7 +330,7 @@ public sealed class RecordTabViewModelTests : IDisposable
     {
         RecordingProtocol protocol = RecordingProtocol.Create(
             "inklab-v0.9",
-            [new ProtocolStep("word:at", 2, [PromptVariants.Lift, PromptVariants.Crossbar])]);
+            [new ProtocolStep("word:at", 2, [PromptVariants.Lift, PromptVariants.Joined])]);
         RecordTabViewModel vm = NewVm(protocol);
         vm.StartSession();
         vm.ReferenceStarted();
@@ -345,7 +346,7 @@ public sealed class RecordTabViewModelTests : IDisposable
         Assert.Equal("lift", start.Data["variant"]);
         Assert.Equal(2, log.ToInkAttempt().Strokes.Length);
 
-        Assert.Equal("at-crossbar-001", vm.CurrentPrompt!.Id);
+        Assert.Equal("at-joined-001", vm.CurrentPrompt!.Id);
     }
 
     [Fact]
@@ -448,5 +449,231 @@ public sealed class RecordTabViewModelTests : IDisposable
         Assert.Equal(log.Header.Screen.PxPerMm, log.Header.Guides.PxPerMm);
         Assert.Equal(200, log.Header.Guides.OriginXPx);
         Assert.Equal(600, log.Header.Guides.BaselineYPx);
+    }
+
+    [Fact]
+    public void The_prompt_and_its_variant_are_recorded_at_the_start_of_the_attempt_even_without_showing_the_reference()
+    {
+        RecordingProtocol protocol = RecordingProtocol.Create("inklab-v0.9", [new ProtocolStep("word:it", 1, [PromptVariants.Dot])]);
+        RecordTabViewModel vm = NewVm(protocol);
+        vm.StartSession();
+        Draw(TestData.Line(0.0, 1.0, 0.0, 0.0, 10)); // эталон не показывали
+        vm.Done();
+
+        PenLog log = ReadRaw(vm.LastWrittenPath!);
+
+        InkEvent prompt = Assert.Single(log.Events, e => e.Name == "prompt");
+        Assert.Equal("word/it", prompt.Data!["key"]);
+        Assert.Equal("dot", prompt.Data["variant"]);
+        Assert.Equal("it-dot-001", prompt.Data["promptId"]);
+        Assert.Equal(0, prompt.TimeUs);
+        Assert.DoesNotContain(log.Events, e => e.Name == InkEvent.Names.StimulusStart);
+    }
+
+    [Fact]
+    public void The_ruler_is_fixed_at_the_first_touch_and_a_change_during_the_attempt_blocks_done_until_redo()
+    {
+        RecordTabViewModel vm = NewVm();
+        vm.StartSession();
+        RecordingContext other = TestData.Context with { Guides = new GuideFrame(300, 650, 120, 7.5, 3.0, null, TestData.Frame.Style) };
+        vm.Context = other; // до касания линейка ещё может меняться
+        Draw(Stem());
+
+        vm.Context = TestData.Context; // окно изменилось, когда чернила уже на холсте
+        Assert.Contains("изменились", vm.Message, StringComparison.Ordinal);
+        vm.Done();
+
+        Assert.Empty(Directory.GetFiles(SubjectDir(), "*" + CorpusStore.PenLogExtension));
+        Assert.True(vm.HasInk);
+
+        vm.Redo();
+        Draw(Stem());
+        vm.Done();
+
+        // Заголовок — по линейке, действовавшей на первом касании после «Заново» (TestData.Context), а не по первой версии.
+        PenLog log = ReadRaw(vm.LastWrittenPath!);
+        Assert.Equal(TestData.Frame.OriginXPx, log.Header.Guides.OriginXPx);
+    }
+
+    [Fact]
+    public void A_ruler_change_after_the_first_touch_is_reported_even_for_a_dpi_only_change()
+    {
+        RecordTabViewModel vm = NewVm();
+        vm.StartSession();
+        Draw(Stem());
+
+        vm.Context = TestData.Context with { Screen = TestData.Screen with { DpiScale = 1.5 } };
+
+        Assert.Contains("изменились", vm.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_saved_subject_fills_the_form_and_wins_over_conflicting_form_values_with_a_warning()
+    {
+        RecordTabViewModel first = NewVm();
+        first.IsLeftHanded = true;
+        first.AgeText = "41";
+        first.ConsentText = "7";
+        first.StartSession();
+        Draw(Stem());
+        first.Done();
+        first.EndSession();
+
+        // Выбор известного субъекта заполняет форму сразу.
+        RecordTabViewModel second = NewVm(subject: "other");
+        second.SubjectId = "adult-1";
+        Assert.True(second.IsLeftHanded);
+        Assert.Equal("41", second.AgeText);
+        Assert.Equal("7", second.ConsentText);
+
+        // Форму испортили до запуска: берётся сохранённое, с предупреждением.
+        second.IsLeftHanded = false;
+        second.AgeText = "20";
+        second.StartSession();
+
+        Assert.True(second.IsSessionActive);
+        Assert.True(second.IsLeftHanded);
+        Assert.Equal("41", second.AgeText);
+        Assert.Contains("сохранённого прогресса", second.Message, StringComparison.Ordinal);
+        Draw(Stem());
+        second.Done();
+        Assert.Equal("left", ReadRaw(second.LastWrittenPath!).Header.Task!.Handedness);
+    }
+
+    [Fact]
+    public void A_progress_save_failure_keeps_the_written_recording_and_is_retried_at_the_next_action()
+    {
+        RecordTabViewModel vm = NewVm();
+        vm.StartSession();
+        Draw(Stem());
+        Directory.CreateDirectory(Path.Combine(SubjectDir(), CorpusStore.ProgressFileName + ".tmp")); // временный файл прогресса создать нельзя
+
+        vm.Done();
+
+        Assert.Single(Directory.GetFiles(SubjectDir(), "*" + CorpusStore.PenLogExtension)); // запись на диске
+        Assert.Equal("a-002", vm.CurrentPrompt!.Id);
+        Assert.True(vm.IsProgressUnsaved);
+        Assert.Contains("прогресс записать не удалось", vm.Message, StringComparison.Ordinal);
+
+        Directory.Delete(Path.Combine(SubjectDir(), CorpusStore.ProgressFileName + ".tmp"));
+        vm.Skip();
+
+        Assert.False(vm.IsProgressUnsaved);
+        ProtocolProgress saved = ProtocolProgress.FromJson(File.ReadAllText(Path.Combine(SubjectDir(), CorpusStore.ProgressFileName)));
+        Assert.Equal(PromptStatus.Done, saved.StatusOf("a-001"));
+        Assert.Equal(PromptStatus.Skipped, saved.StatusOf("a-002"));
+    }
+
+    [Fact]
+    public void A_failed_move_of_the_old_recording_does_not_cancel_the_new_one()
+    {
+        RecordTabViewModel vm = NewVm();
+        vm.StartSession();
+        Draw(Stem());
+        vm.Done();
+        string old = vm.LastWrittenPath!;
+        File.WriteAllText(Path.Combine(SubjectDir(), CorpusStore.SupersededFolder), "blocker"); // на месте подпапки файл
+        vm.Back();
+        Draw(TestData.Line(0.0, 1.0, 0.1, 0.0, 10));
+
+        vm.Done();
+
+        Assert.NotEqual(old, vm.LastWrittenPath);
+        Assert.True(File.Exists(vm.LastWrittenPath));
+        Assert.True(File.Exists(old)); // осталась на месте
+        Assert.Contains("superseded", vm.Message, StringComparison.Ordinal);
+        ProtocolProgress saved = ProtocolProgress.FromJson(File.ReadAllText(Path.Combine(SubjectDir(), CorpusStore.ProgressFileName)));
+        Assert.Equal(Path.GetFileName(vm.LastWrittenPath), saved.Prompts["a-001"].File);
+
+        // При следующем запуске сверка уберёт лишний файл.
+        File.Delete(Path.Combine(SubjectDir(), CorpusStore.SupersededFolder));
+        vm.EndSession();
+        RecordTabViewModel again = NewVm();
+        again.StartSession();
+        Assert.False(File.Exists(old));
+        Assert.True(File.Exists(vm.LastWrittenPath));
+    }
+
+    [Fact]
+    public void A_lost_progress_file_is_rebuilt_from_the_penlog_headers_on_start()
+    {
+        RecordTabViewModel first = NewVm();
+        first.StartSession();
+        Draw(Stem());
+        first.Done();
+        Draw(Stem());
+        first.Done();
+        first.EndSession();
+        File.Delete(Path.Combine(SubjectDir(), CorpusStore.ProgressFileName));
+        File.Delete(Path.Combine(SubjectDir(), CorpusStore.ProgressFileName + ".bak"));
+
+        RecordTabViewModel second = NewVm();
+        second.StartSession();
+
+        Assert.Equal("a-003", second.CurrentPrompt!.Id);
+        Assert.Equal(PromptStatus.Done, second.Prompts[0].Status);
+        Assert.Equal(PromptStatus.Done, second.Prompts[1].Status);
+        Assert.Contains("восстановлено", second.Message, StringComparison.Ordinal);
+        Assert.Equal(2, Directory.GetFiles(SubjectDir(), "*" + CorpusStore.PenLogExtension).Length);
+    }
+
+    [Fact]
+    public void A_corrupt_progress_file_falls_back_to_the_backup_and_the_files_fill_the_gap()
+    {
+        RecordTabViewModel first = NewVm();
+        first.StartSession();
+        Draw(Stem());
+        first.Done();
+        Draw(Stem());
+        first.Done();
+        first.EndSession();
+        File.WriteAllText(Path.Combine(SubjectDir(), CorpusStore.ProgressFileName), "{ повреждён");
+
+        RecordTabViewModel second = NewVm();
+        second.StartSession();
+
+        Assert.True(second.IsSessionActive);
+        Assert.Equal("a-003", second.CurrentPrompt!.Id);
+        Assert.Contains(".bak", second.Message, StringComparison.Ordinal);
+        Assert.Equal(PromptStatus.Done, second.Prompts[1].Status);
+    }
+
+    [Fact]
+    public void Duplicate_files_of_one_prompt_keep_the_newest_and_the_other_goes_to_superseded()
+    {
+        RecordTabViewModel first = NewVm();
+        first.StartSession();
+        Draw(Stem());
+        first.Done();
+        string kept = first.LastWrittenPath!;
+        first.EndSession();
+        string older = Path.Combine(SubjectDir(), "a-001-19990101-000000" + CorpusStore.PenLogExtension);
+        File.Copy(kept, older);
+        File.SetLastWriteTimeUtc(older, new DateTime(1999, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        RecordTabViewModel second = NewVm();
+        second.StartSession();
+
+        Assert.True(File.Exists(kept));
+        Assert.False(File.Exists(older));
+        Assert.True(File.Exists(Path.Combine(SubjectDir(), CorpusStore.SupersededFolder, Path.GetFileName(older))));
+        Assert.Single(CorpusStore.EnumeratePenLogs(_folder.Path));
+    }
+
+    [Fact]
+    public void A_missing_recording_returns_its_prompt_to_pending()
+    {
+        RecordTabViewModel first = NewVm();
+        first.StartSession();
+        Draw(Stem());
+        first.Done();
+        File.Delete(first.LastWrittenPath!);
+        first.EndSession();
+
+        RecordTabViewModel second = NewVm();
+        second.StartSession();
+
+        Assert.Equal(PromptStatus.Pending, second.Prompts[0].Status); // записать нужно заново; место остановки (a-002) сохранено
+        Assert.Equal(0, second.Prompts.Count(p => p.Status == PromptStatus.Done));
     }
 }

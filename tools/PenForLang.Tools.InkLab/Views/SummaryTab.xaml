@@ -13,7 +13,16 @@
       <Button Content="Сохранить corpus-summary.md" Command="{Binding SaveCommand}" Padding="18,8" Margin="0,0,16,0" FontSize="16" />
       <TextBlock Text="{Binding Folder}" VerticalAlignment="Center" Foreground="#FF555555" />
     </StackPanel>
-    <TextBlock Grid.Row="1" Text="{Binding Status}" Foreground="#FF9A3412" Margin="0,0,0,8" />
+    <StackPanel Grid.Row="1" Margin="0,0,0,8">
+      <TextBlock Text="{Binding Status}" Foreground="#FF9A3412" />
+      <ItemsControl ItemsSource="{Binding Warnings}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding}" Foreground="#FFB91C1C" FontWeight="SemiBold" TextWrapping="Wrap" />
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
 
     <Grid Grid.Row="2">
       <Grid.ColumnDefinitions>
@@ -23,6 +32,7 @@
       <Grid.RowDefinitions>
         <RowDefinition Height="*" />
         <RowDefinition Height="*" />
+        <RowDefinition Height="Auto" MaxHeight="130" />
       </Grid.RowDefinitions>
 
       <DataGrid Grid.Row="0" Grid.Column="0" ItemsSource="{Binding ByGroup}" AutoGenerateColumns="False" IsReadOnly="True" Margin="0,0,8,8" HeadersVisibility="Column">
@@ -47,7 +57,18 @@
         </DataGrid.Columns>
       </DataGrid>
 
-      <TextBox Grid.Row="0" Grid.Column="1" Grid.RowSpan="2" Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="12" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
+      <DataGrid Grid.Row="2" Grid.Column="0" ItemsSource="{Binding BySource}" AutoGenerateColumns="False" IsReadOnly="True" Margin="0,8,8,0" HeadersVisibility="Column">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="Источник пера" Binding="{Binding Name}" Width="*" />
+          <DataGridTextColumn Header="Записей" Binding="{Binding Recordings}" />
+          <DataGridTextColumn Header="Размечено" Binding="{Binding Valid}" />
+          <DataGridTextColumn Header="Брак" Binding="{Binding Rejected}" />
+          <DataGridTextColumn Header="Начато" Binding="{Binding Draft}" />
+          <DataGridTextColumn Header="Без разметки" Binding="{Binding None}" />
+        </DataGrid.Columns>
+      </DataGrid>
+
+      <TextBox Grid.Row="0" Grid.Column="1" Grid.RowSpan="3" Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="12" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
     </Grid>
   </Grid>
 </UserControl>

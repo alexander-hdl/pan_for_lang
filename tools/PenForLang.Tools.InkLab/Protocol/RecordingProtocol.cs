@@ -3,14 +3,17 @@ using System.Globalization;
 
 namespace PenForLang.Tools.InkLab.Protocol;
 
-/// <summary>Варианты написания слова в протоколе записи (ARCHITECTURE.md §12.2, V0.9).</summary>
+/// <summary>Варианты написания слова в протоколе записи (решение оркестратора, вариант B).</summary>
 public static class PromptVariants
 {
-    /// <summary>Слово с отрывом пера на соединении: перо поднимают между буквами, соединительного штриха нет.</summary>
+    /// <summary><c>at</c> с отрывом: a с выходным штрихом до линии, отрыв пера, t начинается с верха подъёма; перекладина — после слова.</summary>
     public const string Lift = "lift";
 
-    /// <summary>Слово слитно, перекладину t ставят сразу после ствола.</summary>
-    public const string Crossbar = "crossbar";
+    /// <summary><c>at</c> слитно: соединение a→t одним движением; перекладина — после слова.</summary>
+    public const string Joined = "joined";
+
+    /// <summary><c>it</c>: i, отрыв пера, сразу точка, возврат и соединение к t; перекладина — после слова.</summary>
+    public const string Dot = "dot";
 }
 
 /// <summary>Одна подсказка протокола: что именно написать (одна запись penlog = одна подсказка).</summary>
@@ -51,8 +54,8 @@ public sealed class RecordingProtocol
     /// <summary>Сколько раз писать каждую букву в протоколе по умолчанию.</summary>
     public const int DefaultLetterRepeats = 30;
 
-    /// <summary>Сколько раз писать слово в протоколе по умолчанию (половина — «с отрывом», половина — «перекладина сразу»).</summary>
-    public const int DefaultWordRepeats = 20;
+    /// <summary>Сколько раз писать каждый вариант слова в протоколе по умолчанию (<c>at-lift</c>, <c>at-joined</c>, <c>it-dot</c>).</summary>
+    public const int DefaultWordRepeats = 10;
 
     private RecordingProtocol(string id, ImmutableArray<RecordingPrompt> prompts)
     {
@@ -67,8 +70,9 @@ public sealed class RecordingProtocol
     public ImmutableArray<RecordingPrompt> Prompts { get; }
 
     /// <summary>
-    /// Протокол V0.9: буквы <c>a</c>, <c>i</c>, <c>t</c> по <paramref name="letterRepeats"/> раз, затем слово <c>at</c>
-    /// <paramref name="wordRepeats"/> раз (варианты <see cref="PromptVariants.Lift"/> и <see cref="PromptVariants.Crossbar"/> по очереди).
+    /// Протокол V0.9 (вариант B): буквы <c>a</c>, <c>i</c>, <c>t</c> по <paramref name="letterRepeats"/> раз, затем слова:
+    /// <c>at</c> с отрывом и <c>at</c> слитно (по <paramref name="wordRepeats"/> раз каждое, по очереди) и <c>it</c> с точкой
+    /// (<paramref name="wordRepeats"/> раз). По умолчанию 30 + 30 + 30 + 10 + 10 + 10 = 120 подсказок.
     /// </summary>
     public static RecordingProtocol CreateDefault(int letterRepeats = DefaultLetterRepeats, int wordRepeats = DefaultWordRepeats)
     {
@@ -80,7 +84,8 @@ public sealed class RecordingProtocol
                 new ProtocolStep("glyph:a", letterRepeats),
                 new ProtocolStep("glyph:i", letterRepeats),
                 new ProtocolStep("glyph:t", letterRepeats),
-                new ProtocolStep("word:at", wordRepeats, [PromptVariants.Lift, PromptVariants.Crossbar]),
+                new ProtocolStep("word:at", 2 * wordRepeats, [PromptVariants.Lift, PromptVariants.Joined]),
+                new ProtocolStep("word:it", wordRepeats, [PromptVariants.Dot]),
             ]);
     }
 
@@ -166,12 +171,14 @@ public sealed class RecordingProtocol
             return $"Напишите букву «{text}» так же, как показывает эталон. Пишите в своём обычном темпе, аккуратно.";
         }
 
-        return variant switch
+        return (text, variant) switch
         {
-            PromptVariants.Lift =>
-                $"Слово «{text}» С ОТРЫВОМ ПЕРА НА СОЕДИНЕНИИ: напишите первую букву, ОТОРВИТЕ перо, затем вторую букву (перекладина t — после неё).",
-            PromptVariants.Crossbar =>
-                $"Слово «{text}» СЛИТНО, перекладину t ставьте СРАЗУ после ствола, не возвращаясь к ней позже.",
+            ("at", PromptVariants.Lift) =>
+                "Слово «at» С ОТРЫВОМ: напишите a с выходным штрихом до линии, ОТОРВИТЕ перо, начните t с верха подъёма; перекладину t — после слова.",
+            ("at", PromptVariants.Joined) =>
+                "Слово «at» СЛИТНО: соединение a→t одним движением; перекладину t — после слова.",
+            ("it", PromptVariants.Dot) =>
+                "Слово «it»: напишите i, ОТОРВИТЕ перо, СРАЗУ поставьте точку, вернитесь и соединением продолжите t; перекладину t — после слова.",
             _ => $"Напишите слово «{text}» так же, как показывает эталон.",
         };
     }

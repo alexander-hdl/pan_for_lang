@@ -24,10 +24,6 @@ public partial class ReplayTab : UserControl
 
         SpeedBox.SelectedIndex = 1;
 
-        // Вид следа создаётся в коде (см. MainWindow.xaml: XAML без ссылок на локальные типы).
-        var strokes = new StrokeView();
-        strokes.SetBinding(StrokeView.SceneProperty, new System.Windows.Data.Binding("Scene"));
-        StrokeHost.Child = strokes;
         _timer.Tick += (_, _) => _vm?.Tick();
         Unloaded += (_, _) => _timer.Stop();
         Loaded += (_, _) => _timer.Start();

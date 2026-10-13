@@ -72,7 +72,7 @@ public static class SceneBuilder
         ArgumentNullException.ThrowIfNull(junctions);
         ArgumentNullException.ThrowIfNull(deferred);
 
-        Junction[] byPosition = [.. junctions.OrderBy(j => j.End)];
+        Junction[] byPosition = [.. junctions.OrderBy(j => j.End.Point)];
         HashSet<int> deferredStrokes = [.. deferred.Select(d => d.Stroke)];
         var lines = ImmutableArray.CreateBuilder<ScenePolyline>();
 
@@ -118,15 +118,17 @@ public static class SceneBuilder
         var markers = ImmutableArray.CreateBuilder<SceneMarker>();
         foreach (Junction j in byPosition)
         {
-            string label = Label(text, j.After);
-            if (TryPoint(strokes, frame, j.End, out ScenePoint end))
+            bool single = j.Start.Point == j.End.Point;
+            string full = Label(text, j.After);
+            if (TryPoint(strokes, frame, j.End.Point, out ScenePoint end))
             {
-                markers.Add(new SceneMarker(end.U, end.V, label, MarkerKind.Junction));
+                // Две точки стыка подписываются «a|» (выход левой буквы) и «|t» (вход правой); одна — «a|t».
+                markers.Add(new SceneMarker(end.U, end.V, single ? full : EndLabel(text, j.After), MarkerKind.Junction));
             }
 
-            if (j.Start != j.End && TryPoint(strokes, frame, j.Start, out ScenePoint start))
+            if (!single && TryPoint(strokes, frame, j.Start.Point, out ScenePoint start))
             {
-                markers.Add(new SceneMarker(start.U, start.V, label, MarkerKind.Junction));
+                markers.Add(new SceneMarker(start.U, start.V, StartLabel(text, j.After), MarkerKind.Junction));
             }
         }
 
@@ -142,12 +144,12 @@ public static class SceneBuilder
         ArgumentNullException.ThrowIfNull(byPosition);
         foreach (Junction j in byPosition)
         {
-            if (point <= j.End)
+            if (point <= j.End.Point)
             {
                 return j.After;
             }
 
-            if (point < j.Start)
+            if (point < j.Start.Point)
             {
                 return JoinGroup;
             }
@@ -157,7 +159,7 @@ public static class SceneBuilder
     }
 
     /// <summary>
-    /// Ближайшая точка штрихов к месту клика (в координатах линейки) среди штрихов, допущенных <paramref name="include"/>.
+    /// Ближайшая точка штрихов к месту клика (в координатах линейки) среди штрихов, допущенных <paramref name="include"/>, и точек, допущенных <paramref name="includePoint"/>.
     /// </summary>
     /// <returns>Точка и расстояние в x-height или <c>null</c>, если подходящих точек нет.</returns>
     public static (StrokePoint Point, double Distance)? Nearest(
@@ -165,7 +167,8 @@ public static class SceneBuilder
         GuideFrame frame,
         double u,
         double v,
-        Func<int, bool>? include = null)
+        Func<int, bool>? include = null,
+        Func<StrokePoint, bool>? includePoint = null)
     {
         ArgumentNullException.ThrowIfNull(strokes);
         ArgumentNullException.ThrowIfNull(frame);
@@ -180,6 +183,11 @@ public static class SceneBuilder
             ImmutableArray<PenSample> samples = strokes[s].Samples;
             for (int i = 0; i < samples.Length; i++)
             {
+                if (includePoint is not null && !includePoint(new StrokePoint(s, i)))
+                {
+                    continue;
+                }
+
                 ScenePoint p = ToScene(frame, samples[i]);
                 double distance = Math.Sqrt(((p.U - u) * (p.U - u)) + ((p.V - v) * (p.V - v)));
                 if (best is null || distance < best.Value.Distance)
@@ -191,6 +199,12 @@ public static class SceneBuilder
 
         return best;
     }
+
+    /// <summary>Подпись выхода левой буквы: «a|».</summary>
+    public static string EndLabel(string text, int after) => after >= 0 && after < text.Length ? text[after] + "|" : "|";
+
+    /// <summary>Подпись входа правой буквы: «|t».</summary>
+    public static string StartLabel(string text, int after) => after >= 0 && after + 1 < text.Length ? "|" + text[after + 1] : "|";
 
     /// <summary>Подпись стыка: «a|t».</summary>
     public static string Label(string text, int after) =>

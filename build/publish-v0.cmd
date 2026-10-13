@@ -7,9 +7,17 @@ cd /d "%~dp0.."
 if exist publish\win-x64 rmdir /s /q publish\win-x64
 dotnet publish src\PenForLang.App.Wpf -c Release -r win-x64 --self-contained -o publish\win-x64
 if errorlevel 1 exit /b 1
-rem InkLab (V0.9) goes into the same folder: the .NET runtime and content are shared, only its own exe and dll are added.
-dotnet publish tools\PenForLang.Tools.InkLab -c Release -r win-x64 --self-contained -o publish\win-x64
+rem InkLab (V0.9) goes into the same folder (shared runtime and content). It is published to a temporary folder first and merged by
+rem build\merge-publish.ps1, which STOPS if any overlapping file differs from the main package (no silent version mix).
+if exist publish\inklab-tmp rmdir /s /q publish\inklab-tmp
+dotnet publish tools\PenForLang.Tools.InkLab -c Release -r win-x64 --self-contained -o publish\inklab-tmp
 if errorlevel 1 exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -File build\merge-publish.ps1 -Source publish\inklab-tmp -Target publish\win-x64
+if errorlevel 1 (
+  echo ERROR: InkLab publish conflicts with the main package, see above.
+  exit /b 1
+)
+rmdir /s /q publish\inklab-tmp
 if exist publish\PenForLang-V0-win-x64.zip del publish\PenForLang-V0-win-x64.zip
 powershell -NoProfile -Command "Compress-Archive -Path 'publish\win-x64\*' -DestinationPath 'publish\PenForLang-V0-win-x64.zip'"
 if errorlevel 1 exit /b 1
