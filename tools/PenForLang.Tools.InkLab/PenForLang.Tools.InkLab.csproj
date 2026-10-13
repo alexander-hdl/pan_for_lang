@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Своя точка входа: параметры командной строки (mouse и др.) нужны до создания Application. -->
+    <StartupObject>PenForLang.Tools.InkLab.Program</StartupObject>
+    <Description>InkLab (ARCHITECTURE.md §2.2): запись эталонов, повтор и разметка penlog. Инструмент разработчика, в установку не входит.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PenForLang.Core\PenForLang.Core.csproj" />
+    <ProjectReference Include="..\..\src\PenForLang.Ink\PenForLang.Ink.csproj" />
+    <ProjectReference Include="..\..\src\PenForLang.Glyphs\PenForLang.Glyphs.csproj" />
+    <ProjectReference Include="..\..\src\PenForLang.Platform.Windows\PenForLang.Platform.Windows.csproj" />
+    <ProjectReference Include="..\..\src\PenForLang.Wpf.Controls\PenForLang.Wpf.Controls.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Как в App.Wpf (ADR-003): WISP отключён, чтобы WM_POINTER пера доходили до хука окна. -->
+    <RuntimeHostConfigurationOption Include="Switch.System.Windows.Input.Stylus.DisableStylusAndTouchSupport" Value="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Стиль-пакет zaner-bloser (экранный эталон) кладётся рядом с exe в content/styles/... при сборке и публикации. -->
+    <None Include="..\..\content\styles\**\*" Link="content\styles\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="6-inklab.cmd" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="README.md" Link="InkLab-README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

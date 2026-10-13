@@ -52,6 +52,17 @@ jobs:
           --filter-not-trait "Category=Interactive"
           --filter-not-trait "Category=Hardware"
           --filter-not-trait "Category=Nightly"
+          --filter-not-trait "Category=Perf"
+
+      # Бюджеты времени (ARCHITECTURE.md §6.9) на общем раннере с параллельной нагрузкой ненадёжны: не блокируют PR.
+      # Отдельный шаг: только Category=Perf, одна тестовая сборка, коллекция без параллелизма; числа — в лог.
+      - name: Perf (non-gating)
+        continue-on-error: true
+        env:
+          PFL_PERF_REPORT: ${{ github.workspace }}\perf-report.txt
+        run: |
+          dotnet test -c Release --no-build --project tests/PenForLang.Evaluation.Tests --filter-trait "Category=Perf"
+          if (Test-Path $env:PFL_PERF_REPORT) { Get-Content $env:PFL_PERF_REPORT }
 
       - name: pfl smoke
         run: dotnet run -c Release --no-build --project tools/PenForLang.Tools.Cli -- --version

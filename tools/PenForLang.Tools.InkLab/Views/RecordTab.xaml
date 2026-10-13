@@ -1,0 +1,106 @@
+<UserControl x:Class="PenForLang.Tools.InkLab.Views.RecordTab"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Stylus.IsPressAndHoldEnabled="False"
+             Stylus.IsFlicksEnabled="False"
+             Stylus.IsTapFeedbackEnabled="False"
+             Stylus.IsTouchFeedbackEnabled="False">
+  <UserControl.Resources>
+    <Style x:Key="BigButton" TargetType="Button">
+      <Setter Property="FontSize" Value="20" />
+      <Setter Property="MinHeight" Value="52" />
+      <Setter Property="MinWidth" Value="120" />
+      <Setter Property="Padding" Value="18,6" />
+      <Setter Property="Margin" Value="0,0,10,0" />
+    </Style>
+  </UserControl.Resources>
+
+  <Grid>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="320" />
+      <ColumnDefinition Width="*" />
+    </Grid.ColumnDefinitions>
+
+    <!-- Левая колонка: субъект и список подсказок -->
+    <DockPanel Grid.Column="0" Margin="10" LastChildFill="True">
+      <StackPanel DockPanel.Dock="Top">
+        <TextBlock Text="Субъект (взрослый, без имени)" FontWeight="SemiBold" Margin="0,0,0,4" />
+        <ComboBox x:Name="SubjectBox"
+                  IsEditable="True"
+                  ItemsSource="{Binding KnownSubjects}"
+                  Text="{Binding SubjectId, UpdateSourceTrigger=PropertyChanged}"
+                  IsEnabled="{Binding CanEditSubject}"
+                  FontSize="16" />
+        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+          <CheckBox Content="левша" IsChecked="{Binding IsLeftHanded}" VerticalAlignment="Center" FontSize="14" />
+          <TextBlock Text="Возраст:" Margin="16,0,4,0" VerticalAlignment="Center" />
+          <TextBox Text="{Binding AgeText, UpdateSourceTrigger=PropertyChanged}" Width="44" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+          <TextBlock Text="№ согласия (необяз.):" VerticalAlignment="Center" />
+          <TextBox Text="{Binding ConsentText, UpdateSourceTrigger=PropertyChanged}" Width="60" Margin="6,0,0,0" />
+        </StackPanel>
+        <TextBlock Text="{Binding CorpusRoot}" TextWrapping="Wrap" FontSize="11" Foreground="#FF555555" Margin="0,8,0,0" />
+        <StackPanel Orientation="Horizontal" Margin="0,10,0,6">
+          <Button Content="Начать / продолжить" Command="{Binding StartCommand}" Style="{StaticResource BigButton}" MinWidth="150" FontSize="16" />
+          <Button Content="Сменить" Command="{Binding EndSessionCommand}" Style="{StaticResource BigButton}" MinWidth="80" FontSize="16" />
+        </StackPanel>
+        <TextBlock Text="{Binding ProgressText}" FontWeight="SemiBold" Margin="0,4,0,4" />
+      </StackPanel>
+      <ListBox x:Name="PromptList"
+               ItemsSource="{Binding Prompts}"
+               SelectionMode="Single"
+               MouseDoubleClick="OnPromptDoubleClick"
+               FontSize="13">
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="{Binding Mark}" Width="18" FontWeight="Bold" Foreground="#FF2E7D32" />
+              <TextBlock Text="{Binding Title}">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock">
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                        <Setter Property="FontWeight" Value="Bold" />
+                        <Setter Property="Foreground" Value="#FF1D4ED8" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
+            </StackPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </DockPanel>
+
+    <!-- Правая часть: подсказка, кнопки и холст -->
+    <Grid Grid.Column="1" Margin="0,10,10,10">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+
+      <DockPanel Grid.Row="0">
+        <TextBlock DockPanel.Dock="Left" Text="{Binding PromptText}" FontSize="44" FontWeight="Bold" MinWidth="120" Margin="0,0,16,0" />
+        <StackPanel>
+          <TextBlock Text="{Binding InstructionText}" FontSize="16" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding Message}" FontSize="14" Foreground="#FF9A3412" TextWrapping="Wrap" Margin="0,4,0,0" />
+        </StackPanel>
+      </DockPanel>
+
+      <WrapPanel Grid.Row="1" Margin="0,8,0,8">
+        <Button Content="Готово" Command="{Binding DoneCommand}" Style="{StaticResource BigButton}" />
+        <Button Content="Заново" Command="{Binding RedoCommand}" Style="{StaticResource BigButton}" />
+        <Button Content="Пропустить" Command="{Binding SkipCommand}" Style="{StaticResource BigButton}" />
+        <Button Content="Назад" Command="{Binding BackCommand}" Style="{StaticResource BigButton}" />
+        <Button Content="Показать эталон" Command="{Binding ReferenceCommand}" Style="{StaticResource BigButton}" MinWidth="170" />
+      </WrapPanel>
+
+      <Border Grid.Row="2" BorderBrush="#FFB0A58A" BorderThickness="1" Background="#FFFBF8EF">
+        <Grid x:Name="CanvasHost" ClipToBounds="True" />
+      </Border>
+    </Grid>
+  </Grid>
+</UserControl>
