@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:pfl:schema:glyph:1",
+  "title": "pfl.glyph/1",
+  "description": "Glyph of a writing style: one symbol x one variant (ARCHITECTURE.md 3.2.4). Coordinates are ruler units: u along the line, v up, baseline = 0, x-height = 1. Semantic rules that a schema cannot express (stroke order, segment continuity, G1 joins, anchors, label keys) are checked by the loader, see PenForLang.Glyphs.Loading.GlyphValidator.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "char", "case", "variant", "advance", "entry", "exit", "leadIn", "leadOut", "strokes", "animation", "meta"],
+  "properties": {
+    "schema": { "const": "pfl.glyph/1" },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*/[^/.\\s]\\.[a-z][a-z0-9-]*$",
+      "description": "<styleId>/<char>.<variant>; must match char, variant and the file name glyphs/<char>.<variant>.json."
+    },
+    "char": { "type": "string", "minLength": 1, "maxLength": 1 },
+    "case": { "enum": ["lower", "upper"] },
+    "variant": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$" },
+    "advance": { "type": "number", "minimum": 0, "maximum": 4, "description": "Width of the body without joins, x-height." },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "point", "tangent"],
+      "properties": {
+        "class": { "enum": ["E-UP", "E-UP-TALL", "E-C", "E-HUMP"] },
+        "height": { "type": "number", "minimum": 0, "maximum": 4, "description": "Entry height when it differs from the x-height (t: 1.5); equals point[1]." },
+        "point": { "$ref": "#/$defs/point", "description": "Start of the body (start of the first stroke)." },
+        "tangent": { "$ref": "#/$defs/point", "description": "Direction of travel when arriving at point (end of leadIn)." }
+      }
+    },
+    "exit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "point", "tangent"],
+      "properties": {
+        "class": { "enum": ["X-BASE", "X-HIGH", "X-DESC", "X-NONE"] },
+        "point": { "$ref": "#/$defs/point", "description": "End of the body (end of the last stroke)." },
+        "tangent": { "$ref": "#/$defs/point", "description": "Direction of travel when leaving point (start of leadOut)." }
+      }
+    },
+    "leadIn": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/lead" }] },
+    "leadOut": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/lead" }] },
+    "strokes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "order", "segments"],
+        "properties": {
+          "id": { "$ref": "#/$defs/strokeId" },
+          "order": { "type": "integer", "minimum": 1, "maximum": 16 },
+          "segments": { "$ref": "#/$defs/segments" }
+        }
+      }
+    },
+    "deferred": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "direction", "segments", "anchor"],
+        "properties": {
+          "id": { "$ref": "#/$defs/strokeId" },
+          "kind": { "enum": ["dot", "bar", "cross"] },
+          "direction": { "enum": ["any", "ltr"] },
+          "segments": { "$ref": "#/$defs/segments" },
+          "anchor": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["stroke", "t", "offset"],
+            "properties": {
+              "stroke": { "$ref": "#/$defs/strokeId" },
+              "t": { "type": "number", "minimum": 0, "maximum": 1, "description": "Arc-length fraction of the anchor stroke." },
+              "offset": { "$ref": "#/$defs/point", "description": "Vector from the anchor point to the midpoint (by arc length) of the deferred stroke." }
+            }
+          }
+        }
+      }
+    },
+    "keypoints": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "stroke", "t"],
+        "properties": {
+          "type": { "enum": ["start", "end", "ymax", "ymin", "cusp", "loopTop", "humpTop", "baselineTouch"] },
+          "stroke": { "$ref": "#/$defs/strokeId" },
+          "t": { "type": "number", "minimum": 0, "maximum": 1, "description": "Arc-length fraction of the stroke." }
+        }
+      }
+    },
+    "features": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "type": "string", "pattern": "^(retrace|upperLoop|lowerLoop|closedOval|ascender|descender|deferred|humps:[1-9])$" }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reach": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["extreme"],
+            "properties": {
+              "line": { "enum": ["ascender", "cap", "xHeight", "baseline", "descender"], "description": "Optional when target is given; otherwise required (the loader enforces 'line or target')." },
+              "extreme": { "enum": ["max", "min"] },
+              "target": { "type": "number", "minimum": -3, "maximum": 4 }
+            }
+          }
+        },
+        "closed": { "$ref": "#/$defs/ranges" },
+        "loops": { "$ref": "#/$defs/ranges" },
+        "retrace": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["stroke", "segment"],
+            "properties": {
+              "stroke": { "$ref": "#/$defs/strokeId" },
+              "segment": { "type": "integer", "minimum": 0, "maximum": 31 }
+            }
+          }
+        }
+      }
+    },
+    "animation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startDot", "numbers", "arrows"],
+      "properties": {
+        "startDot": { "enum": ["none", "leadIn", "body"] },
+        "numbers": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["stroke", "at"],
+            "properties": {
+              "stroke": { "$ref": "#/$defs/strokeId" },
+              "at": { "$ref": "#/$defs/point" }
+            }
+          }
+        },
+        "arrows": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["stroke", "t"],
+            "properties": {
+              "stroke": { "$ref": "#/$defs/strokeId" },
+              "t": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+            }
+          }
+        }
+      }
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["author", "source", "reviewed"],
+      "properties": {
+        "author": { "type": "string", "minLength": 1 },
+        "source": { "enum": ["illustrative", "authored", "traced"] },
+        "reviewed": { "type": "boolean" },
+        "reviewer": { "type": "string", "minLength": 1 },
+        "license": { "type": "string", "minLength": 1 },
+        "notes": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "point": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        { "type": "number", "minimum": -2, "maximum": 8 },
+        { "type": "number", "minimum": -3, "maximum": 4 }
+      ]
+    },
+    "strokeId": { "type": "string", "pattern": "^[a-z][A-Za-z0-9_-]{0,15}$" },
+    "labelKey": { "type": "string", "pattern": "^[A-Za-z0-9]+(\\.[A-Za-z0-9]+)+$" },
+    "segments": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "c": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": { "$ref": "#/$defs/point" },
+            "description": "Cubic Bezier: p0, p1, p2, p3."
+          },
+          "l": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": { "$ref": "#/$defs/point" },
+            "description": "Straight line: p0, p1."
+          },
+          "retrace": { "type": "boolean" },
+          "label": { "$ref": "#/$defs/labelKey" },
+          "tempo": { "type": "number", "minimum": 0.1, "maximum": 5 },
+          "pauseBeforeMs": { "type": "integer", "minimum": 0, "maximum": 5000 }
+        },
+        "oneOf": [{ "required": ["c"] }, { "required": ["l"] }]
+      }
+    },
+    "lead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["segments"],
+      "properties": { "segments": { "$ref": "#/$defs/segments" } }
+    },
+    "ranges": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["stroke", "from", "to"],
+        "properties": {
+          "stroke": { "$ref": "#/$defs/strokeId" },
+          "from": { "type": "number", "minimum": 0, "maximum": 1 },
+          "to": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "schema": "pfl.style/1",
+  "id": "zaner-bloser",
+  "version": "0.1.0",
+  "role": "teach",
+  "script": "cursive",
+  "language": "en",
+  "displayName": { "ru": "Американская пропись", "en": "American cursive" },
+  "lines": { "ascender": 2.0, "cap": 2.0, "xHeight": 1.0, "baseline": 0.0, "descender": -1.0 },
+  "slantDeg": 20.0,
+  "slantScoring": "consistency",
+  "letterSpacing": 0.15,
+  "wordSpacing": 0.9,
+  "joins": {
+    "rules": [
+      { "family": "JF1", "exit": "X-BASE", "entry": ["E-UP", "E-UP-TALL"], "shape": "hermite" },
+      { "family": "JF2", "exit": "X-BASE", "entry": ["E-C"], "shape": "hermite-over", "params": { "overshootU": 0.12 } },
+      { "family": "JF3", "exit": "X-BASE", "entry": ["E-HUMP"], "shape": "hermite" },
+      { "family": "JF4", "exit": "X-HIGH", "entry": ["E-UP", "E-UP-TALL"], "shape": "hermite", "high": true },
+      { "family": "JF5", "exit": "X-HIGH", "entry": ["E-C"], "shape": "hermite-over", "high": true },
+      { "family": "JF6", "exit": "X-HIGH", "entry": ["E-HUMP"], "shape": "hermite", "high": true },
+      { "family": "JF7", "exit": "X-DESC", "entry": ["E-UP", "E-UP-TALL"], "shape": "hermite" },
+      { "family": "JF8", "exit": "X-DESC", "entry": ["E-C"], "shape": "hermite-over" },
+      { "family": "JF9", "exit": "X-DESC", "entry": ["E-HUMP"], "shape": "hermite" },
+      { "family": null, "exit": "X-NONE", "entry": ["*"], "shape": "break" }
+    ],
+    "tallEntryClass": "E-UP-TALL",
+    "pairOverrides": []
+  },
+  "variantRules": [
+    { "char": "e", "when": { "prevExit": "X-HIGH" }, "variant": "after-high" },
+    { "char": "r", "when": { "prevExit": "X-HIGH" }, "variant": "after-high" },
+    { "char": "s", "when": { "prevExit": "X-HIGH" }, "variant": "after-high" }
+  ],
+  "motorFamilies": [["m", "n"], ["u", "w"], ["e", "l"]],
+  "capitals": { "joinMode": "break" },
+  "deferred": { "teachTiming": "afterWord" },
+  "animation": {
+    "speedXhPerSec": 1.6,
+    "cuspPauseMs": 120,
+    "joinSlowdown": 0.6,
+    "strokeGapMs": 400,
+    "deferredGapMs": 500,
+    "startHoldMs": 300,
+    "endHoldMs": 600,
+    "dotMs": 180
+  }
+}

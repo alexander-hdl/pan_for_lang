@@ -1,0 +1,15 @@
+{
+  "a.rollUp": { "text": "roll up" },
+  "a.backAround": { "text": "back around" },
+  "a.up": { "text": "up" },
+  "a.downSameLine": { "text": "down the same line" },
+  "a.tail": { "text": "tail" },
+  "i.up": { "text": "up" },
+  "i.slantDown": { "text": "slant down" },
+  "i.undercurveOut": { "text": "tail" },
+  "i.dot": { "text": "dot above" },
+  "t.up": { "text": "up, above the midline" },
+  "t.downSameLine": { "text": "down the same line" },
+  "t.undercurveOut": { "text": "tail" },
+  "t.bar": { "text": "bar, left to right" }
+}

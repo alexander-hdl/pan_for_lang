@@ -1,0 +1,15 @@
+{
+  "a.rollUp": { "text": "перекат наверх" },
+  "a.backAround": { "text": "назад по кругу" },
+  "a.up": { "text": "вверх" },
+  "a.downSameLine": { "text": "вниз по той же линии" },
+  "a.tail": { "text": "хвостик" },
+  "i.up": { "text": "вверх" },
+  "i.slantDown": { "text": "вниз по наклонной" },
+  "i.undercurveOut": { "text": "хвостик" },
+  "i.dot": { "text": "точка сверху" },
+  "t.up": { "text": "вверх, выше середины строки" },
+  "t.downSameLine": { "text": "вниз по той же линии" },
+  "t.undercurveOut": { "text": "хвостик" },
+  "t.bar": { "text": "чёрточка слева направо" }
+}
