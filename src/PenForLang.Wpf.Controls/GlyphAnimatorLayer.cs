@@ -67,6 +67,7 @@ public sealed class GlyphAnimatorLayer : FrameworkElement
     private bool _isPlaying;
     private bool _finishedRaised;
     private bool _subscribedToRendering;
+    private bool _showArrows = true;
 
     /// <summary>Создаёт аниматор с системными часами.</summary>
     public GlyphAnimatorLayer()
@@ -128,6 +129,20 @@ public sealed class GlyphAnimatorLayer : FrameworkElement
 
     /// <summary>Множитель скорости воспроизведения (1 — как в сценарии); &gt; 0.</summary>
     public double Speed { get; set; } = 1.0;
+
+    /// <summary>Показывать стрелки направления (в копии их скрывают после верных попыток, METHODOLOGY.md §4.2).</summary>
+    public bool ShowArrows
+    {
+        get => _showArrows;
+        set
+        {
+            if (_showArrows != value)
+            {
+                _showArrows = value;
+                InvalidateVisual();
+            }
+        }
+    }
 
     /// <summary>Текущая позиция на шкале сценария, мс.</summary>
     public double PositionMs => _positionMs;
@@ -238,7 +253,7 @@ public sealed class GlyphAnimatorLayer : FrameworkElement
             drawingContext.DrawEllipse(StartBrush, null, ToDip(frame, script.StartDots[index].Position), sizes.StartDotRadius, sizes.StartDotRadius);
         }
 
-        foreach (int index in state.VisibleArrows)
+        foreach (int index in ShowArrows ? state.VisibleArrows : [])
         {
             DrawArrow(drawingContext, frame, script.Arrows[index], sizes, width);
         }

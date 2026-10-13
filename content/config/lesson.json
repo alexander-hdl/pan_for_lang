@@ -1,0 +1,42 @@
+{
+  "schema": "pfl.config.lesson/1",
+  "version": "0.2.0",
+  "meta": {
+    "task": "V0.8",
+    "status": "engineering starting values for the fixed scenario; not calibrated (METHODOLOGY 4.2, 6.2, 7)",
+    "scenario": "E01 show (L4) -> E02 trace x1..2 (L4) -> E03 copy x3 (L3) -> E04 from memory x2 (L2, then L1): METHODOLOGY 4.1, 4.2, 6.2",
+    "liveCueCopy": "The instant start cue is OFF in E03 (copy, L3) by a review decision: the child writes next to the model, so the position of the first stroke has no template to be compared with; the cue works where a start point is visible under the pen (E02) or on the line (E04, L2). METHODOLOGY 7.1 lists L4-L2.",
+    "minAttempts": "E02: the second attempt is only given if the first one had a process error (P1-P6): min 1, max 2."
+  },
+  "scenario": [
+    { "code": "E01", "kind": "demo", "level": "L4", "attempts": 0, "autoPlays": 2, "startDot": true, "liveCue": false, "model": "animated" },
+    { "code": "E02", "kind": "trace", "level": "L4", "attempts": 2, "minAttempts": 1, "startDot": true, "liveCue": true, "model": "underPen" },
+    { "code": "E03", "kind": "copy", "level": "L3", "attempts": 3, "startDot": true, "liveCue": false, "model": "above", "hideArrowsAfterCorrect": 2 },
+    { "code": "E04", "kind": "memory", "level": "L2", "attempts": 1, "flashMs": 2000, "delayMs": 1000, "startDot": true, "liveCue": true, "model": "flash" },
+    { "code": "E04", "kind": "memory", "level": "L1", "attempts": 1, "flashMs": 2000, "delayMs": 1000, "startDot": false, "liveCue": false, "model": "flash" }
+  ],
+  "feedback": {
+    "repeatLimit": 3,
+    "maxWords": 12,
+    "unrecognizedRetries": 1,
+    "restartsBeforeReplay": 2,
+    "raisedAidsAttempts": 2,
+    "autoAdvanceMs": 1800,
+    "evaluationTimeoutMs": 2000,
+    "highlightPulses": 3,
+    "stopCodes": ["P1", "P2", "P3"],
+    "processCodes": ["P1", "P2", "P3", "P4", "P5", "P6"],
+    "frequency": {
+      "masteredEveryN": 3,
+      "stableFormFloor": 0.7,
+      "processErrorsToRaise": 2
+    }
+  },
+  "liveCue": {
+    "enabled": true,
+    "startClearance": 0.8,
+    "durationMs": 1600,
+    "maxPerAttempt": 1,
+    "pulsePeriodMs": 800
+  }
+}

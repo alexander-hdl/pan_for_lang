@@ -362,4 +362,23 @@ public class GlyphAnimatorLayerTests
 
         return count;
     }
+
+    [Fact]
+    public void Arrows_can_be_hidden_and_the_rest_of_the_model_stays()
+    {
+        Sta.Run(() =>
+        {
+            AnimationScript script = ScriptFor("a");
+            GlyphAnimatorLayer layer = Create(script, new FakeMonotonicClock());
+            layer.Seek(script.DurationMs);
+
+            (byte[] withArrows, _, _) = Pixels.Render(layer, 1920, 1080, 1.0);
+            layer.ShowArrows = false;
+            Assert.False(layer.ShowArrows);
+            (byte[] without, _, _) = Pixels.Render(layer, 1920, 1080, 1.0);
+
+            Assert.True(Pixels.CountAlpha(without) < Pixels.CountAlpha(withArrows)); // стрелки пропали
+            Assert.True(Pixels.CountAlpha(without) > 0.8 * Pixels.CountAlpha(withArrows)); // буква, номер и точка старта на месте
+        });
+    }
 }
