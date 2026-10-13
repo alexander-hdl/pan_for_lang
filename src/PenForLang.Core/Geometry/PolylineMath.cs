@@ -102,4 +102,75 @@ public static class PolylineMath
 
         return best;
     }
+
+    /// <summary>
+    /// Точка на расстоянии <paramref name="distance"/> по дуге от начала ломаной (значение обрезается до [0, длина]).
+    /// Поиск бинарный, O(log n) на вызов.
+    /// </summary>
+    /// <param name="points">Вершины ломаной (не менее одной).</param>
+    /// <param name="cumulative">Накопленные длины из <see cref="CumulativeLengths"/>.</param>
+    /// <param name="distance">Расстояние по дуге.</param>
+    public static Vec2 PointAtLength(ReadOnlySpan<Vec2> points, ReadOnlySpan<double> cumulative, double distance)
+    {
+        if (points.Length == 0)
+        {
+            throw new ArgumentException("Polyline is empty.", nameof(points));
+        }
+
+        if (cumulative.Length < points.Length)
+        {
+            throw new ArgumentException("Cumulative lengths are shorter than the polyline.", nameof(cumulative));
+        }
+
+        if (points.Length == 1 || distance <= 0.0)
+        {
+            return points[0];
+        }
+
+        if (distance >= cumulative[points.Length - 1])
+        {
+            return points[^1];
+        }
+
+        int lo = 0;
+        int hi = points.Length - 1;
+        while (hi - lo > 1)
+        {
+            int mid = lo + ((hi - lo) / 2);
+            if (cumulative[mid] <= distance)
+            {
+                lo = mid;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+
+        double span = cumulative[hi] - cumulative[lo];
+        return span > 0.0 ? Vec2.Lerp(points[lo], points[hi], (distance - cumulative[lo]) / span) : points[lo];
+    }
+
+    /// <summary>
+    /// Расстояние между точками ломаной, лежащими на долях длины дуги <paramref name="fromFraction"/> и
+    /// <paramref name="toFraction"/> (0 — начало, 1 — конец). Применяется к участку «замкнутость овала» (<c>closedGap</c>, F2:
+    /// участок <c>from..to</c> штриха эталона).
+    /// </summary>
+    /// <param name="points">Вершины ломаной (не менее одной).</param>
+    /// <param name="fromFraction">Доля длины дуги первой точки, [0, 1].</param>
+    /// <param name="toFraction">Доля длины дуги второй точки, [0, 1].</param>
+    public static double ClosureGap(ReadOnlySpan<Vec2> points, double fromFraction, double toFraction)
+    {
+        if (points.Length == 0)
+        {
+            throw new ArgumentException("Polyline is empty.", nameof(points));
+        }
+
+        var cumulative = new double[points.Length];
+        CumulativeLengths(points, cumulative);
+        double total = cumulative[^1];
+        Vec2 a = PointAtLength(points, cumulative, Math.Clamp(fromFraction, 0.0, 1.0) * total);
+        Vec2 b = PointAtLength(points, cumulative, Math.Clamp(toFraction, 0.0, 1.0) * total);
+        return Vec2.Distance(a, b);
+    }
 }
