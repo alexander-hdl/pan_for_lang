@@ -204,7 +204,8 @@ public class DtwReferenceTests
         var r = Dtw.AlignXBand(xa, xb, 1.0, new DelegateCost((_, _) => 1.0));
         Assert.False(r.IsFeasible);
         Assert.True(double.IsPositiveInfinity(r.Cost));
-        Assert.True(double.IsPositiveInfinity(r.NormalizedCost));
+        Assert.True(double.IsPositiveInfinity(r.CostPerPathCell));
+        Assert.True(double.IsPositiveInfinity(r.CostPerFirstElement));
 
         // Широкая полоса эквивалентна полному DTW.
         var wide = Dtw.AlignXBand(xa, xb, 100.0, new DelegateCost((i, j) => Math.Abs(i - j)));
@@ -315,7 +316,7 @@ public class DtwReferenceTests
             int m = 1 + rng.NextInt32(12);
             Vec2[] a = RandomPoints(rng, n, (c % 2) == 0, false);
             Vec2[] b = RandomPoints(rng, m, (c % 2) == 0, false);
-            var options = new DtwOptions { OpenEnd = (c % 5) == 0, IndexBandRadius = (c % 4) == 0 ? 3 : null };
+            var options = new DtwOptions { OpenBegin = (c % 6) == 0, OpenEnd = (c % 5) == 0, IndexBandRadius = (c % 4) == 0 ? 3 : null };
             var fwdPath = new List<DtwCell>();
             var revPath = new List<DtwCell>();
             DtwDirectionComparison cmp = Dtw.CompareWithReversedReference(
@@ -329,7 +330,7 @@ public class DtwReferenceTests
             // Эталон наивно обращаем и выравниваем «в лоб», потом приводим индексы к исходному эталону.
             Vec2[] br = b.Reverse().ToArray();
             Func<int, int, double> revCost = (i, j) => Vec2.DistanceSquared(a[i], br[j]);
-            NaiveDtw.Result expected = NaiveDtw.Run(n, m, revCost, allowed, false, options.OpenEnd);
+            NaiveDtw.Result expected = NaiveDtw.Run(n, m, revCost, allowed, options.OpenBegin, options.OpenEnd);
             Assert.Equal(expected.Feasible, cmp.Reversed.IsFeasible);
             if (expected.Feasible)
             {

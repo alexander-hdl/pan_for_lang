@@ -64,6 +64,140 @@ public static class Hungarian
         return SolveWide(transposedCosts, cols, rows, transposed: true, rowToCol);
     }
 
+    /// <summary>
+    /// Назначение со <b>стоимостью неназначения</b> (фиктивные строки и столбцы): строка может остаться без столбца ценой
+    /// <paramref name="rowUnassignedCost"/> (пропущенный/лишний штрих рукописи), столбец — без строки ценой
+    /// <paramref name="colUnassignedCost"/> (недостающий штрих эталона). Пара назначается, только если её стоимость меньше
+    /// суммы обоих штрафов за неназначение, поэтому лишний далёкий штрих не «притягивается» к пропущенному слоту.
+    /// Допускается +∞ в <paramref name="costs"/> (пара запрещена). Реализация: расширенная квадратная матрица
+    /// <c>(rows + cols)²</c> и <see cref="Solve"/>.
+    /// </summary>
+    /// <param name="costs">Матрица стоимостей длиной <c>rows · cols</c>, значения конечные или +∞.</param>
+    /// <param name="rows">Число строк, ≥ 0.</param>
+    /// <param name="cols">Число столбцов, ≥ 0.</param>
+    /// <param name="rowUnassignedCost">Штраф за строку без столбца, конечный.</param>
+    /// <param name="colUnassignedCost">Штраф за столбец без строки, конечный.</param>
+    /// <param name="rowToCol">Буфер длиной не меньше <paramref name="rows"/>: столбец строки или −1.</param>
+    /// <returns>Сумма стоимостей назначенных пар и штрафов за все неназначенные строки и столбцы.</returns>
+    public static double SolveWithUnassignedCost(
+        ReadOnlySpan<double> costs,
+        int rows,
+        int cols,
+        double rowUnassignedCost,
+        double colUnassignedCost,
+        Span<int> rowToCol)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(rows);
+        ArgumentOutOfRangeException.ThrowIfNegative(cols);
+        if (costs.Length != checked(rows * cols))
+        {
+            throw new ArgumentException("Cost matrix length must equal rows * cols.", nameof(costs));
+        }
+
+        if (rowToCol.Length < rows)
+        {
+            throw new ArgumentException("Destination is shorter than the number of rows.", nameof(rowToCol));
+        }
+
+        if (!double.IsFinite(rowUnassignedCost))
+        {
+            throw new ArgumentOutOfRangeException(nameof(rowUnassignedCost), "Penalty must be finite.");
+        }
+
+        if (!double.IsFinite(colUnassignedCost))
+        {
+            throw new ArgumentOutOfRangeException(nameof(colUnassignedCost), "Penalty must be finite.");
+        }
+
+        double scale = Math.Max(Math.Abs(rowUnassignedCost), Math.Abs(colUnassignedCost));
+        for (int k = 0; k < costs.Length; k++)
+        {
+            double c = costs[k];
+            if (double.IsNaN(c) || double.IsNegativeInfinity(c))
+            {
+                throw new ArgumentException("Costs must be finite or +Infinity.", nameof(costs));
+            }
+
+            if (double.IsFinite(c))
+            {
+                scale = Math.Max(scale, Math.Abs(c));
+            }
+        }
+
+        rowToCol[..rows].Fill(-1);
+        int size = rows + cols;
+        if (size == 0)
+        {
+            return 0.0;
+        }
+
+        // «Запрещено» — конечное число, заведомо дороже любого допустимого решения (всё-в-фиктивные имеет конечную стоимость).
+        double forbidden = (scale + 1.0) * (size + 1.0) * 4.0;
+        var extended = new double[size * size];
+        for (int r = 0; r < size; r++)
+        {
+            for (int c = 0; c < size; c++)
+            {
+                double value;
+                if (r < rows && c < cols)
+                {
+                    value = double.IsPositiveInfinity(costs[(r * cols) + c]) ? forbidden : costs[(r * cols) + c];
+                }
+                else if (r < rows)
+                {
+                    value = (c - cols) == r ? rowUnassignedCost : forbidden; // фиктивный столбец своей строки
+                }
+                else if (c < cols)
+                {
+                    value = (r - rows) == c ? colUnassignedCost : forbidden; // фиктивная строка своего столбца
+                }
+                else
+                {
+                    value = 0.0;
+                }
+
+                extended[(r * size) + c] = value;
+            }
+        }
+
+        var assignment = new int[size];
+        Solve(extended, size, size, assignment);
+
+        double total = 0.0;
+        for (int r = 0; r < rows; r++)
+        {
+            int c = assignment[r];
+            if (c < cols && costs[(r * cols) + c] is var pair && !double.IsPositiveInfinity(pair))
+            {
+                rowToCol[r] = c;
+                total += pair;
+            }
+            else
+            {
+                total += rowUnassignedCost;
+            }
+        }
+
+        var taken = new bool[cols];
+        for (int r = 0; r < rows; r++)
+        {
+            if (rowToCol[r] >= 0)
+            {
+                taken[rowToCol[r]] = true;
+            }
+        }
+
+        for (int c = 0; c < cols; c++)
+        {
+            if (!taken[c])
+            {
+                total += colUnassignedCost;
+            }
+        }
+
+        return total;
+    }
+
     // rows <= cols. Если transposed, "строки" задачи — исходные столбцы, а результат записывается в исходные строки.
     private static double SolveWide(ReadOnlySpan<double> a, int n, int m, bool transposed, Span<int> rowToCol)
     {

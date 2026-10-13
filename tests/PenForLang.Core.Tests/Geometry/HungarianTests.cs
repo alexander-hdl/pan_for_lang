@@ -186,5 +186,112 @@ public class HungarianTests
         Hungarian.Solve(costs, 5, 5, b);
         Assert.Equal(a, b);
         Assert.Equal(5, a.Distinct().Count());
+
+        // Сверка с известным назначением: при полном равенстве получается тождественная перестановка.
+        Assert.Equal([0, 1, 2, 3, 4], a);
+
+        double[] tie = [1, 1, 1, 1];
+        var t = new int[2];
+        Hungarian.Solve(tie, 2, 2, t);
+        Assert.Equal([0, 1], t);
+    }
+
+    [Fact]
+    public void Unassigned_cost_keeps_an_extra_far_stroke_away_from_a_missing_template_slot()
+    {
+        // Рукопись: три штриха (x = 0, 1, 9), эталон: два слота (x = 0, 1). Стоимость пары - квадрат расстояния.
+        double[] childX = [0.0, 1.0, 9.0];
+        double[] slotX = [0.0, 1.0];
+        var costs = new double[6];
+        for (int r = 0; r < 3; r++)
+        {
+            for (int c = 0; c < 2; c++)
+            {
+                costs[(r * 2) + c] = (childX[r] - slotX[c]) * (childX[r] - slotX[c]);
+            }
+        }
+
+        var assignment = new int[3];
+        double total = Hungarian.SolveWithUnassignedCost(costs, 3, 2, 4.0, 4.0, assignment);
+        Assert.Equal([0, 1, -1], assignment);
+        Assert.Equal(4.0, total); // лишний штрих: штраф 4
+
+        // Слот (x = 5) далёк от обоих штрихов: пропущенный слот остаётся пустым, а не притягивает чужой штрих.
+        double[] farSlot = [0.0, 1.0, 5.0];
+        double[] child2 = [0.0, 1.0];
+        var costs2 = new double[2 * 3];
+        for (int r = 0; r < 2; r++)
+        {
+            for (int c = 0; c < 3; c++)
+            {
+                costs2[(r * 3) + c] = (child2[r] - farSlot[c]) * (child2[r] - farSlot[c]);
+            }
+        }
+
+        var a2 = new int[2];
+        double t2 = Hungarian.SolveWithUnassignedCost(costs2, 2, 3, 4.0, 4.0, a2);
+        Assert.Equal([0, 1], a2);
+        Assert.Equal(4.0, t2);
+
+        // Дальняя пара дороже суммы штрафов: оба остаются без пары.
+        var a3 = new int[1];
+        double t3 = Hungarian.SolveWithUnassignedCost([100.0], 1, 1, 4.0, 4.0, a3);
+        Assert.Equal([-1], a3);
+        Assert.Equal(8.0, t3);
+
+        // +inf запрещает пару.
+        var a4 = new int[1];
+        double t4 = Hungarian.SolveWithUnassignedCost([double.PositiveInfinity], 1, 1, 4.0, 4.0, a4);
+        Assert.Equal([-1], a4);
+        Assert.Equal(8.0, t4);
+    }
+
+    [Fact]
+    public void Unassigned_cost_matches_brute_force_over_partial_matchings()
+    {
+        var rng = new Pcg32(43);
+        for (int c = 0; c < 400; c++)
+        {
+            int rows = 1 + rng.NextInt32(4);
+            int cols = 1 + rng.NextInt32(4);
+            double ur = rng.NextDouble() * 6.0;
+            double uc = rng.NextDouble() * 6.0;
+            var costs = new double[rows * cols];
+            for (int k = 0; k < costs.Length; k++)
+            {
+                costs[k] = rng.NextInt32(9) == 0 ? double.PositiveInfinity : rng.NextDouble() * 10.0;
+            }
+
+            double best = double.PositiveInfinity;
+            var usedCols = new bool[cols];
+
+            void Rec(int r, double acc)
+            {
+                if (r == rows)
+                {
+                    best = Math.Min(best, acc + (usedCols.Count(u => !u) * uc));
+                    return;
+                }
+
+                Rec(r + 1, acc + ur); // строка без пары
+                for (int col = 0; col < cols; col++)
+                {
+                    double v = costs[(r * cols) + col];
+                    if (usedCols[col] || double.IsPositiveInfinity(v))
+                    {
+                        continue;
+                    }
+
+                    usedCols[col] = true;
+                    Rec(r + 1, acc + v);
+                    usedCols[col] = false;
+                }
+            }
+
+            Rec(0, 0.0);
+            var assignment = new int[rows];
+            double total = Hungarian.SolveWithUnassignedCost(costs, rows, cols, ur, uc, assignment);
+            Assert.True(Math.Abs(best - total) < 1e-9, $"case {c} ({rows}x{cols}): {total} vs {best}");
+        }
     }
 }

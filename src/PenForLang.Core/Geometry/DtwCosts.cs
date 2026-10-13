@@ -51,7 +51,11 @@ public enum FeatureKind : byte
     /// <summary>Модуль разности: <c>|d|</c>.</summary>
     Absolute = 1,
 
-    /// <summary>Угловой признак в радианах: <c>1 − cos d</c> (не зависит от обёртки угла на 2π).</summary>
+    /// <summary>
+    /// Угловой признак в радианах: <c>1 − cos d</c> (не зависит от обёртки угла на 2π). Вызывает <see cref="Math.Cos(double)"/>
+    /// в каждой клетке — удобно для разовых задач; в горячем пути используйте <see cref="DirectionCost"/> или
+    /// <see cref="PositionDirectionCost"/> с заранее посчитанными (cosθ, sinθ) (<see cref="DirectionFeatures"/>).
+    /// </summary>
     Angular = 2,
 }
 
@@ -166,7 +170,10 @@ public readonly ref struct ReversedReferenceCost<TCost> : IDtwCost
     public double Cost(int i, int j) => _inner.Cost(i, _last - j);
 }
 
-/// <summary>Ограничение полосой по x: пары с <c>|xa[i] − xb[j]| &gt; band</c> запрещены (стоимость +∞).</summary>
+/// <summary>
+/// Ограничение полосой по x: пары с <c>|xa[i] − xb[j]| &gt; band</c> запрещены (стоимость +∞) либо, если задан конечный штраф,
+/// к их стоимости прибавляется <c>outOfBandPenalty</c> («мягкая» полоса).
+/// </summary>
 /// <typeparam name="TCost">Тип исходной стоимости.</typeparam>
 public readonly ref struct XBandedCost<TCost> : IDtwCost
     where TCost : IDtwCost, allows ref struct
@@ -175,21 +182,119 @@ public readonly ref struct XBandedCost<TCost> : IDtwCost
     private readonly ReadOnlySpan<double> _xa;
     private readonly ReadOnlySpan<double> _xb;
     private readonly double _band;
+    private readonly double _penalty;
 
     /// <summary>Создаёт обёртку.</summary>
     /// <param name="inner">Исходная стоимость.</param>
     /// <param name="xa">Координаты x первой последовательности.</param>
     /// <param name="xb">Координаты x второй последовательности.</param>
     /// <param name="band">Полуширина полосы, ≥ 0.</param>
-    public XBandedCost(in TCost inner, ReadOnlySpan<double> xa, ReadOnlySpan<double> xb, double band)
+    /// <param name="outOfBandPenalty">Штраф вне полосы, ≥ 0; +∞ (по умолчанию) — пары вне полосы запрещены.</param>
+    public XBandedCost(
+        in TCost inner,
+        ReadOnlySpan<double> xa,
+        ReadOnlySpan<double> xb,
+        double band,
+        double outOfBandPenalty = double.PositiveInfinity)
     {
         _inner = inner;
         _xa = xa;
         _xb = xb;
         _band = band;
+        _penalty = outOfBandPenalty;
     }
 
     /// <inheritdoc />
     public double Cost(int i, int j) =>
-        Math.Abs(_xa[i] - _xb[j]) <= _band ? _inner.Cost(i, j) : double.PositiveInfinity;
+        Math.Abs(_xa[i] - _xb[j]) <= _band ? _inner.Cost(i, j) : _inner.Cost(i, j) + _penalty;
+}
+
+/// <summary>Транспонирование стоимости: <c>Cost(i, j) = inner.Cost(j, i)</c> (обмен ролями последовательностей).</summary>
+/// <typeparam name="TCost">Тип исходной стоимости.</typeparam>
+public readonly ref struct TransposedCost<TCost> : IDtwCost
+    where TCost : IDtwCost, allows ref struct
+{
+    private readonly TCost _inner;
+
+    /// <summary>Создаёт обёртку.</summary>
+    /// <param name="inner">Исходная стоимость.</param>
+    public TransposedCost(in TCost inner)
+    {
+        _inner = inner;
+    }
+
+    /// <inheritdoc />
+    public double Cost(int i, int j) => _inner.Cost(j, i);
+}
+
+/// <summary>
+/// Угловая стоимость по заранее посчитанным единичным векторам направления <c>(cos θ, sin θ)</c>:
+/// <c>1 − (cosθa·cosθb + sinθa·sinθb) = 1 − cos(θa − θb)</c> без вызова <see cref="Math.Cos(double)"/> в клетке.
+/// Значения лежат в [0, 2].
+/// </summary>
+public readonly ref struct DirectionCost : IDtwCost
+{
+    private readonly ReadOnlySpan<Vec2> _a;
+    private readonly ReadOnlySpan<Vec2> _b;
+
+    /// <summary>Создаёт стоимость над двумя рядами единичных направлений.</summary>
+    /// <param name="a">Направления первой последовательности.</param>
+    /// <param name="b">Направления второй последовательности.</param>
+    public DirectionCost(ReadOnlySpan<Vec2> a, ReadOnlySpan<Vec2> b)
+    {
+        _a = a;
+        _b = b;
+    }
+
+    /// <inheritdoc />
+    public double Cost(int i, int j) => Math.Max(0.0, 1.0 - Vec2.Dot(_a[i], _b[j]));
+}
+
+/// <summary>
+/// Локальная стоимость выравнивания оценщика (ARCHITECTURE.md §6.4.4) без бонуса якорей:
+/// <c>wPos·‖pᵢ − qⱼ‖² + wTheta·(1 − cos(θᵢ − θⱼ))</c>, направления — заранее посчитанные единичные векторы.
+/// Бонус за совпадение ключевых точек в оценщике нужно выражать штрафом за несовпадение (стоимость ≥ 0).
+/// </summary>
+public readonly ref struct PositionDirectionCost : IDtwCost
+{
+    private readonly ReadOnlySpan<Vec2> _pa;
+    private readonly ReadOnlySpan<Vec2> _pb;
+    private readonly ReadOnlySpan<Vec2> _da;
+    private readonly ReadOnlySpan<Vec2> _db;
+    private readonly double _wPos;
+    private readonly double _wTheta;
+
+    /// <summary>Создаёт стоимость.</summary>
+    /// <param name="positionsA">Точки первой последовательности.</param>
+    /// <param name="positionsB">Точки второй последовательности.</param>
+    /// <param name="directionsA">Единичные направления первой последовательности (параллельны точкам).</param>
+    /// <param name="directionsB">Единичные направления второй последовательности.</param>
+    /// <param name="positionWeight">Вес позиции, ≥ 0.</param>
+    /// <param name="directionWeight">Вес направления, ≥ 0.</param>
+    public PositionDirectionCost(
+        ReadOnlySpan<Vec2> positionsA,
+        ReadOnlySpan<Vec2> positionsB,
+        ReadOnlySpan<Vec2> directionsA,
+        ReadOnlySpan<Vec2> directionsB,
+        double positionWeight,
+        double directionWeight)
+    {
+        if (positionsA.Length != directionsA.Length || positionsB.Length != directionsB.Length)
+        {
+            throw new ArgumentException("Positions and directions must have the same length.");
+        }
+
+        ArgumentOutOfRangeException.ThrowIfNegative(positionWeight);
+        ArgumentOutOfRangeException.ThrowIfNegative(directionWeight);
+        _pa = positionsA;
+        _pb = positionsB;
+        _da = directionsA;
+        _db = directionsB;
+        _wPos = positionWeight;
+        _wTheta = directionWeight;
+    }
+
+    /// <inheritdoc />
+    public double Cost(int i, int j) =>
+        (_wPos * Vec2.DistanceSquared(_pa[i], _pb[j])) + (_wTheta * Math.Max(0.0, 1.0 - Vec2.Dot(_da[i], _db[j])));
 }

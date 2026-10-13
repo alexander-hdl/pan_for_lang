@@ -149,6 +149,35 @@ public class SavitzkyGolayFilterTests
     }
 
     [Fact]
+    public void Two_points_give_a_finite_difference_derivative()
+    {
+        var slope = new double[2];
+        new SavitzkyGolayFilter(7, 2, derivative: 1, spacing: 0.5).Apply([1.0, 4.0], slope);
+        Assert.Equal([6.0, 6.0], slope);
+
+        var vec = new Vec2[2];
+        new SavitzkyGolayFilter(7, 2, derivative: 1).Apply([new Vec2(0, 0), new Vec2(2, -3)], vec);
+        Assert.Equal([new Vec2(2, -3), new Vec2(2, -3)], vec);
+
+        var second = new double[2];
+        new SavitzkyGolayFilter(7, 2, derivative: 2).Apply([1.0, 4.0], second);
+        Assert.Equal([0.0, 0.0], second);
+    }
+
+    [Fact]
+    public void Reduced_filters_are_cached_so_short_signals_do_not_allocate_after_warmup()
+    {
+        var filter = new SavitzkyGolayFilter(9, 2);
+        double[] shortSignal = [1.0, 2.0, 4.0, 8.0, 16.0];
+        var result = new double[5];
+        filter.Apply(shortSignal, result);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        filter.Apply(shortSignal, result);
+        long after = GC.GetAllocatedBytesForCurrentThread();
+        Assert.Equal(0, after - before);
+    }
+
+    [Fact]
     public void Apply_is_deterministic_and_allocation_free()
     {
         double[] y = Enumerable.Range(0, 100).Select(i => Math.Sin(i * 0.1)).ToArray();

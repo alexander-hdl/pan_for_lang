@@ -101,7 +101,23 @@ public class ResamplerTests
         {
             int count = Resampler.CountForStep(length, 0.04);
             double actual = length / (count - 1);
-            Assert.True(Math.Abs(actual - 0.04) / 0.04 <= (0.04 / (2.0 * length)) + 1e-12);
+            Assert.True(Math.Abs(actual - 0.04) / 0.04 <= (0.04 / ((2.0 * length) - 0.04)) + 1e-12);
+        }
+
+        // Случайные длины и шаги: граница step / (2L − step) выполняется, а при L >= 50,5·step ошибка меньше 1%.
+        var rng = new Pcg32(23);
+        for (int i = 0; i < 20000; i++)
+        {
+            double step = 0.005 + (rng.NextDouble() * 0.5);
+            double length = step * (0.5 + (rng.NextDouble() * 400.0));
+            int count = Resampler.CountForStep(length, step);
+            double actual = length / (count - 1);
+            double error = Math.Abs(actual - step) / step;
+            Assert.True(error <= (step / ((2.0 * length) - step)) + 1e-12, $"L={length}, step={step}, error={error}");
+            if (length >= 50.5 * step)
+            {
+                Assert.True(error < 0.01, $"L={length}, step={step}, error={error}");
+            }
         }
 
         Assert.Equal(1, Resampler.CountForStep(0.0, 0.04));
@@ -154,6 +170,25 @@ public class ResamplerTests
         }
 
         Assert.Equal(new Vec2(2, 2), Resampler.Interpolate(source, positions[2]));
+    }
+
+    [Fact]
+    public void Caller_scratch_overload_matches_and_does_not_allocate_for_large_counts()
+    {
+        Vec2[] source = [new(0, 0), new(5, 5), new(10, 0)];
+        var expected = new Vec2[1000];
+        Resampler.Resample(source, expected);
+
+        var actual = new Vec2[1000];
+        var scratch = new SamplePosition[1000];
+        Resampler.Resample(source, actual, scratch);
+        Assert.Equal(expected, actual);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        Resampler.Resample(source, actual, scratch);
+        long after = GC.GetAllocatedBytesForCurrentThread();
+        Assert.Equal(0, after - before);
+        Assert.Throws<ArgumentException>(() => Resampler.Resample(source, actual, new SamplePosition[10]));
     }
 
     [Fact]

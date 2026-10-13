@@ -18,8 +18,8 @@ public static class Resampler
 
     /// <summary>
     /// Число точек для шага, ближайшего к <paramref name="step"/>: <c>max(2, round(L/step) + 1)</c>. Фактический шаг
-    /// <c>L/(count−1)</c> отличается от заданного не более чем на <c>step/(2L)</c> относительно шага, то есть меньше 1% при
-    /// <c>L ≥ 50·step</c>. Для нулевой длины возвращает 1.
+    /// <c>L/(count−1)</c> отличается от заданного относительно шага не более чем на <c>step/(2L − step)</c> (при
+    /// <c>L ≥ step/2</c>), то есть меньше 1% при <c>L ≥ 50,5·step</c>. Для нулевой длины возвращает 1.
     /// </summary>
     /// <param name="length">Длина ломаной.</param>
     /// <param name="step">Желаемый шаг, &gt; 0.</param>
@@ -130,6 +130,25 @@ public static class Resampler
         Span<SamplePosition> positions = count <= StackLimit
             ? stackalloc SamplePosition[count]
             : new SamplePosition[count];
+        Resample(source, destination, positions);
+    }
+
+    /// <summary>
+    /// То же, что <see cref="Resample(ReadOnlySpan{Vec2}, Span{Vec2})"/>, но рабочий буфер положений даёт вызывающий код —
+    /// без выделений памяти при любом числе точек (для горячего пути оценщика).
+    /// </summary>
+    /// <param name="source">Вершины исходной ломаной.</param>
+    /// <param name="destination">Буфер выходных точек.</param>
+    /// <param name="scratch">Рабочий буфер длиной не меньше <c>destination.Length</c>.</param>
+    public static void Resample(ReadOnlySpan<Vec2> source, Span<Vec2> destination, Span<SamplePosition> scratch)
+    {
+        int count = destination.Length;
+        if (scratch.Length < count)
+        {
+            throw new ArgumentException("Scratch buffer is shorter than the destination.", nameof(scratch));
+        }
+
+        Span<SamplePosition> positions = scratch[..count];
         ResamplePositions(source, positions);
         for (int k = 0; k < count; k++)
         {

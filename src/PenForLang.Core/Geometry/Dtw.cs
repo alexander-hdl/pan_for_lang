@@ -55,7 +55,10 @@ public static class Dtw
     /// (после нормализации и деслантинга; ARCHITECTURE.md §6.4.4). Полоса может комбинироваться с индексной
     /// (<see cref="DtwOptions.IndexBandRadius"/>) и открытыми концами. Если <paramref name="xb"/> не убывает (монотонный эталон), диапазоны
     /// допустимых <c>j</c> в строках находятся бинарным поиском и работа пропорциональна ширине полосы; иначе строки сканируются полностью.
-    /// Если полоса не оставляет пути, возвращается <see cref="DtwResult.Infeasible"/>.
+    /// При жёсткой полосе (по умолчанию) и отсутствии допустимого пути (например, разрыв по x больше полосы)
+    /// возвращается <see cref="DtwResult.Infeasible"/> — вызывающий код обязан его обработать (штраф или «не распознано»).
+    /// Мягкая полоса: <see cref="DtwOptions.OutOfBandCost"/> задаёт конечный штраф, прибавляемый к стоимости пар вне полосы;
+    /// тогда путь существует всегда, но отсечения диапазонов нет и работа пропорциональна <c>n·m</c>.
     /// </summary>
     /// <typeparam name="TCost">Тип стоимости.</typeparam>
     /// <param name="xa">Координаты x первой последовательности (<c>n = xa.Length</c>).</param>
@@ -85,9 +88,28 @@ public static class Dtw
 
         workspace ??= new DtwWorkspace();
         workspace.EnsureRows(n);
-        FillXBandRanges(xa, xb, bandX, workspace);
+        double penalty = options.OutOfBandCost ?? double.PositiveInfinity;
+        if (!(penalty >= 0.0))
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "OutOfBandCost must be >= 0.");
+        }
+
+        if (double.IsPositiveInfinity(penalty))
+        {
+            FillXBandRanges(xa, xb, bandX, workspace);
+        }
+        else
+        {
+            // Мягкая полоса: допустимы все клетки (диапазоны строк полные), вне полосы добавляется штраф.
+            for (int i = 0; i < n; i++)
+            {
+                workspace.RowLow[i] = 0;
+                workspace.RowHigh[i] = m - 1;
+            }
+        }
+
         ApplyIndexBand(n, m, options.IndexBandRadius, workspace);
-        var banded = new XBandedCost<TCost>(in cost, xa, xb, bandX);
+        var banded = new XBandedCost<TCost>(in cost, xa, xb, bandX, penalty);
         return Run(n, m, in banded, options, workspace, path);
     }
 
@@ -315,6 +337,7 @@ public static class Dtw
         }
 
         ws.EnsureCells(total);
+        ws.Rows = n;
         double[] acc = ws.Accumulated;
         byte[] dir = ws.Directions;
         bool openBegin = options.OpenBegin;
@@ -331,9 +354,9 @@ public static class Dtw
             for (int j = lo; j <= hi; j++)
             {
                 double c = cost.Cost(i, j);
-                if (double.IsNaN(c))
+                if (!(c >= 0.0))
                 {
-                    throw new InvalidOperationException("DTW cost must not be NaN.");
+                    throw new InvalidOperationException("DTW cost must be >= 0 or +Infinity (negative and NaN are not allowed).");
                 }
 
                 double best;
@@ -452,6 +475,6 @@ public static class Dtw
         }
 
         path?.Reverse();
-        return new DtwResult(true, totalCost, length, new DtwCell(ci, cj), new DtwCell(n - 1, endJ));
+        return new DtwResult(true, totalCost, length, new DtwCell(ci, cj), new DtwCell(n - 1, endJ), n);
     }
 }

@@ -7,11 +7,14 @@ namespace PenForLang.Core.Geometry;
 /// применение не выделяет память. Краевые точки (первые и последние <c>h = (window−1)/2</c>) вычисляются по многочлену,
 /// подогнанному к первому или последнему окну (аналог режима <c>interp</c> в SciPy), поэтому многочлен степени
 /// ≤ <c>order</c> воспроизводится точно на всём сигнале, включая края. Если сигнал короче окна, окно и порядок
-/// уменьшаются автоматически (при этом выделяется память под временный фильтр).
+/// уменьшаются автоматически; сокращённые фильтры создаются один раз и кешируются (память выделяется только при первом
+/// обращении к данной длине). Для двух точек производная первого порядка — конечная разность. Экземпляр можно
+/// использовать из нескольких потоков (кеш заполняется атомарно, одинаковыми объектами).
 /// </summary>
 public sealed class SavitzkyGolayFilter
 {
     private readonly double[] _kernel; // window x window, строка r — веса для позиции r внутри окна
+    private readonly SavitzkyGolayFilter?[] _reduced; // кеш фильтров для сигналов короче окна, индекс = длина сигнала
 
     /// <summary>Создаёт фильтр.</summary>
     /// <param name="window">Размер окна: нечётное число ≥ 1.</param>
@@ -39,6 +42,7 @@ public sealed class SavitzkyGolayFilter
         Derivative = derivative;
         Spacing = spacing;
         _kernel = BuildKernel(window, order, derivative, spacing);
+        _reduced = new SavitzkyGolayFilter?[window];
     }
 
     /// <summary>Размер окна.</summary>
@@ -77,6 +81,14 @@ public sealed class SavitzkyGolayFilter
 
         if (n < Window)
         {
+            if (n == 2 && Derivative == 1)
+            {
+                double slope = (source[1] - source[0]) / Spacing;
+                destination[0] = slope;
+                destination[1] = slope;
+                return;
+            }
+
             Reduced(n).Apply(source, destination);
             return;
         }
@@ -110,6 +122,14 @@ public sealed class SavitzkyGolayFilter
 
         if (n < Window)
         {
+            if (n == 2 && Derivative == 1)
+            {
+                Vec2 slope = (source[1] - source[0]) / Spacing;
+                destination[0] = slope;
+                destination[1] = slope;
+                return;
+            }
+
             Reduced(n).Apply(source, destination);
             return;
         }
@@ -147,8 +167,15 @@ public sealed class SavitzkyGolayFilter
 
     private SavitzkyGolayFilter Reduced(int n)
     {
+        SavitzkyGolayFilter? cached = Volatile.Read(ref _reduced[n]);
+        if (cached is not null)
+        {
+            return cached;
+        }
+
         int window = (n % 2) == 0 ? n - 1 : n;
-        return new SavitzkyGolayFilter(window, Math.Min(Order, window - 1), Derivative, Spacing);
+        var created = new SavitzkyGolayFilter(window, Math.Min(Order, window - 1), Derivative, Spacing);
+        return Interlocked.CompareExchange(ref _reduced[n], created, null) ?? created;
     }
 
     private static double[] BuildKernel(int window, int order, int derivative, double spacing)
