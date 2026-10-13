@@ -74,6 +74,9 @@ public partial class MainWindow : Window
     private bool _latencyMode;
     private bool _overlayBeforeLatency;
     private double _savedInkWidthMm = 1.0;
+    private double _appliedPxPerMm;
+    private string? _savedFlash;
+    private readonly DispatcherTimer _flashTimer = new() { Interval = TimeSpan.FromSeconds(2) };
 
     private bool _placementPending;
     private int _placementAttempts;
@@ -92,7 +95,7 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         _animator = new GlyphAnimatorLayer(_clock) { Visibility = Visibility.Collapsed };
-        _ink = new LiveInkLayer(_clock, null) { ShowTip = !options.UseMouse };
+        _ink = new LiveInkLayer(_clock, null) { ShowTip = !options.UseMouse, PressureEnabled = options.PressureWidth };
         _probe = new LatencyProbeLayer(_clock);
         CanvasHost.Children.Add(_guides);
         CanvasHost.Children.Add(_animator);
@@ -125,6 +128,12 @@ public partial class MainWindow : Window
         PreviewStylusMove += (_, _) => _wpfStylusMoves++;
         PreviewStylusDown += (_, _) => _wpfStylusDowns++;
         _panelTimer.Tick += (_, _) => RefreshPanel();
+        _flashTimer.Tick += (_, _) =>
+        {
+            _flashTimer.Stop();
+            _savedFlash = null;
+            RefreshStatus();
+        };
     }
 
     /// <summary>Записывает отчёт с пометкой о сбое (вызывается из обработчика необработанных исключений).</summary>
@@ -166,6 +175,9 @@ public partial class MainWindow : Window
             ? _options.PenLogDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PenForLang", "dev", "penlogs")
             : null;
         _session = new SandboxSession(_clock, _penLogDirectory, () => DateTimeOffset.Now, BuildHeader, _letter);
+
+        // Пока идёт запись, это видно в полосе: dev-запись допустима только для взрослого (ребёнку в этом режиме не писать).
+        RecordingBanner.Visibility = _session.IsRecording ? Visibility.Visible : Visibility.Collapsed;
         RefreshStatus();
     }
 
@@ -258,6 +270,7 @@ public partial class MainWindow : Window
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         _panelTimer.Stop();
+        _flashTimer.Stop();
         _probe.Deactivate();
         _ink.EndAttempt();
         _session?.Close();
@@ -346,6 +359,7 @@ public partial class MainWindow : Window
 
         _letter = letter;
         _ink.EndAttempt();
+        _ink.ClearBeforeNextStroke = false;
         _ink.Clear();
         _session?.SelectLetter(letter);
         if (_content is not null)
@@ -371,17 +385,24 @@ public partial class MainWindow : Window
         RefreshStatus();
     }
 
-    /// <summary>«Готово»: попытка завершена кнопкой, penlog закрыт, холст чистый для следующей попытки.</summary>
+    /// <summary>
+    /// «Готово»: попытка завершена кнопкой, penlog закрывается. Чернила не стираются мгновенно — они остаются до следующего касания
+    /// (<see cref="LiveInkLayer.ClearBeforeNextStroke"/>), в полосе на пару секунд появляется нейтральное «Сохранено». Путь файла и
+    /// число «Заново» видны только в dev-оверлее.
+    /// </summary>
     private void Done()
     {
         _ink.EndAttempt();
         RecordedAttempt? recorded = _session?.Done();
-        _ink.Clear();
+        _ink.ClearBeforeNextStroke = true;
         _animator.Stop();
         _animator.Visibility = Visibility.Collapsed;
         _notice = recorded is null
             ? (_session is { IsRecording: true } ? "Попытка без касаний - файл не создан" : string.Empty)
-            : $"Попытка сохранена: {recorded.Path} ({recorded.Samples} точек, Заново: {recorded.Restarts})";
+            : $"Попытка записана: {recorded.Path} ({recorded.Samples} точек, Заново: {recorded.Restarts})";
+        _savedFlash = "Сохранено";
+        _flashTimer.Stop();
+        _flashTimer.Start();
         RefreshStatus();
         RefreshPanel();
     }
@@ -429,12 +450,9 @@ public partial class MainWindow : Window
 
     private void RefreshStatus()
     {
-        string status = _session is null
-            ? _status
-            : string.Create(
-                CultureInfo.InvariantCulture,
-                $"'{_letter}'  попытка {_session.AttemptNumber}  Заново: {_session.Restarts}");
-        StatusText.Text = _status.Length > 0 && _session is not null ? status + "  [" + _status + "]" : status;
+        // В полосе ребёнка — только буква и короткое «Сохранено»; номер попытки и счётчик «Заново» — в dev-оверлее.
+        string status = "'" + _letter + "'" + (_savedFlash is null ? string.Empty : "  " + _savedFlash);
+        StatusText.Text = _status.Length > 0 ? status + "  [" + _status + "]" : status;
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -491,6 +509,7 @@ public partial class MainWindow : Window
                 _lastDown = (sample.X, sample.Y);
                 RecordTarget(sample.X, sample.Y);
                 RestartButton.IsEnabled = false;
+                StopDemoOnFirstTouch();
             }
             else if (sample.Phase == PenPhase.Up)
             {
@@ -505,6 +524,22 @@ public partial class MainWindow : Window
         }
 
         _session?.OnSamples(span);
+    }
+
+    /// <summary>
+    /// Первое касание в зоне письма во время показа: анимация ставится на паузу и показывает готовую букву (она не должна «рисовать»
+    /// под рукой ребёнка); в penlog пишется <c>stimulus-end</c>.
+    /// </summary>
+    private void StopDemoOnFirstTouch()
+    {
+        if (!_animator.IsPlaying || _animator.Script is not { } script)
+        {
+            return;
+        }
+
+        _animator.Pause();
+        _animator.Seek(script.DurationMs);
+        _session?.StimulusEnded();
     }
 
     private void RecordTarget(double x, double y)
@@ -614,6 +649,18 @@ public partial class MainWindow : Window
         _appliedDpiScale = _dpiScale;
         (_pxPerMm, _pxPerMmSource) = SandboxLayout.ResolvePxPerMm(_monitorChoice.Monitor);
         _ink.PxPerMm = _pxPerMm;
+        ApplyTargetSizes();
+
+        // Сменился масштаб px/мм (другой монитор): линейка и чернила больше не соответствуют друг другу — попытка отменяется, холст чистый.
+        if (_appliedPxPerMm > 0 && Math.Abs(_appliedPxPerMm - _pxPerMm) > 1e-6)
+        {
+            _ink.EndAttempt();
+            _ink.ClearBeforeNextStroke = false;
+            _ink.Clear();
+            _session?.CancelAttempt();
+        }
+
+        _appliedPxPerMm = _pxPerMm;
         if (_content is null)
         {
             return;
@@ -626,6 +673,27 @@ public partial class MainWindow : Window
         _guides.Guides = writing;
         _animator.DpiScale = _dpiScale;
         _animator.Guides = demo;
+
+        // Линейка известна — заголовок penlog можно составить: открытие файла уходит в фоновый поток записи (в UI ввода-вывода нет).
+        _session?.Arm();
+    }
+
+    /// <summary>
+    /// Цели для пера: не меньше 12 мм, отступы не меньше 4 мм (ARCHITECTURE.md §7.8, A34). Размеры берутся из миллиметров через
+    /// <c>PxPerMm</c> и DPI-масштаб окна (<see cref="SandboxLayout.MmToDip"/>), а не из DIP в разметке.
+    /// </summary>
+    private void ApplyTargetSizes()
+    {
+        double target = SandboxLayout.MmToDip(SandboxLayout.TargetMinMm, _pxPerMm, _dpiScale);
+        double gap = SandboxLayout.MmToDip(SandboxLayout.TargetGapMm, _pxPerMm, _dpiScale);
+        foreach (Control control in new Control[] { ShowButton, LetterA, LetterI, LetterT, RestartButton, DoneButton, OverlayButton, TestButton })
+        {
+            control.MinHeight = target;
+            control.MinWidth = target;
+            control.Margin = new Thickness(0, 0, gap, gap);
+        }
+
+        StripHost.Padding = new Thickness(gap, gap, gap, 0);
     }
 
     private PointerDiagnostics? PointerDiagnosticsOrNull() => (_source as Win32PointerPenSource)?.Diagnostics;

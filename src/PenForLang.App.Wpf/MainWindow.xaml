@@ -6,6 +6,7 @@
         Height="720"
         WindowStyle="None"
         ResizeMode="NoResize"
+        UseLayoutRounding="True"
         Background="#FFFBF8EF"
         Stylus.IsPressAndHoldEnabled="False"
         Stylus.IsFlicksEnabled="False"
@@ -34,7 +35,8 @@
       <RowDefinition Height="*" />
     </Grid.RowDefinitions>
 
-    <Border Grid.Row="0"
+    <Border x:Name="StripHost"
+            Grid.Row="0"
             Background="#FFE3DCC2"
             Padding="16,10">
       <WrapPanel Orientation="Horizontal">
@@ -73,6 +75,16 @@
                 Style="{StaticResource StripButton}"
                 Content="Dev"
                 Click="OnOverlayClick" />
+        <TextBlock x:Name="RecordingBanner"
+                   Margin="0,0,16,0"
+                   Padding="12,6"
+                   VerticalAlignment="Center"
+                   FontSize="16"
+                   FontWeight="SemiBold"
+                   Foreground="White"
+                   Background="#FFB3261E"
+                   Visibility="Collapsed"
+                   Text="Идёт запись (dev) — пишет только взрослый" />
         <TextBlock x:Name="StatusText"
                    Margin="8,0,24,0"
                    VerticalAlignment="Center"

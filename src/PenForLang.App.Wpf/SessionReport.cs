@@ -170,7 +170,7 @@ public static class SessionReport
         CultureInfo inv = CultureInfo.InvariantCulture;
         var sb = new StringBuilder();
 
-        sb.AppendLine("# PenForLang V0.5 - отчёт проверки пера");
+        sb.AppendLine("# PenForLang V0.6 - отчёт проверки пера");
         sb.AppendLine();
         sb.AppendLine(inv, $"- Запись: **{r.Reason}**, {r.Now:yyyy-MM-dd HH:mm:ss zzz}; старт {r.Started:HH:mm:ss}, длительность {(r.Now - r.Started).TotalSeconds:0} с");
         sb.AppendLine(inv, $"- Аргументы: `{(r.Arguments.Count == 0 ? "(нет)" : string.Join(' ', r.Arguments))}`");
@@ -388,7 +388,7 @@ public static class SessionReport
         sb.AppendLine();
         if (!r.DevMode || r.PenLogDirectory is null)
         {
-            sb.AppendLine("Запись penlog выключена (`--no-dev`).");
+            sb.AppendLine("Запись penlog выключена (режим разработчика `--dev` не включён).");
         }
         else
         {

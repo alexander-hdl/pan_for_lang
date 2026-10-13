@@ -64,7 +64,8 @@ public sealed class InkSurface
     private bool _pending;
     private long _pendingNewestUs;
     private long _pendingOldestUs;
-    private long _pendingArrivalUs;
+    private long _pendingFirstArrivalUs;
+    private long _pendingLatestArrivalUs;
 
     /// <summary>Создаёт поверхность.</summary>
     /// <param name="widthPx">Ширина, физические px; &gt; 0.</param>
@@ -88,8 +89,11 @@ public sealed class InkSurface
     /// <summary>Радиус пера при давлении, равном единице коэффициента, px (половина ширины линии).</summary>
     public float BaseRadiusPx { get; set; } = 3.0f;
 
-    /// <summary>Толщина зависит от давления (иначе радиус постоянен и равен <see cref="BaseRadiusPx"/>).</summary>
-    public bool PressureEnabled { get; set; } = true;
+    /// <summary>
+    /// Толщина зависит от давления (иначе радиус постоянен и равен <see cref="BaseRadiusPx"/>). По умолчанию выключено: методика не даёт
+    /// видимой обратной связи по давлению (ARCHITECTURE.md §7.5, М D15/§9.1); включается только разработчиком.
+    /// </summary>
+    public bool PressureEnabled { get; set; }
 
     /// <summary>Коэффициент радиуса при нулевом давлении.</summary>
     public float MinPressureFactor { get; set; } = 0.55f;
@@ -124,6 +128,12 @@ public sealed class InkSurface
     /// <summary>Сколько сглаженных точек сохранено.</summary>
     public int PointCount => _pointCount;
 
+    /// <summary>
+    /// Очистить поверхность перед началом следующего штриха («Готово» оставляет чернила на экране до следующего касания).
+    /// Сбрасывается после очистки.
+    /// </summary>
+    public bool ClearBeforeNextStroke { get; set; }
+
     /// <summary>Идёт штрих (получен Down, ещё нет Up).</summary>
     public bool IsPenDown => _open;
 
@@ -154,8 +164,11 @@ public sealed class InkSurface
     /// <summary>Метка времени старейшей точки, ожидающей показа, мкс.</summary>
     public long PendingOldestPointUs => _pendingOldestUs;
 
-    /// <summary>Момент (мкс, шкала часов <c>Add</c>), когда получена старейшая из ожидающих пачек.</summary>
-    public long PendingFirstArrivalUs => _pendingArrivalUs;
+    /// <summary>Момент (мкс, шкала часов <c>Add</c>), когда получена пачка со старейшей из ожидающих точек.</summary>
+    public long PendingFirstArrivalUs => _pendingFirstArrivalUs;
+
+    /// <summary>Момент получения пачки с новейшей из ожидающих точек (та же точка, что и <see cref="PendingNewestPointUs"/>).</summary>
+    public long PendingLatestArrivalUs => _pendingLatestArrivalUs;
 
     /// <summary>Цвет чернил (непрозрачный).</summary>
     public void SetInkColor(byte alpha, byte red, byte green, byte blue)
@@ -300,6 +313,12 @@ public sealed class InkSurface
 
     private void BeginStroke(float x, float y, float pressure)
     {
+        if (ClearBeforeNextStroke)
+        {
+            ClearBeforeNextStroke = false;
+            Clear();
+        }
+
         if (_strokeCount == _strokeFirstPoint.Length)
         {
             Array.Resize(ref _strokeFirstPoint, _strokeFirstPoint.Length * 2);
@@ -309,7 +328,7 @@ public sealed class InkSurface
         _open = true;
         _smoothX = x;
         _smoothY = y;
-        _smoothPressure = pressure;
+        _smoothPressure = pressure > 0f ? pressure : DefaultPressure;
         float r = RadiusFor(pressure);
         AddPoint(x, y, r);
         Capsule(x, y, r, x, y, r);
@@ -327,7 +346,7 @@ public sealed class InkSurface
         float alpha = MinAlpha + ((MaxAlpha - MinAlpha) * follow);
         _smoothX += dx * alpha;
         _smoothY += dy * alpha;
-        _smoothPressure += (pressure - _smoothPressure) * alpha;
+        _smoothPressure += ((pressure > 0f ? pressure : DefaultPressure) - _smoothPressure) * alpha;
 
         float ax = _smoothX - _anchorX;
         float ay = _smoothY - _anchorY;
@@ -412,7 +431,8 @@ public sealed class InkSurface
             _pending = true;
             _pendingOldestUs = oldest;
             _pendingNewestUs = newest;
-            _pendingArrivalUs = arrivalUs;
+            _pendingFirstArrivalUs = arrivalUs;
+            _pendingLatestArrivalUs = arrivalUs;
             return;
         }
 
@@ -421,9 +441,10 @@ public sealed class InkSurface
             _pendingOldestUs = oldest;
         }
 
-        if (newest > _pendingNewestUs)
+        if (newest >= _pendingNewestUs)
         {
             _pendingNewestUs = newest;
+            _pendingLatestArrivalUs = arrivalUs;
         }
     }
 

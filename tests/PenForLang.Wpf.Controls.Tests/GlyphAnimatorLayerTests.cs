@@ -299,6 +299,56 @@ public class GlyphAnimatorLayerTests
         });
     }
 
+    [Theory]
+    [InlineData(1.0, 12.0)]
+    [InlineData(1.25, 12.0)]
+    [InlineData(1.5, 12.0)]
+    [InlineData(1.5, 6.0)]
+    public void Marks_never_fall_below_their_physical_minimum_in_millimetres(double dpi, double xHeightMm)
+    {
+        var style = new AnimatorMarkStyle();
+        double dipPerMm = PxPerMm / dpi;
+
+        AnimatorMarkSizes sizes = style.Resolve(xHeightMm * dipPerMm, dipPerMm);
+
+        double ToMm(double dip) => dip * dpi / PxPerMm;
+        Assert.True(ToMm(sizes.ArrowLength) >= 4.5 - 1e-9, "arrow >= 4.5 mm");
+        Assert.True(ToMm(sizes.BadgeRadius * 2) >= 6.0, "number badge >= 6 mm");
+        Assert.True(ToMm(sizes.DigitEm * 0.7) >= 4.0 - 1e-9, "digit >= 4 mm");
+        Assert.True(ToMm(sizes.StartDotRadius * 2) >= 3.0 - 1e-9, "start dot >= 3 mm");
+        Assert.True(ToMm(sizes.PenRadius * 2) >= 4.0 - 1e-9, "pen >= 4 mm");
+        Assert.True(sizes.BadgeRadius > sizes.DigitEm * 0.5, "the badge encloses the digit");
+        Assert.True(sizes.ArrowSideOffset > 0, "the arrow stands beside the line");
+    }
+
+    [Fact]
+    public void Finished_strokes_are_cached_and_only_the_active_one_is_rebuilt()
+    {
+        Sta.Run(() =>
+        {
+            AnimationScript script = ScriptFor("t");
+            GlyphAnimatorLayer layer = Create(script, new FakeMonotonicClock());
+            AnimatedStroke first = script.Strokes[0];
+
+            layer.Seek(first.StartMs + ((first.EndMs - first.StartMs) * 0.5));
+            _ = Pixels.Render(layer, 700, 500, 1.0);
+            Assert.Equal(0, layer.CachedStrokeCount);
+
+            layer.Seek(script.Strokes[1].StartMs + 1);
+            _ = Pixels.Render(layer, 700, 500, 1.0);
+            Assert.Equal(1, layer.CachedStrokeCount);
+
+            layer.Seek(script.DurationMs);
+            _ = Pixels.Render(layer, 700, 500, 1.0);
+            Assert.Equal(script.Strokes.Length, layer.CachedStrokeCount);
+
+            // Смена линейки (например, другое окно или DPI) сбрасывает кеш; картинка та же.
+            layer.Guides = FrameFor(1.0, originMm: 31);
+            _ = Pixels.Render(layer, 700, 500, 1.0);
+            Assert.Equal(script.Strokes.Length, layer.CachedStrokeCount);
+        });
+    }
+
     private static int CountColor(byte[] bgra, Func<(byte R, byte G, byte B), bool> predicate)
     {
         int count = 0;

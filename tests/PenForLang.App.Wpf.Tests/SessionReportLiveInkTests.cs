@@ -70,11 +70,13 @@ public class SessionReportLiveInkTests
 public class AppOptionsDevTests
 {
     [Fact]
-    public void Dev_mode_is_on_by_default_and_the_new_options_have_defaults()
+    public void Dev_mode_and_pressure_width_are_off_by_default()
     {
+        // F3/F4: запись penlog и ширина от давления — только по явному флагу разработчика.
         AppOptions options = AppOptions.Parse([]);
 
-        Assert.True(options.Dev);
+        Assert.False(options.Dev);
+        Assert.False(options.PressureWidth);
         Assert.Null(options.PenLogDirectory);
         Assert.Null(options.ContentDirectory);
         Assert.False(options.StartInLatencyMode);
@@ -95,6 +97,40 @@ public class AppOptionsDevTests
         Assert.Empty(options.UnknownArguments);
 
         Assert.True(AppOptions.Parse(["--no-dev", "--dev"]).Dev);
+        Assert.True(AppOptions.Parse(["--dev"]).Dev);
+        Assert.True(AppOptions.Parse(["--pressure-width"]).PressureWidth);
+    }
+
+    [Fact]
+    public void Hardware_protocol_launchers_enable_dev_explicitly_and_the_latency_launcher_disables_it()
+    {
+        string? buildDir = null;
+        for (var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+        {
+            string candidate = System.IO.Path.Combine(dir.FullName, "build", "v0");
+            if (System.IO.Directory.Exists(candidate))
+            {
+                buildDir = candidate;
+                break;
+            }
+        }
+
+        Assert.NotNull(buildDir);
+        string[] launchers = [.. System.IO.Directory.EnumerateFiles(buildDir, "*.cmd")];
+        Assert.NotEmpty(launchers);
+        foreach (string launcher in launchers)
+        {
+            string text = System.IO.File.ReadAllText(launcher);
+            if (launcher.EndsWith("5-latency.cmd", StringComparison.Ordinal))
+            {
+                Assert.Contains("--no-dev", text, StringComparison.Ordinal);
+            }
+            else
+            {
+                Assert.Contains("--dev", text, StringComparison.Ordinal);
+                Assert.DoesNotContain("--no-dev", text, StringComparison.Ordinal);
+            }
+        }
     }
 
     [Theory]

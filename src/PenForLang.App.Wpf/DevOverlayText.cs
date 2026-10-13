@@ -127,11 +127,11 @@ public static class DevOverlayText
         sb.AppendLine(inv, $"Attempt #{i.Attempt}: letter '{i.Letter}', restarts {i.Restarts}");
         if (!i.Recording)
         {
-            sb.AppendLine("Penlog: off (--no-dev)");
+            sb.AppendLine("Penlog: off (needs --dev)");
         }
         else
         {
-            string file = i.PenLogPath is null ? "(file appears at the first touch)" : i.PenLogPath + " (" + i.PenLogSamples.ToString(inv) + " samples)";
+            string file = i.PenLogPath is null ? "(opened with the attempt; removed if there are no touches)" : i.PenLogPath + " (" + i.PenLogSamples.ToString(inv) + " samples)";
             sb.AppendLine(inv, $"Penlog: {file}; saved attempts {i.Recorded}");
         }
 

@@ -46,6 +46,7 @@ public class SandboxSessionTests
         Touch(session, clock, 8);
 
         RecordedAttempt? first = session.Done();
+        Assert.True(session.Drain(TimeSpan.FromSeconds(10)));
 
         Assert.NotNull(first);
         Assert.Equal(2, first.Restarts);
@@ -68,6 +69,7 @@ public class SandboxSessionTests
         // Вторая попытка пишется в другой файл.
         Touch(session, clock);
         RecordedAttempt? second = session.Done();
+        Assert.True(session.Drain(TimeSpan.FromSeconds(10)));
         Assert.NotNull(second);
         Assert.NotEqual(first.Path, second.Path);
         Assert.Equal(2, session.Recorded.Count);
@@ -120,6 +122,7 @@ public class SandboxSessionTests
         Touch(session, clock);
 
         session.Close();
+        Assert.True(session.Drain(TimeSpan.FromSeconds(10)));
 
         RecordedAttempt recorded = Assert.Single(session.Recorded);
         Assert.Equal("cancelled", recorded.CompletedBy);

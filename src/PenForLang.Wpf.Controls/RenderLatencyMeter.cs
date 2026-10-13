@@ -38,8 +38,9 @@ public sealed class RenderLatencyMeter
     /// <param name="nowUs">Момент Rendering, мкс.</param>
     /// <param name="newestPointUs">Метка новейшей точки кадра.</param>
     /// <param name="oldestPointUs">Метка старейшей точки кадра.</param>
-    /// <param name="firstArrivalUs">Момент получения первой пачки кадра программой (0 — не измерялся).</param>
-    public void Record(long nowUs, long newestPointUs, long oldestPointUs, long firstArrivalUs)
+    /// <param name="latestArrivalUs">Момент получения программой пачки с новейшей точкой (0 — не измерялся); среднее берётся по той же точке, что и <paramref name="newestPointUs"/>.</param>
+    /// <param name="firstArrivalUs">Момент получения пачки со старейшей точкой; максимум берётся по той же точке, что и <paramref name="oldestPointUs"/>.</param>
+    public void Record(long nowUs, long newestPointUs, long oldestPointUs, long latestArrivalUs, long firstArrivalUs)
     {
         double newest = Math.Max(0, nowUs - newestPointUs);
         double oldest = Math.Max(0, nowUs - oldestPointUs);
@@ -51,13 +52,13 @@ public sealed class RenderLatencyMeter
             _maxPointUs = oldest;
         }
 
-        if (firstArrivalUs > 0)
+        if (latestArrivalUs > 0 && firstArrivalUs > 0)
         {
-            double arrival = Math.Max(0, nowUs - firstArrivalUs);
-            _sumArrivalUs += arrival;
-            if (arrival > _maxArrivalUs)
+            _sumArrivalUs += Math.Max(0, nowUs - latestArrivalUs);
+            double worst = Math.Max(0, nowUs - firstArrivalUs);
+            if (worst > _maxArrivalUs)
             {
-                _maxArrivalUs = arrival;
+                _maxArrivalUs = worst;
             }
         }
     }

@@ -12,10 +12,16 @@ namespace PenForLang.App.Wpf;
 public static class SandboxLayout
 {
     /// <summary>x-height по умолчанию, мм (параметр <c>--xheight-mm</c>).</summary>
-    public const double DefaultXHeightMm = 12.0;
+    public const double DefaultXHeightMm = 15.0;
 
     /// <summary>Межстрочный интервал в x-height (§3.4, пример заголовка).</summary>
     public const double LineSpacing = 3.0;
+
+    /// <summary>Наименьшая сторона цели для пера, мм (ARCHITECTURE.md §7.8, A34: ≥ 12 мм).</summary>
+    public const double TargetMinMm = 12.0;
+
+    /// <summary>Наименьший отступ между целями, мм (A34: ≥ 4 мм).</summary>
+    public const double TargetGapMm = 4.0;
 
     private const double BaselineShare = 0.6;
     private const double MarginMm = 6.0;
@@ -37,6 +43,10 @@ public static class SandboxLayout
 
         return (SurfaceMapper.DefaultPxPerMm, PxPerMmSource.Default);
     }
+
+    /// <summary>Миллиметры в DIP: <c>mm · pxPerMm / dpiScale</c> (DPI входит один раз).</summary>
+    public static double MmToDip(double millimeters, double pxPerMm, double dpiScale) =>
+        millimeters * pxPerMm / (dpiScale > 0 ? dpiScale : 1.0);
 
     /// <summary>Линейки показа (слева) и письма (правее) на одной базовой линии.</summary>
     /// <param name="mapper">Преобразователь текущего холста.</param>

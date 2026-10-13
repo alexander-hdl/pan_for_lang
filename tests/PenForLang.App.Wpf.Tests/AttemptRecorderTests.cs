@@ -89,6 +89,7 @@ public class AttemptRecorderTests
         recorder.Restart();
         clock.Advance(TimeSpan.FromMilliseconds(50));
         RecordedAttempt? result = recorder.Complete("done-button");
+        Assert.True(recorder.Drain(TimeSpan.FromSeconds(10)));
 
         Assert.NotNull(result);
         Assert.False(recorder.IsActive);
@@ -134,7 +135,8 @@ public class AttemptRecorderTests
         recorder.AddSamples([RecorderTestSupport.Sample(RecorderTestSupport.Us(clock) + 1000, 1, 1, PenPhase.Hover, 0)]);
 
         Assert.Null(recorder.Complete("done-button"));
-        Assert.False(Directory.Exists(dir.Path) && Directory.EnumerateFiles(dir.Path).Any());
+        Assert.True(recorder.Drain(TimeSpan.FromSeconds(10)));
+        Assert.False(Directory.Exists(dir.Path) && Directory.EnumerateFiles(dir.Path).Any(), "an attempt without touches leaves no file");
     }
 
     [Fact]
@@ -155,12 +157,14 @@ public class AttemptRecorderTests
             "glyph:a");
 
         long t0 = RecorderTestSupport.Us(clock);
+        Assert.Equal(1, calls); // Begin уже спросил заголовок
         recorder.AddSamples([RecorderTestSupport.Sample(t0 + 1000, 1, 1, PenPhase.Down)]);
-        Assert.Equal(1, calls);
+        Assert.Equal(2, calls);
         Assert.Null(recorder.CurrentPath);
         Assert.Equal(0, recorder.SamplesWritten);
 
         header = RecorderTestSupport.Header();
+        Assert.True(recorder.Arm());
         recorder.AddSamples([RecorderTestSupport.Sample(t0 + 6000, 2, 2, PenPhase.Move)]);
         Assert.NotNull(recorder.CurrentPath);
         Assert.Equal(1, recorder.SamplesWritten);
@@ -185,6 +189,7 @@ public class AttemptRecorderTests
             RecorderTestSupport.Sample(t0 + 2000, 2, 2, PenPhase.Up, 0),
         ]);
         RecordedAttempt? result = recorder.Complete("done-button");
+        Assert.True(recorder.Drain(TimeSpan.FromSeconds(10)));
 
         Assert.NotNull(result);
         Assert.Equal(2, result.Samples);
@@ -207,6 +212,8 @@ public class AttemptRecorderTests
             paths[i] = recorder.Complete("done-button")?.Path;
         }
 
+        Assert.True(recorder.Drain(TimeSpan.FromSeconds(10)));
+
         Assert.NotNull(paths[0]);
         Assert.NotNull(paths[1]);
         Assert.NotEqual(paths[0], paths[1]);
@@ -227,6 +234,8 @@ public class AttemptRecorderTests
         Assert.NotNull(recorder.LastError);
         Assert.Null(recorder.CurrentPath);
         Assert.Null(recorder.Complete("done-button"));
+        Assert.True(recorder.Drain(TimeSpan.FromSeconds(10)));
+        Assert.False(Directory.Exists(dir.Path) && Directory.EnumerateFiles(dir.Path).Any());
     }
 
     [Fact]
@@ -241,6 +250,7 @@ public class AttemptRecorderTests
         recorder.Begin(() => RecorderTestSupport.Header(), "x", "glyph:a");
 
         recorder.AddSamples([RecorderTestSupport.Sample(RecorderTestSupport.Us(clock) + 1000, 1, 1, PenPhase.Down)]);
+        Assert.True(recorder.Drain(TimeSpan.FromSeconds(10)));
 
         Assert.NotNull(recorder.LastError);
         Assert.Null(recorder.Complete("done-button"));
@@ -257,6 +267,7 @@ public class AttemptRecorderTests
         string path = recorder.CurrentPath!;
 
         recorder.Begin(() => RecorderTestSupport.Header(), "second", "glyph:i");
+        Assert.True(recorder.Drain(TimeSpan.FromSeconds(10)));
 
         PenLog log = RecorderTestSupport.Read(path);
         Assert.Equal(InkCompletion.Cancelled, log.ToInkAttempt().Completion);

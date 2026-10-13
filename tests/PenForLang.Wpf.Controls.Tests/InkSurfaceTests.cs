@@ -101,9 +101,9 @@ public class InkSurfaceTests
     [Fact]
     public void Higher_pressure_gives_a_thicker_line_within_limits()
     {
-        var thin = new InkSurface(400, 200);
-        var normal = new InkSurface(400, 200);
-        var thick = new InkSurface(400, 200);
+        var thin = new InkSurface(400, 200) { PressureEnabled = true };
+        var normal = new InkSurface(400, 200) { PressureEnabled = true };
+        var thick = new InkSurface(400, 200) { PressureEnabled = true };
         thin.Add(TestSamples.Stroke(50, 100, 10, 0, 21, pressure: 0.05f));
         normal.Add(TestSamples.Stroke(50, 100, 10, 0, 21, pressure: 0.5f));
         thick.Add(TestSamples.Stroke(50, 100, 10, 0, 21, pressure: 1.0f));
@@ -118,16 +118,23 @@ public class InkSurfaceTests
     }
 
     [Fact]
-    public void Pressure_can_be_disabled_and_zero_pressure_uses_the_default()
+    public void Pressure_width_is_off_by_default_the_line_does_not_react_to_pressure()
     {
-        var off = new InkSurface(400, 200) { PressureEnabled = false };
-        var offHard = new InkSurface(400, 200) { PressureEnabled = false };
+        // Методика: никакой видимой обратной связи по давлению (D15/§9.1/§7.5); ширина от давления — только для разработчика.
+        Assert.False(new InkSurface(10, 10).PressureEnabled);
+        var off = new InkSurface(400, 200);
+        var offHard = new InkSurface(400, 200);
         off.Add(TestSamples.Stroke(50, 100, 10, 0, 21, pressure: 0.1f));
         offHard.Add(TestSamples.Stroke(50, 100, 10, 0, 21, pressure: 1.0f));
         Assert.Equal(Covered(off), Covered(offHard));
+        Assert.True(off.Pixels.SequenceEqual(offHard.Pixels));
+    }
 
-        var zero = new InkSurface(400, 200);
-        var half = new InkSurface(400, 200);
+    [Fact]
+    public void Zero_pressure_uses_the_default_pressure_when_the_width_follows_pressure()
+    {
+        var zero = new InkSurface(400, 200) { PressureEnabled = true };
+        var half = new InkSurface(400, 200) { PressureEnabled = true };
         zero.Add(TestSamples.Stroke(50, 100, 10, 0, 21, pressure: 0f));
         half.Add(TestSamples.Stroke(50, 100, 10, 0, 21, pressure: 0.5f));
         Assert.Equal(Covered(half), Covered(zero));
@@ -136,7 +143,7 @@ public class InkSurfaceTests
     [Fact]
     public void Radius_changes_gradually_between_points()
     {
-        var surface = new InkSurface(500, 200);
+        var surface = new InkSurface(500, 200) { PressureEnabled = true };
         PenSample[] stroke = TestSamples.Stroke(50, 100, 10, 0, 30, pressure: 0.05f);
         for (int i = 15; i < stroke.Length; i++)
         {
@@ -167,6 +174,53 @@ public class InkSurfaceTests
         }
 
         return n;
+    }
+
+    [Fact]
+    public void Down_with_zero_pressure_does_not_start_the_stroke_thin()
+    {
+        // Давление в Down у части устройств ещё нулевое: сглаженное давление стартует со значения по умолчанию, а не с нуля.
+        var surface = new InkSurface(500, 200) { PressureEnabled = true };
+        PenSample[] stroke = TestSamples.Stroke(50, 100, 10, 0, 30, pressure: 0.5f);
+        stroke[0] = stroke[0] with { Pressure = 0f };
+
+        surface.Add(stroke);
+
+        int early = ColumnHeight(surface, 70);
+        int late = ColumnHeight(surface, 250);
+        Assert.True(Math.Abs(early - late) <= 1, $"the start ({early} px) must be as thick as the rest ({late} px)");
+    }
+
+    [Fact]
+    public void Clear_before_next_stroke_keeps_the_ink_until_the_next_touch()
+    {
+        var surface = new InkSurface(400, 200);
+        surface.Add(TestSamples.Stroke(50, 100, 10, 0, 15));
+        surface.ClearBeforeNextStroke = true;
+
+        surface.Add([TestSamples.Hover(80, 150, 2_000_000)]); // наведение чернила не стирает
+        Assert.NotEqual(0, Covered(surface));
+        Assert.Equal(1, surface.StrokeCount);
+
+        surface.Add(TestSamples.Stroke(50, 30, 10, 0, 6, startUs: 3_000_000));
+
+        Assert.False(surface.ClearBeforeNextStroke);
+        Assert.Equal(1, surface.StrokeCount); // счётчики начались заново
+        Assert.True((At(surface, 75, 30) >> 24) == 255, "the new stroke is drawn");
+        Assert.True((At(surface, 120, 100) >> 24) == 0, "the old stroke is gone");
+    }
+
+    [Fact]
+    public void Pending_arrival_times_belong_to_the_same_points_as_the_pending_stamps()
+    {
+        var surface = new InkSurface(400, 200);
+        surface.Add([TestSamples.Contact(50, 100, 1_000, PenPhase.Down)], arrivalUs: 5_000);
+        surface.Add([TestSamples.Contact(60, 100, 9_000)], arrivalUs: 12_000);
+
+        Assert.Equal(1_000, surface.PendingOldestPointUs);
+        Assert.Equal(5_000, surface.PendingFirstArrivalUs);
+        Assert.Equal(9_000, surface.PendingNewestPointUs);
+        Assert.Equal(12_000, surface.PendingLatestArrivalUs);
     }
 
     [Fact]
@@ -244,7 +298,7 @@ public class InkSurfaceTests
     [Fact]
     public void Hot_path_does_not_allocate_over_1000_batches()
     {
-        var surface = new InkSurface(1920, 1080);
+        var surface = new InkSurface(1920, 1080) { PressureEnabled = true };
         var batch = new PenSample[4];
 
         // Прогрев: JIT, таблицы, первая запись в буфер.

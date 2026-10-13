@@ -172,7 +172,7 @@ public class LiveInkLayerTests
             long Now() => MonotonicTime.ToMicroseconds(clock.Ticks, clock.Frequency);
 
             // Кадр 1: точка поставлена устройством 3 мс назад, пачка получена «сейчас», кадр — через 8 мс.
-            layer.AddSamples([TestSamples.Hover(50, 100, Now() - 3000)]);
+            layer.AddSamples([TestSamples.Contact(50, 100, Now() - 3000, PenPhase.Down)]);
             clock.Advance(TimeSpan.FromMilliseconds(8));
             layer.FrameTick();
 
@@ -189,9 +189,9 @@ public class LiveInkLayerTests
 
             // Кадр 2: две пачки между кадрами. Среднее считается по новейшей точке (5 мс), максимум — по старейшей (10 мс).
             long start = Now();
-            layer.AddSamples([TestSamples.Hover(60, 100, start - 2000)]);
+            layer.AddSamples([TestSamples.Contact(60, 100, start - 2000)]);
             clock.Advance(TimeSpan.FromMilliseconds(4));
-            layer.AddSamples([TestSamples.Hover(70, 100, start + 3000)]);
+            layer.AddSamples([TestSamples.Contact(70, 100, start + 3000)]);
             clock.Advance(TimeSpan.FromMilliseconds(4));
             layer.FrameTick();
 
@@ -200,11 +200,34 @@ public class LiveInkLayerTests
             Assert.Equal(8.0, second.MeanPointToRenderMs, 1); // (11 + 5) / 2
             Assert.Equal(11.0, second.MaxPointToRenderMs, 1);
             Assert.Equal(5.0, second.LastPointToRenderMs, 1);
-            Assert.Equal(8.0, second.MeanArrivalToRenderMs, 1);
-            Assert.Equal(8.0, second.MaxArrivalToRenderMs, 1);
+            Assert.Equal(6.0, second.MeanArrivalToRenderMs, 1); // (8 + 4) / 2: по пачке с той же новейшей точкой (4 мс до кадра)
+            Assert.Equal(8.0, second.MaxArrivalToRenderMs, 1); // по пачке со старейшей точкой
 
             layer.ResetLatency();
             Assert.True(layer.Latency.IsEmpty);
+        });
+    }
+
+    [Fact]
+    public void Frames_with_only_hover_points_are_not_counted_in_the_latency()
+    {
+        Sta.Run(() =>
+        {
+            var clock = new FakeMonotonicClock();
+            LiveInkLayer layer = Create(clock);
+            long Now() => MonotonicTime.ToMicroseconds(clock.Ticks, clock.Frequency);
+
+            layer.AddSamples([TestSamples.Hover(50, 100, Now() - 2000)]);
+            clock.Advance(TimeSpan.FromMilliseconds(5));
+            layer.FrameTick();
+            Assert.True(layer.Latency.IsEmpty);
+
+            layer.AddSamples([TestSamples.Contact(50, 100, Now() - 2000, PenPhase.Down)]);
+            clock.Advance(TimeSpan.FromMilliseconds(5));
+            layer.FrameTick();
+            Assert.Equal(1, layer.Latency.Frames);
+            Assert.Equal(7.0, layer.Latency.MeanPointToRenderMs, 1);
+            Assert.Equal(5.0, layer.Latency.MeanArrivalToRenderMs, 1);
         });
     }
 
@@ -227,6 +250,58 @@ public class LiveInkLayerTests
             noClock.AddSamples(TestSamples.Stroke(50, 100, 12, 0, 4));
             noClock.FrameTick();
             Assert.True(noClock.Latency.IsEmpty);
+        });
+    }
+
+    [Fact]
+    public void Pressure_width_is_off_by_default_and_the_raster_is_not_smoothed_by_the_scaler()
+    {
+        Sta.Run(() =>
+        {
+            var layer = new LiveInkLayer();
+
+            Assert.False(layer.PressureEnabled);
+            Assert.Equal(System.Windows.Media.BitmapScalingMode.NearestNeighbor, System.Windows.Media.RenderOptions.GetBitmapScalingMode(layer));
+            layer.PressureEnabled = true;
+            Assert.True(layer.PressureEnabled);
+        });
+    }
+
+    [Fact]
+    public void Same_size_and_dpi_do_not_recreate_the_bitmap()
+    {
+        Sta.Run(() =>
+        {
+            LiveInkLayer layer = Create(width: 400, height: 200);
+            int generation = layer.BitmapGeneration;
+            layer.AddSamples(TestSamples.Stroke(50, 100, 10, 0, 21));
+
+            layer.ConfigureSurface(400, 200, 1.0);
+            layer.ConfigureSurface(400, 200, 1.0);
+
+            Assert.Equal(generation, layer.BitmapGeneration);
+            Assert.Equal(1, layer.StrokeCount);
+
+            layer.ConfigureSurface(500, 200, 1.0);
+            Assert.Equal(generation + 1, layer.BitmapGeneration);
+        });
+    }
+
+    [Fact]
+    public void Clear_before_next_stroke_is_forwarded_to_the_surface()
+    {
+        Sta.Run(() =>
+        {
+            LiveInkLayer layer = Create(width: 400, height: 200);
+            layer.AddSamples(TestSamples.Stroke(50, 100, 10, 0, 15));
+            layer.ClearBeforeNextStroke = true;
+            layer.AddSamples([TestSamples.Hover(10, 10)]);
+            Assert.Equal(1, layer.StrokeCount);
+
+            layer.AddSamples(TestSamples.Stroke(50, 30, 10, 0, 6, startUs: 3_000_000));
+
+            Assert.Equal(1, layer.StrokeCount);
+            Assert.False(layer.ClearBeforeNextStroke);
         });
     }
 
@@ -273,6 +348,7 @@ public class LiveInkLayerTests
             var clock = new FakeMonotonicClock();
             var gc = new RecordingGcMode();
             LiveInkLayer layer = Create(clock, gc, 1920, 1080);
+            layer.PressureEnabled = true;
             var batch = new PenSample[4];
 
             for (int i = 0; i < 400; i++)

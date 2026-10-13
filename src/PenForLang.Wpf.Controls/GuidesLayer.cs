@@ -46,11 +46,21 @@ public sealed class GuidesLayer : FrameworkElement
     private static readonly Pen OuterPen = MakePen(Color.FromRgb(0xB9, 0xC6, 0xE0), 1.0, new DashStyle([2, 4], 0));
     private static readonly Pen SlantPen = MakePen(Color.FromArgb(0x60, 0xB9, 0xC6, 0xE0), 1.0, null);
 
+    private readonly TranslateTransform _snap = new();
+
     /// <summary>Создаёт слой; ввод слой не принимает.</summary>
     public GuidesLayer()
     {
         IsHitTestVisible = false;
+        RenderTransform = _snap;
+        LayoutUpdated += (_, _) => SnapToPixelGrid();
     }
+
+    /// <summary>Сдвиг, прижимающий слой к сетке физических пикселей (<see cref="PixelSnap"/>): линии в 1 px иначе расплываются.</summary>
+    public Vector SnapOffset => new(_snap.X, _snap.Y);
+
+    /// <summary>Прижимает слой к сетке физических пикселей.</summary>
+    public void SnapToPixelGrid() => PixelSnap.Apply(this, _snap, EffectiveDpiScale);
 
     /// <summary>Линейка попытки.</summary>
     public GuideFrame? Guides

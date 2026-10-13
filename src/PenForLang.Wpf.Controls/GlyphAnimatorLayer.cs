@@ -43,10 +43,6 @@ public sealed class GlyphAnimatorLayer : FrameworkElement
         new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender));
 
     private const double FlattenToleranceXHeights = 0.003;
-    private const double ArrowSizeXHeights = 0.075;
-    private const double BadgeRadiusXHeights = 0.085;
-    private const double StartDotRadiusXHeights = 0.05;
-    private const double PenRadiusXHeights = 0.07;
 
     private static readonly SolidColorBrush InkBrush = Frozen(Color.FromRgb(0x1A, 0x5F, 0xB4));
     private static readonly SolidColorBrush DeferredBrush = Frozen(Color.FromRgb(0xC0, 0x1C, 0x28));
@@ -57,6 +53,13 @@ public sealed class GlyphAnimatorLayer : FrameworkElement
     private static readonly SolidColorBrush WhiteBrush = Frozen(Colors.White);
 
     private readonly IMonotonicClock _clock;
+    private readonly TranslateTransform _snap = new();
+    private readonly Dictionary<int, StreamGeometry?[]> _completed = [];
+    private readonly Dictionary<(int Number, double Em, double Dpi), FormattedText> _texts = [];
+    private (GuideFrame? Frame, double Dpi, double Width) _cacheKey;
+    private Pen? _bodyPen;
+    private Pen? _deferredPen;
+    private Pen? _leadPen;
     private StrokeCache[] _cache = [];
     private AnimationState? _state;
     private double _positionMs;
@@ -78,9 +81,17 @@ public sealed class GlyphAnimatorLayer : FrameworkElement
         _clock = clock ?? new StopwatchMonotonicClock();
         IsHitTestVisible = false;
         SnapsToDevicePixels = true;
+        RenderTransform = _snap;
+        LayoutUpdated += (_, _) => SnapToPixelGrid();
         Loaded += (_, _) => SubscribeRendering();
         Unloaded += (_, _) => UnsubscribeRendering();
     }
+
+    /// <summary>Сдвиг, прижимающий слой к сетке физических пикселей (<see cref="PixelSnap"/>).</summary>
+    public Vector SnapOffset => new(_snap.X, _snap.Y);
+
+    /// <summary>Прижимает слой к сетке физических пикселей.</summary>
+    public void SnapToPixelGrid() => PixelSnap.Apply(this, _snap, EffectiveDpiScale);
 
     /// <summary>Воспроизведение дошло до конца сценария (вызывается один раз за проход).</summary>
     public event EventHandler? PlaybackFinished;
@@ -112,6 +123,9 @@ public sealed class GlyphAnimatorLayer : FrameworkElement
     /// <summary>Толщина линии, мм.</summary>
     public double StrokeWidthMm { get; set; } = 1.4;
 
+    /// <summary>Размеры меток (стрелки, номера, точки старта, «пера») с минимумами в миллиметрах.</summary>
+    public AnimatorMarkStyle Marks { get; set; } = new();
+
     /// <summary>Множитель скорости воспроизведения (1 — как в сценарии); &gt; 0.</summary>
     public double Speed { get; set; } = 1.0;
 
@@ -126,6 +140,9 @@ public sealed class GlyphAnimatorLayer : FrameworkElement
 
     /// <summary>Состояние кадра в текущей позиции (<c>null</c> без сценария).</summary>
     public AnimationState? State => _state;
+
+    /// <summary>Сколько готовых штрихов закешировано как замороженная геометрия (перерисовывается только активный).</summary>
+    public int CachedStrokeCount => _completed.Count;
 
     /// <summary>Положение «пера» в DIP слоя (<c>null</c> без сценария или линейки).</summary>
     public Point? PenPositionDip => _state is { } state && Guides is { } frame ? ToDip(frame, state.PenPosition) : null;
@@ -206,33 +223,34 @@ public sealed class GlyphAnimatorLayer : FrameworkElement
 
         double dpi = EffectiveDpiScale;
         double xhDip = frame.XHeightPx / dpi;
-        double width = Math.Max(StrokeWidthMm * frame.PxPerMm / dpi, 1.0);
-        EnsureCache(script);
+        double mm = frame.PxPerMm / dpi; // DIP в одном миллиметре
+        double width = Math.Max(StrokeWidthMm * mm, 1.0);
+        EnsureCache(script, frame, dpi, width);
 
         for (int i = 0; i < script.Strokes.Length; i++)
         {
-            DrawStroke(drawingContext, script.Strokes[i], _cache[i], state.StrokeProgress[i], frame, width);
+            DrawStroke(drawingContext, script.Strokes[i], i, state.StrokeProgress[i], frame);
         }
 
+        AnimatorMarkSizes sizes = Marks.Resolve(xhDip, mm);
         foreach (int index in state.VisibleStartDots)
         {
-            ScriptStartDot dot = script.StartDots[index];
-            drawingContext.DrawEllipse(StartBrush, null, ToDip(frame, dot.Position), Math.Max(StartDotRadiusXHeights * xhDip, 3.5), Math.Max(StartDotRadiusXHeights * xhDip, 3.5));
+            drawingContext.DrawEllipse(StartBrush, null, ToDip(frame, script.StartDots[index].Position), sizes.StartDotRadius, sizes.StartDotRadius);
         }
 
         foreach (int index in state.VisibleArrows)
         {
-            DrawArrow(drawingContext, frame, script.Arrows[index], xhDip);
+            DrawArrow(drawingContext, frame, script.Arrows[index], sizes, width);
         }
 
         foreach (int index in state.VisibleNumbers)
         {
-            DrawBadge(drawingContext, frame, script.Numbers[index], xhDip, dpi);
+            DrawBadge(drawingContext, frame, script.Numbers[index], sizes, dpi);
         }
 
         if (!state.IsFinished)
         {
-            DrawPen(drawingContext, ToDip(frame, state.PenPosition), state.PenDown, xhDip);
+            DrawPen(drawingContext, ToDip(frame, state.PenPosition), state.PenDown, sizes);
         }
     }
 
@@ -240,6 +258,7 @@ public sealed class GlyphAnimatorLayer : FrameworkElement
     {
         var layer = (GlyphAnimatorLayer)d;
         layer._cache = [];
+        layer._completed.Clear();
         layer._isPlaying = false;
         layer.SeekCore(0);
     }
@@ -300,43 +319,99 @@ public sealed class GlyphAnimatorLayer : FrameworkElement
         }
     }
 
-    private void EnsureCache(AnimationScript script)
+    private void EnsureCache(AnimationScript script, GuideFrame frame, double dpi, double widthDip)
     {
-        if (_cache.Length == script.Strokes.Length)
+        if (_cache.Length != script.Strokes.Length)
         {
-            return;
+            _cache = new StrokeCache[script.Strokes.Length];
+            for (int i = 0; i < script.Strokes.Length; i++)
+            {
+                _cache[i] = StrokeCache.Build(script.Strokes[i].Path.Flatten(FlattenToleranceXHeights));
+            }
+
+            _completed.Clear();
         }
 
-        _cache = new StrokeCache[script.Strokes.Length];
-        for (int i = 0; i < script.Strokes.Length; i++)
+        // Геометрия готовых штрихов и кисти зависят от линейки, DPI и толщины; при их смене пересобираются.
+        if (!ReferenceEquals(_cacheKey.Frame, frame) || _cacheKey.Dpi != dpi || _cacheKey.Width != widthDip || _bodyPen is null)
         {
-            _cache[i] = StrokeCache.Build(script.Strokes[i].Path.Flatten(FlattenToleranceXHeights));
+            _cacheKey = (frame, dpi, widthDip);
+            _completed.Clear();
+            _bodyPen = MakePen(InkBrush, widthDip);
+            _deferredPen = MakePen(DeferredBrush, widthDip);
+            _leadPen = MakePen(LeadBrush, widthDip * 0.6);
         }
     }
 
-    private void DrawStroke(DrawingContext dc, AnimatedStroke stroke, StrokeCache cache, double progress, GuideFrame frame, double widthDip)
+    private static Pen MakePen(Brush brush, double width)
     {
+        var pen = new Pen(brush, width) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round };
+        pen.Freeze();
+        return pen;
+    }
+
+    private void DrawStroke(DrawingContext dc, AnimatedStroke stroke, int index, double progress, GuideFrame frame)
+    {
+        StrokeCache cache = _cache[index];
         if (progress <= 0 || cache.Total <= 0 || stroke.Path.Length <= 0)
         {
             return;
         }
 
-        double length = stroke.Path.Length;
-        double drawn = Math.Min(progress, 1.0) * length;
+        Pen bodyPen = stroke.IsDeferred ? _deferredPen! : _bodyPen!;
 
-        // Участки пути: входящий штрих, тело, выходящий штрих. Тело — цветом штриха, ведущие участки — серым и тоньше.
-        double bodyEnd = stroke.BodyStart + stroke.BodyLength;
-        Brush bodyBrush = stroke.IsDeferred ? DeferredBrush : InkBrush;
-        DrawRange(dc, cache, frame, length, 0, Math.Min(drawn, stroke.BodyStart), LeadBrush, widthDip * 0.6);
-        DrawRange(dc, cache, frame, length, stroke.BodyStart, Math.Min(drawn, bodyEnd), bodyBrush, widthDip);
-        DrawRange(dc, cache, frame, length, bodyEnd, drawn, LeadBrush, widthDip * 0.6);
+        // Готовый штрих: три замороженные геометрии (входящий, тело, выходящий), собираются один раз; перерисовывается только активный.
+        if (progress >= 1.0)
+        {
+            if (!_completed.TryGetValue(index, out StreamGeometry?[]? parts))
+            {
+                parts = BuildParts(stroke, cache, frame, stroke.Path.Length);
+                _completed[index] = parts;
+            }
+
+            DrawParts(dc, parts, bodyPen);
+            return;
+        }
+
+        DrawParts(dc, BuildParts(stroke, cache, frame, Math.Min(progress, 1.0) * stroke.Path.Length), bodyPen);
     }
 
-    private void DrawRange(DrawingContext dc, StrokeCache cache, GuideFrame frame, double pathLength, double from, double to, Brush brush, double widthDip)
+    private void DrawParts(DrawingContext dc, StreamGeometry?[] parts, Pen bodyPen)
+    {
+        // Участки пути: входящий штрих, тело, выходящий штрих. Тело — цветом штриха, ведущие участки — серым и тоньше.
+        if (parts[0] is { } lead)
+        {
+            dc.DrawGeometry(null, _leadPen, lead);
+        }
+
+        if (parts[1] is { } body)
+        {
+            dc.DrawGeometry(null, bodyPen, body);
+        }
+
+        if (parts[2] is { } tail)
+        {
+            dc.DrawGeometry(null, _leadPen, tail);
+        }
+    }
+
+    private StreamGeometry?[] BuildParts(AnimatedStroke stroke, StrokeCache cache, GuideFrame frame, double drawn)
+    {
+        double length = stroke.Path.Length;
+        double bodyEnd = stroke.BodyStart + stroke.BodyLength;
+        return
+        [
+            BuildRange(cache, frame, length, 0, Math.Min(drawn, stroke.BodyStart)),
+            BuildRange(cache, frame, length, stroke.BodyStart, Math.Min(drawn, bodyEnd)),
+            BuildRange(cache, frame, length, bodyEnd, drawn),
+        ];
+    }
+
+    private StreamGeometry? BuildRange(StrokeCache cache, GuideFrame frame, double pathLength, double from, double to)
     {
         if (!(to > from))
         {
-            return;
+            return null;
         }
 
         double scale = cache.Total / pathLength;
@@ -351,50 +426,63 @@ public sealed class GlyphAnimatorLayer : FrameworkElement
         }
 
         geometry.Freeze();
-        var pen = new Pen(brush, widthDip) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round };
-        dc.DrawGeometry(null, pen, geometry);
+        return geometry;
     }
 
-    private void DrawArrow(DrawingContext dc, GuideFrame frame, ScriptArrow arrow, double xhDip)
+    private void DrawArrow(DrawingContext dc, GuideFrame frame, ScriptArrow arrow, AnimatorMarkSizes sizes, double strokeWidthDip)
     {
-        double size = ArrowSizeXHeights * xhDip;
-        Point p = ToDip(frame, arrow.Position);
+        double length = sizes.ArrowLength;
 
-        // Направление глифа (v вверх) → экран (y вниз).
+        // Направление глифа (v вверх) → экран (y вниз). Стрелка стоит рядом со штрихом (слева по ходу пера), а не на нём.
         var d = new Vector(arrow.Direction.X, -arrow.Direction.Y);
-        var n = new Vector(-d.Y, d.X);
+        if (d.Length > 0)
+        {
+            d.Normalize();
+        }
+
+        var n = new Vector(d.Y, -d.X);
+        Point p = ToDip(frame, arrow.Position) + (n * ((strokeWidthDip / 2) + sizes.ArrowSideOffset));
+        double half = length * 0.4;
         var geometry = new StreamGeometry();
         using (StreamGeometryContext ctx = geometry.Open())
         {
-            ctx.BeginFigure(p + (d * size), true, true);
-            ctx.LineTo(p - (d * (size * 0.7)) + (n * (size * 0.75)), true, false);
-            ctx.LineTo(p - (d * (size * 0.7)) - (n * (size * 0.75)), true, false);
+            ctx.BeginFigure(p + (d * (length * 0.6)), true, true);
+            ctx.LineTo(p - (d * (length * 0.4)) + (n * half), true, false);
+            ctx.LineTo(p - (d * (length * 0.4)) - (n * half), true, false);
         }
 
         geometry.Freeze();
         dc.DrawGeometry(InkBrush, new Pen(WhiteBrush, 1), geometry);
     }
 
-    private void DrawBadge(DrawingContext dc, GuideFrame frame, ScriptNumber number, double xhDip, double dpi)
+    private void DrawBadge(DrawingContext dc, GuideFrame frame, ScriptNumber number, AnimatorMarkSizes sizes, double dpi)
     {
-        double radius = Math.Max(BadgeRadiusXHeights * xhDip, 8);
+        // Цифра не меньше DigitMinMm (высота цифры ≈ 0,7 кегля); кружок не меньше BadgeMinDiameterMm и охватывает цифру.
+        double em = sizes.DigitEm;
+        double radius = sizes.BadgeRadius;
         Point center = ToDip(frame, number.Position);
         dc.DrawEllipse(WhiteBrush, new Pen(BadgeBrush, 1.5), center, radius, radius);
-        var text = new FormattedText(
-            number.Number.ToString(CultureInfo.InvariantCulture),
-            CultureInfo.InvariantCulture,
-            FlowDirection.LeftToRight,
-            new Typeface("Segoe UI"),
-            radius * 1.2,
-            BadgeBrush,
-            dpi);
+
+        double emKey = Math.Round(em, 2);
+        if (!_texts.TryGetValue((number.Number, emKey, dpi), out FormattedText? text))
+        {
+            text = new FormattedText(
+                number.Number.ToString(CultureInfo.InvariantCulture),
+                CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight,
+                new Typeface("Segoe UI"),
+                em,
+                BadgeBrush,
+                dpi);
+            _texts[(number.Number, emKey, dpi)] = text;
+        }
+
         dc.DrawText(text, new Point(center.X - (text.Width / 2), center.Y - (text.Height / 2)));
     }
 
-    private static void DrawPen(DrawingContext dc, Point at, bool down, double xhDip)
+    private static void DrawPen(DrawingContext dc, Point at, bool down, AnimatorMarkSizes sizes)
     {
-        double radius = Math.Max(PenRadiusXHeights * xhDip, 5);
-        dc.DrawEllipse(down ? PenBrush : null, new Pen(PenBrush, 2), at, radius, radius);
+        dc.DrawEllipse(down ? PenBrush : null, new Pen(PenBrush, 2), at, sizes.PenRadius, sizes.PenRadius);
     }
 
     private void SubscribeRendering()

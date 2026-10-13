@@ -17,6 +17,7 @@ public sealed class SandboxSession : IDisposable
     private readonly Func<string, int, PenLogHeader?> _headerProvider;
     private readonly List<RecordedAttempt> _recorded = [];
     private string _letter;
+    private bool _stimulusOpen;
 
     /// <summary>Создаёт сеанс.</summary>
     /// <param name="clock">Монотонные часы (QPC).</param>
@@ -24,18 +25,20 @@ public sealed class SandboxSession : IDisposable
     /// <param name="now">Календарное время для имён файлов.</param>
     /// <param name="headerProvider">Заголовок penlog для (буква, номер попытки); <c>null</c>, пока линейка не известна.</param>
     /// <param name="initialLetter">Буква, с которой начинается сеанс.</param>
+    /// <param name="sinkFactory">Фабрика приёмника записи (для тестов); <c>null</c> — файл.</param>
     public SandboxSession(
         IMonotonicClock clock,
         string? penLogDirectory,
         Func<DateTimeOffset> now,
         Func<string, int, PenLogHeader?> headerProvider,
-        string initialLetter)
+        string initialLetter,
+        AttemptLogSinkFactory? sinkFactory = null)
     {
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(now);
         ArgumentNullException.ThrowIfNull(headerProvider);
         ArgumentException.ThrowIfNullOrEmpty(initialLetter);
-        _recorder = penLogDirectory is null ? null : new AttemptRecorder(penLogDirectory, clock);
+        _recorder = penLogDirectory is null ? null : new AttemptRecorder(penLogDirectory, clock, sinkFactory);
         _now = now;
         _headerProvider = headerProvider;
         _letter = initialLetter;
@@ -87,12 +90,44 @@ public sealed class SandboxSession : IDisposable
         BeginAttempt();
     }
 
-    /// <summary>Эталон показан («Показать»): событие начала стимула.</summary>
-    public void StimulusStarted() =>
-        _recorder?.RecordEvent(InkEvent.Names.StimulusStart, new Dictionary<string, string> { ["key"] = "glyph/" + _letter });
+    /// <summary>Заголовок стал известен (линейка построена): ставит открытие файла попытки в очередь фоновой записи.</summary>
+    public void Arm() => _recorder?.Arm();
 
-    /// <summary>Показ эталона закончен.</summary>
-    public void StimulusEnded() => _recorder?.RecordEvent(InkEvent.Names.StimulusEnd);
+    /// <summary>Ждёт окончания фоновой записи (выход, тесты).</summary>
+    public bool Drain(TimeSpan timeout) => _recorder?.Drain(timeout) ?? true;
+
+    /// <summary>
+    /// Отменяет текущую попытку (например, сменился монитор и масштаб в px/мм: линейка и чернила больше не соответствуют друг другу):
+    /// запись закрывается как отменённая, начинается новая попытка с тем же номером.
+    /// </summary>
+    public void CancelAttempt()
+    {
+        EndAttempt("cancelled");
+        BeginAttempt();
+    }
+
+    /// <summary>Эталон показан («Показать»): событие начала стимула (предыдущий показ, если не закончен, закрывается).</summary>
+    public void StimulusStarted()
+    {
+        StimulusEnded();
+        _stimulusOpen = true;
+        _recorder?.RecordEvent(InkEvent.Names.StimulusStart, new Dictionary<string, string> { ["key"] = "glyph/" + _letter });
+    }
+
+    /// <summary>
+    /// Показ эталона закончен (доиграл, прерван касанием, сменилась буква, «Готово», выход). Пишется один раз на показ; без начатого
+    /// показа ничего не делает.
+    /// </summary>
+    public void StimulusEnded()
+    {
+        if (!_stimulusOpen)
+        {
+            return;
+        }
+
+        _stimulusOpen = false;
+        _recorder?.RecordEvent(InkEvent.Names.StimulusEnd);
+    }
 
     /// <summary>«Заново»: холст очищен, попытка продолжается (A10).</summary>
     public void Restart()
@@ -123,6 +158,7 @@ public sealed class SandboxSession : IDisposable
 
     private RecordedAttempt? EndAttempt(string by)
     {
+        StimulusEnded();
         RecordedAttempt? result = _recorder?.Complete(by);
         if (result is not null)
         {

@@ -85,6 +85,9 @@ internal static class TestSamples
         return samples;
     }
 
+    public static PenSample Contact(double x, double y, long timeUs, PenPhase phase = PenPhase.Move, float pressure = 0.5f) =>
+        new(timeUs, x, y, pressure, 0, 0, phase, PenButtons.None, SampleFlags.None, 1);
+
     public static PenSample Hover(double x, double y, long timeUs = 1_000_000) =>
         new(timeUs, x, y, 0, 0, 0, PenPhase.Hover, PenButtons.None, SampleFlags.None, 1);
 }

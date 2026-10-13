@@ -37,6 +37,7 @@ public sealed class LiveInkLayer : FrameworkElement
     private readonly DrawingVisual _tip = new();
     private readonly RenderLatencyMeter _meter = new();
     private readonly AttemptGcLatencyGuard _gcGuard;
+    private readonly TranslateTransform _snap = new();
 
     private IPenInputSource? _source;
     private InkSurface? _surface;
@@ -73,6 +74,11 @@ public sealed class LiveInkLayer : FrameworkElement
         ClipToBounds = true;
         SnapsToDevicePixels = true;
         UseLayoutRounding = true;
+
+        // Растр выводится 1:1 в физических пикселях: без передискретизации и со страховкой от дробного положения слоя (PixelSnap).
+        RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.NearestNeighbor);
+        RenderTransform = _snap;
+        LayoutUpdated += (_, _) => SnapToPixelGrid();
         Loaded += (_, _) => SubscribeRendering();
         Unloaded += (_, _) =>
         {
@@ -144,13 +150,40 @@ public sealed class LiveInkLayer : FrameworkElement
     /// <summary>Сводка задержки «метка точки → Rendering».</summary>
     public RenderLatency Latency => _meter.Snapshot();
 
+    /// <summary>Сколько раз пересоздавался битмап растра (для диагностики и тестов: при том же размере и DPI не растёт).</summary>
+    public int BitmapGeneration { get; private set; }
+
     /// <summary>Масштаб DPI, в котором создан растр.</summary>
     public double RasterDpiScale => _dpiScale;
 
     /// <summary>DPI-масштаб для растра; 0 или меньше — брать у окна (<see cref="VisualTreeHelper.GetDpi"/>). Для тестов и принудительной настройки.</summary>
     public double DpiScale { get; set; }
 
-    private bool _pressureEnabled = true;
+    private bool _pressureEnabled;
+    private bool _clearBeforeNextStroke;
+
+    /// <summary>Масштаб, которым слой переводит px в DIP: <see cref="DpiScale"/> или DPI окна.</summary>
+    public double EffectiveDpiScale => DpiScale > 0 ? DpiScale : VisualTreeHelper.GetDpi(this).DpiScaleX;
+
+    /// <summary>Сдвиг, прижимающий слой к сетке физических пикселей (<see cref="PixelSnap"/>).</summary>
+    public Vector SnapOffset => new(_snap.X, _snap.Y);
+
+    /// <summary>Прижимает слой к сетке физических пикселей: гасит дробную часть его положения в окне.</summary>
+    public void SnapToPixelGrid() => PixelSnap.Apply(this, _snap, EffectiveDpiScale);
+
+    /// <summary>Очистить чернила перед следующим касанием («Готово» оставляет штрихи на экране до него).</summary>
+    public bool ClearBeforeNextStroke
+    {
+        get => _surface?.ClearBeforeNextStroke ?? _clearBeforeNextStroke;
+        set
+        {
+            _clearBeforeNextStroke = value;
+            if (_surface is not null)
+            {
+                _surface.ClearBeforeNextStroke = value;
+            }
+        }
+    }
 
     /// <summary>Подписывается на пачки точек источника; предыдущий источник отключается.</summary>
     public void Attach(IPenInputSource source)
@@ -230,8 +263,13 @@ public sealed class LiveInkLayer : FrameworkElement
         _dpiScale = dpiScale;
         if (_surface is null)
         {
-            _surface = new InkSurface(widthPx, heightPx) { PressureEnabled = _pressureEnabled };
+            _surface = new InkSurface(widthPx, heightPx) { PressureEnabled = _pressureEnabled, ClearBeforeNextStroke = _clearBeforeNextStroke };
             ApplyBrush();
+        }
+        else if (_bitmap is not null && _surface.WidthPx == widthPx && _surface.HeightPx == heightPx
+            && Math.Abs(_bitmap.DpiX - (96.0 * dpiScale)) < 1e-6)
+        {
+            return; // тот же размер и DPI: растр и битмап уже подходят (смена раскладки не должна пересоздавать буфер)
         }
         else
         {
@@ -239,6 +277,7 @@ public sealed class LiveInkLayer : FrameworkElement
         }
 
         _bitmap = new WriteableBitmap(widthPx, heightPx, 96.0 * dpiScale, 96.0 * dpiScale, PixelFormats.Pbgra32, null);
+        BitmapGeneration++;
         UploadAll();
         InvalidateVisual();
     }
@@ -254,17 +293,19 @@ public sealed class LiveInkLayer : FrameworkElement
             return;
         }
 
-        if (surface.TryTakeDirty(out Int32Rect rect))
+        bool rasterChanged = surface.TryTakeDirty(out Int32Rect rect);
+        if (rasterChanged)
         {
             Upload(rect);
         }
 
         if (surface.HasPending)
         {
-            if (Clock is { } clock && _timesAbsolute && _clockFrequency > 0)
+            // Задержка — только по кадрам, где изменился растр (касание); кадры с одним наведением не в счёт.
+            if (rasterChanged && Clock is { } clock && _timesAbsolute && _clockFrequency > 0)
             {
                 long nowUs = MonotonicTime.ToMicroseconds(clock.Ticks, _clockFrequency);
-                _meter.Record(nowUs, surface.PendingNewestPointUs, surface.PendingOldestPointUs, surface.PendingFirstArrivalUs);
+                _meter.Record(nowUs, surface.PendingNewestPointUs, surface.PendingOldestPointUs, surface.PendingLatestArrivalUs, surface.PendingFirstArrivalUs);
             }
 
             surface.ClearPending();
@@ -314,7 +355,7 @@ public sealed class LiveInkLayer : FrameworkElement
 
     private void ConfigureFromLayout()
     {
-        double dpi = DpiScale > 0 ? DpiScale : VisualTreeHelper.GetDpi(this).DpiScaleX;
+        double dpi = EffectiveDpiScale;
         int width = (int)Math.Round(RenderSize.Width * dpi);
         int height = (int)Math.Round(RenderSize.Height * dpi);
         ConfigureSurface(width, height, dpi);
