@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:pfl:schema:annotation:1",
+  "title": "pfl.annotation/1",
+  "description": "Annotation of one pen recording (InkLab, V0.9): <recording>.pfl.jsonl.gz.ann.json next to the recording. Stroke and sample numbers follow PenLog.ToInkAttempt() (strokes after the last restart, from 0). Cross-field rules (junction count = letters - 1, monotone boundaries, lift geometry) are checked by AnnotationValidator in Tools.InkLab, not by this schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "penlog", "annotator", "text", "quality", "strokeSamples", "junctions", "deferred"],
+  "properties": {
+    "schema": { "const": "pfl.annotation/1" },
+    "penlog": { "type": "string", "description": "File name of the recording, without a path." },
+    "target": { "type": ["string", "null"], "description": "task.target of the recording, e.g. word:at." },
+    "annotator": { "type": "string" },
+    "annotatedAt": { "type": ["string", "null"], "description": "UTC, ISO 8601." },
+    "text": { "type": "string", "description": "What was actually written: letters in order, no spaces." },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["usable", "flags"],
+      "properties": {
+        "usable": { "type": "boolean" },
+        "flags": { "type": "array", "items": { "enum": ["wrongContent", "corrected", "hesitation", "outOfGuides", "deviceGlitch", "other"] } },
+        "note": { "type": ["string", "null"] }
+      }
+    },
+    "strokeSamples": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "description": "Number of samples in each stroke when the annotation was made." },
+    "junctions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["after", "kind", "end", "start"],
+        "properties": {
+          "after": { "type": "integer", "minimum": 0, "description": "Junction between letters after and after + 1." },
+          "kind": { "enum": ["connected", "lifted"] },
+          "end": { "$ref": "#/$defs/point", "description": "Where the body of the left letter ends." },
+          "start": { "$ref": "#/$defs/point", "description": "Where the body of the right letter starts; equal to end when there is no connecting stroke." }
+        }
+      }
+    },
+    "deferred": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["stroke", "letter", "kind", "timing"],
+        "properties": {
+          "stroke": { "type": "integer", "minimum": 0 },
+          "letter": { "type": "integer", "minimum": 0 },
+          "kind": { "enum": ["dot", "crossbar", "other"] },
+          "timing": { "enum": ["immediate", "afterWord"] }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stroke", "sample"],
+      "properties": {
+        "stroke": { "type": "integer", "minimum": 0 },
+        "sample": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

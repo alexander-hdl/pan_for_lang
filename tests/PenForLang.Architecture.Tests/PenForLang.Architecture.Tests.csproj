@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\PenForLang.App.Wpf\PenForLang.App.Wpf.csproj" />
     <ProjectReference Include="..\..\tools\PenForLang.Testing\PenForLang.Testing.csproj" />
     <ProjectReference Include="..\..\tools\PenForLang.Tools.Cli\PenForLang.Tools.Cli.csproj" />
+    <ProjectReference Include="..\..\tools\PenForLang.Tools.InkLab\PenForLang.Tools.InkLab.csproj" />
     <ProjectReference Include="..\PenForLang.Architecture.Fixtures\PenForLang.Architecture.Fixtures.csproj" />
   </ItemGroup>
 

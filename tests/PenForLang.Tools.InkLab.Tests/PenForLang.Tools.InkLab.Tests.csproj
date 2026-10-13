@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\tools\PenForLang.Tools.InkLab\PenForLang.Tools.InkLab.csproj" />
+    <!-- FakeMonotonicClock, FakeClock, FakePenInputSource. -->
+    <ProjectReference Include="..\..\tools\PenForLang.Testing\PenForLang.Testing.csproj" />
+  </ItemGroup>
+
+</Project>

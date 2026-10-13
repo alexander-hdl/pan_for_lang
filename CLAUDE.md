@@ -10,7 +10,8 @@
 ## Структура решения (`PenForLang.sln`)
 - `src/PenForLang.*` — продуктовые сборки. Сейчас (веха v0): `Core`, `Ink`, `Glyphs`, `Evaluation`,
   `Platform.Windows`, `Wpf.Controls`, `App.Wpf`. Остальные из §2.2 появятся по плану.
-- `tools/` — `PenForLang.Testing` (FakeClock, позже SynthInk), `PenForLang.Tools.Cli` (исполняемый файл `pfl`).
+- `tools/` — `PenForLang.Testing` (FakeClock, позже SynthInk), `PenForLang.Tools.Cli` (исполняемый файл `pfl`),
+  `PenForLang.Tools.InkLab` (WPF: запись, повтор, разметка; README рядом; WPF здесь допустим, продукт на него не ссылается).
 - `tests/PenForLang.<Модуль>.Tests` — по тестовому проекту на сборку; `Architecture.Tests` — правила R1–R5;
   `Architecture.Fixtures` — намеренно нарушающая сборка для самопроверки правил (не продукт).
 - `content/`, `schemas/`, `build/` — данные, JSON-схемы, скрипты (по мере появления задач).

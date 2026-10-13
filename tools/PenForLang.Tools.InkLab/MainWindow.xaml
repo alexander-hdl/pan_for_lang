@@ -1,0 +1,68 @@
+<Window x:Class="PenForLang.Tools.InkLab.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PenForLang InkLab"
+        WindowState="Maximized"
+        Width="1500"
+        Height="900"
+        MinWidth="1100"
+        MinHeight="650"
+        UseLayoutRounding="True"
+        Background="#FFF6F2E6"
+        Stylus.IsPressAndHoldEnabled="False"
+        Stylus.IsFlicksEnabled="False"
+        Stylus.IsTapFeedbackEnabled="False"
+        Stylus.IsTouchFeedbackEnabled="False">
+  <Window.Resources>
+    <Style x:Key="TabStrip" TargetType="RadioButton">
+      <Setter Property="FontSize" Value="18" />
+      <Setter Property="Padding" Value="22,10" />
+      <Setter Property="Margin" Value="0,0,2,0" />
+      <Setter Property="Background" Value="#FFE3DCC2" />
+      <Setter Property="Foreground" Value="#FF333333" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="Chrome" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" CornerRadius="6,6,0,0">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Chrome" Property="Background" Value="#FFFBF8EF" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+              </Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Chrome" Property="Background" Value="#FFF0E9CF" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <!-- Вкладки: своя полоса, а не TabControl, чтобы холст записи не пересоздавался при переключении. -->
+    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="10,8,10,0">
+      <RadioButton x:Name="TabRecord" Content="Запись" GroupName="Tabs" Style="{StaticResource TabStrip}" IsChecked="True" Checked="OnTabClick" Tag="0" />
+      <RadioButton x:Name="TabReplay" Content="Повтор" GroupName="Tabs" Style="{StaticResource TabStrip}" Checked="OnTabClick" Tag="1" />
+      <RadioButton x:Name="TabAnnotate" Content="Разметка" GroupName="Tabs" Style="{StaticResource TabStrip}" Checked="OnTabClick" Tag="2" />
+      <RadioButton x:Name="TabSummary" Content="Сводка" GroupName="Tabs" Style="{StaticResource TabStrip}" Checked="OnTabClick" Tag="3" />
+    </StackPanel>
+
+    <Grid Grid.Row="1" Background="#FFFBF8EF">
+      <!-- Вкладки создаются в коде: XAML без ссылок на типы этой же сборки собирается за один проход (без wpftmp). -->
+      <Grid x:Name="TabHost" />
+    </Grid>
+
+    <Border Grid.Row="2" Background="#FFE3DCC2" Padding="10,4">
+      <TextBlock x:Name="StatusText" FontSize="12" />
+    </Border>
+  </Grid>
+</Window>
