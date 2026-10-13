@@ -111,6 +111,32 @@ public sealed class StyleCommandsTests : IDisposable
     }
 
     [Fact]
+    public void Render_of_a_word_writes_the_svg_that_matches_the_review_copy()
+    {
+        string target = Path.Combine(_temp, "at.svg");
+
+        (int code, string output, string error) = Run("render", StyleDirectory, "--word", "at", "-o", target);
+
+        Assert.Equal(0, code);
+        Assert.Equal(string.Empty, error);
+        Assert.Contains("word 'at'", output, StringComparison.Ordinal);
+        Assert.Equal(File.ReadAllText(Path.Combine(RepoRoot, "docs", "spikes", "glyphs-v0", "at.svg")), File.ReadAllText(target));
+        Assert.Contains("data-family=\"JF1\"", File.ReadAllText(target), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Render_needs_a_glyph_or_a_word_and_reports_an_unknown_letter_of_the_word()
+    {
+        (int none, _, string noneError) = Run("render", StyleDirectory);
+        (int unknown, _, string unknownError) = Run("render", StyleDirectory, "--word", "az");
+
+        Assert.Equal(2, none);
+        Assert.Contains("glyph or --word", noneError, StringComparison.Ordinal);
+        Assert.Equal(1, unknown);
+        Assert.Contains("cannot build the word 'az'", unknownError, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Render_writes_to_stdout_without_the_output_option_and_accepts_glyph_ids()
     {
         (int codeShort, string shortOutput, _) = Run("render", StyleDirectory, "t.default");

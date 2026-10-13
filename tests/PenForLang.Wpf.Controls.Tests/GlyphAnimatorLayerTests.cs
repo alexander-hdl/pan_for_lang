@@ -220,7 +220,7 @@ public class GlyphAnimatorLayerTests
 
             Assert.False(layer.IsPlaying);
             Assert.Equal(0, layer.PositionMs);
-            Assert.Equal("i", layer.Script.Glyph.Symbol);
+            Assert.Equal("i", layer.Script.Glyph?.Symbol);
 
             layer.Script = null;
             Assert.Null(layer.State);

@@ -135,8 +135,8 @@ public sealed record EvaluationSummary(
     /// <summary>Итоги по соединениям слова (пусто для буквы).</summary>
     public ImmutableArray<JoinSummary> Joins { get; init; } = [];
 
-    /// <summary>Форма единственной буквы цели.</summary>
-    public double Form => Letters.IsDefaultOrEmpty ? 0.0 : Letters[0].Form;
+    /// <summary>Форма единственной буквы цели; для слова — средняя форма его букв.</summary>
+    public double Form => Letters.IsDefaultOrEmpty ? 0.0 : (Kind == TargetKind.Word ? Letters.Average(l => l.Form) : Letters[0].Form);
 
     /// <summary>Есть ли находка с указанным кодом.</summary>
     /// <param name="code">Код.</param>

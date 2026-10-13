@@ -150,6 +150,21 @@ internal static class HandWords
         return HandInkBuilder.Build(whole.Cut(0.0, cuts.BodyEnd, 0), whole.Cut(cuts.JoinEnd, 1.0, 350), Bar(h, 1.3 + (StemDx * 0.86 / StemDy)));
     }
 
+    /// <summary>
+    /// Слово <c>at</c> слитно, но ствол t опущен не по соединению, а параллельно ему, на <paramref name="dx"/> правее (после верха
+    /// короткий переход вправо): ретрейс по соединению не выполнен (P6).
+    /// </summary>
+    public static RulerInk AtParallelStem(HandStyle h, double dx = 0.3)
+    {
+        List<Func<double, HandVec>> a = APart();
+        HandVec exit = a[^1](1.0);
+        TPart(1.3, 1.45, out HandVec top);
+        List<Func<double, HandVec>> t = TPart(1.3 + dx, 1.45, out HandVec shiftedTop);
+        var all = new List<Func<double, HandVec>>(a) { Join(exit, top, 0.6), HandCurves.Line(top, shiftedTop) };
+        all.AddRange(t);
+        return HandInkBuilder.Build(Stroke(HandCurves.Concat(all), h, 1), Bar(h, 1.3 + dx + (StemDx * 0.86 / StemDy)));
+    }
+
     /// <summary>Слово <c>it</c> слитно: перекладина после слова, точка после слова.</summary>
     public static RulerInk ItConnected(HandStyle h, double reach = 0.6)
     {

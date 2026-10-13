@@ -440,7 +440,7 @@ public sealed class WordEvaluator : IWordEvaluator
 
             // Отрывы основного следа.
             var immediateMarks = deferred.Slots.Where(s => s.Stroke is not null && s.Timing == DeferredTiming.Immediate).Select(s => s.Stroke!).ToList();
-            var lifts = ClassifyLifts(boundaries, immediateMarks, out int liftsInsideLetter);
+            var lifts = ClassifyLifts(immediateMarks, out int liftsInsideLetter);
 
             // Соединения.
             var joinMetrics = ImmutableArray.CreateBuilder<JoinMetrics>();
@@ -473,11 +473,11 @@ public sealed class WordEvaluator : IWordEvaluator
                     _word.Joins[k].Tall,
                     metrics.Present,
                     metrics.Lifted && metrics.LiftExpected,
-                    JoinScore(metrics, _word.Joins[k], findings, k)));
+                    JoinScore(metrics, _word.Joins[k])));
             }
 
             AddJoinFindings(joinMetrics, findings);
-            AddRetraceFindings(inkRange, findings);
+            AddRetraceFindings(findings);
 
             // Локальная оценка букв.
             var letterResults = ImmutableArray.CreateBuilder<EvaluationResult>(letters);
@@ -660,12 +660,8 @@ public sealed class WordEvaluator : IWordEvaluator
 
         private sealed record ClassifiedLift(LiftEvent Event, int Join, int Letter, bool Expected);
 
-        private List<ClassifiedLift> ClassifyLifts(
-            (BoundaryPos End, BoundaryPos Start)[] boundaries,
-            List<ChildStroke> immediateMarks,
-            out int insideLetter)
+        private List<ClassifiedLift> ClassifyLifts(List<ChildStroke> immediateMarks, out int insideLetter)
         {
-            _ = boundaries;
             var result = new List<ClassifiedLift>(_alignment.Lifts.Count);
             insideLetter = 0;
             foreach (LiftEvent lift in _alignment.Lifts)
@@ -815,9 +811,8 @@ public sealed class WordEvaluator : IWordEvaluator
             return any ? best : null;
         }
 
-        private double JoinScore(JoinMetrics m, WordJoin join, List<Finding> findings, int k)
+        private double JoinScore(JoinMetrics m, WordJoin join)
         {
-            _ = findings;
             if (!m.Present)
             {
                 return 0.0;
@@ -827,7 +822,6 @@ public sealed class WordEvaluator : IWordEvaluator
                 || m.EntryErr > _config.Joins.EntryErr
                 || m.CornerExcessDeg > _config.Joins.Corner.ExcessDeg
                 || m.Loops > 0;
-            _ = k;
             return bad ? 0.5 : 1.0;
         }
 
@@ -869,9 +863,8 @@ public sealed class WordEvaluator : IWordEvaluator
         /// Ретрейс по соединению (§3.2.4: «включая соединение»): начало тела внутренней буквы повторяет подход; проверяется,
         /// только если соединение нарисовано (иначе повторять нечего), так же, как P6 буквы.
         /// </summary>
-        private void AddRetraceFindings((int From, int To)[] inkRange, List<Finding> findings)
+        private void AddRetraceFindings(List<Finding> findings)
         {
-            _ = inkRange;
             RetraceConfig retrace = _config.Process.Retrace;
             Vec2[] all = _ink.Pos;
             foreach (WordRetrace r in _reference.Retrace)
