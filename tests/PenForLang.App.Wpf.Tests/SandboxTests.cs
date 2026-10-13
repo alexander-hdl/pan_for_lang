@@ -245,7 +245,7 @@ public class SandboxContentTests
         foreach (string letter in SandboxContent.Letters)
         {
             AnimationScript script = content.GetScript(letter);
-            Assert.Equal(letter, script.Glyph.Symbol);
+            Assert.Equal(letter, script.Glyph?.Symbol);
             Assert.True(script.DurationMs > 1000);
         }
 

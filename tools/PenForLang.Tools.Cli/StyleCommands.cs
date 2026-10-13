@@ -30,20 +30,22 @@ public static class StyleCommands
         return command;
     }
 
-    /// <summary>Команда <c>render &lt;style&gt; &lt;glyph&gt; -o out.svg</c>: рисует глиф в SVG.</summary>
+    /// <summary>Команда <c>render &lt;style&gt; &lt;glyph&gt; -o out.svg</c> или <c>render &lt;style&gt; --word at -o at.svg</c>: рисует глиф или слово в SVG.</summary>
     public static Command CreateRenderCommand()
     {
         var style = new Argument<string>("style") { Description = "Style package directory, or a style id found under --content/styles." };
-        var glyph = new Argument<string>("glyph") { Description = "Glyph: 'a', 'a.default' or 'zaner-bloser/a.default'." };
+        var glyph = new Argument<string?>("glyph") { Description = "Glyph: 'a', 'a.default' or 'zaner-bloser/a.default' (omit with --word).", Arity = ArgumentArity.ZeroOrOne };
+        var word = new Option<string?>("--word", "-w") { Description = "Render a word template (letters, joins, deferred strokes) instead of a glyph: 'at', 'it'." };
         var output = new Option<string?>("--output", "-o") { Description = "Output SVG file; standard output if omitted." };
         var content = new Option<string?>("--content") { Description = "Content root with styles/ (default: found upwards from the current directory)." };
         var keyPoints = new Option<bool>("--keypoints") { Description = "Draw key points with their types." };
         var noGuides = new Option<bool>("--no-guides") { Description = "Do not draw the ruler lines." };
         var scale = new Option<double>("--scale") { Description = "Pixels per x-height of the image.", DefaultValueFactory = _ => new SvgRenderOptions().PixelsPerXHeight };
 
-        var command = new Command("render", "Render a glyph of a style package as SVG.");
+        var command = new Command("render", "Render a glyph (or, with --word, a word template) of a style package as SVG.");
         command.Arguments.Add(style);
         command.Arguments.Add(glyph);
+        command.Options.Add(word);
         command.Options.Add(output);
         command.Options.Add(content);
         command.Options.Add(keyPoints);
@@ -57,14 +59,23 @@ public static class StyleCommands
                 ShowGuides = !parseResult.GetValue(noGuides),
                 PixelsPerXHeight = parseResult.GetValue(scale),
             };
+            string? wordText = parseResult.GetValue(word);
+            string? glyphSpec = parseResult.GetValue(glyph);
+            if (wordText is null && glyphSpec is null)
+            {
+                parseResult.InvocationConfiguration.Error.WriteLine("error: give a glyph or --word.");
+                return ExitUsage;
+            }
+
             return Render(
                 parseResult.GetRequiredValue(style),
-                parseResult.GetRequiredValue(glyph),
+                glyphSpec ?? string.Empty,
                 parseResult.GetValue(output),
                 parseResult.GetValue(content),
                 options,
                 parseResult.InvocationConfiguration.Output,
-                parseResult.InvocationConfiguration.Error);
+                parseResult.InvocationConfiguration.Error,
+                wordText);
         });
         return command;
     }
@@ -110,6 +121,7 @@ public static class StyleCommands
     /// <param name="options">Параметры рендера.</param>
     /// <param name="output">Стандартный вывод.</param>
     /// <param name="error">Вывод ошибок.</param>
+    /// <param name="word">Слово: если задано, рисуется эталон слова (глиф игнорируется).</param>
     public static int Render(
         string style,
         string glyphSpec,
@@ -117,7 +129,8 @@ public static class StyleCommands
         string? contentRoot,
         SvgRenderOptions options,
         TextWriter output,
-        TextWriter error)
+        TextWriter error,
+        string? word = null)
     {
         if (!TryOpenPackage(style, contentRoot, error, out DirectoryContentSource? source, out string? directory))
         {
@@ -136,13 +149,36 @@ public static class StyleCommands
             return ExitInvalid;
         }
 
-        if (!TryFindGlyph(pack, glyphSpec, out Glyph? found))
+        string svg;
+        string rendered;
+        if (word is not null)
         {
-            error.WriteLine($"error: glyph '{glyphSpec}' is not in style '{pack.Manifest.Id.Value}'; available: {string.Join(", ", pack.Glyphs.Select(g => $"{g.Symbol}.{g.Variant}"))}");
-            return ExitInvalid;
+            WordTemplate template;
+            try
+            {
+                template = WordTemplateBuilder.Build(pack, word);
+            }
+            catch (Exception ex) when (ex is ArgumentException or KeyNotFoundException)
+            {
+                error.WriteLine($"error: cannot build the word '{word}': {ex.Message}");
+                return ExitInvalid;
+            }
+
+            svg = WordSvgRenderer.Render(template, options);
+            rendered = $"word '{word}'";
+        }
+        else
+        {
+            if (!TryFindGlyph(pack, glyphSpec, out Glyph? found))
+            {
+                error.WriteLine($"error: glyph '{glyphSpec}' is not in style '{pack.Manifest.Id.Value}'; available: {string.Join(", ", pack.Glyphs.Select(g => $"{g.Symbol}.{g.Variant}"))}");
+                return ExitInvalid;
+            }
+
+            svg = GlyphSvgRenderer.Render(found, pack.Manifest, options);
+            rendered = found.Id.ToString();
         }
 
-        string svg = GlyphSvgRenderer.Render(found, pack.Manifest, options);
         if (outputFile is null)
         {
             output.Write(svg);
@@ -165,7 +201,7 @@ public static class StyleCommands
             return ExitUsage;
         }
 
-        output.WriteLine($"wrote {outputFile} ({found.Id})");
+        output.WriteLine($"wrote {outputFile} ({rendered})");
         return ExitOk;
     }
 

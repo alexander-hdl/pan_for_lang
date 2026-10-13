@@ -188,24 +188,30 @@ public sealed record AnimationState(
 /// </summary>
 public sealed class AnimationScript
 {
-    /// <summary>Создаёт сценарий. Используйте <see cref="AnimationScriptBuilder.Build"/>.</summary>
-    /// <param name="glyph">Глиф.</param>
+    /// <summary>Создаёт сценарий. Используйте <see cref="AnimationScriptBuilder"/>.</summary>
+    /// <param name="glyph">Глиф; <c>null</c> для сценария слова.</param>
     /// <param name="settings">Настройки анимации стиля.</param>
     /// <param name="strokes">Штрихи по порядку на общей шкале (основные, затем отложенные).</param>
     /// <param name="numbers">Номера.</param>
     /// <param name="arrows">Стрелки.</param>
     /// <param name="startDots">Точки старта.</param>
     /// <param name="durationMs">Полная длительность, мс.</param>
+    /// <param name="word">Эталон слова для сценария слова; для глифа <c>null</c>.</param>
     public AnimationScript(
-        Glyph glyph,
+        Glyph? glyph,
         AnimationSettings settings,
         ImmutableArray<AnimatedStroke> strokes,
         ImmutableArray<ScriptNumber> numbers,
         ImmutableArray<ScriptArrow> arrows,
         ImmutableArray<ScriptStartDot> startDots,
-        double durationMs)
+        double durationMs,
+        WordTemplate? word = null)
     {
-        ArgumentNullException.ThrowIfNull(glyph);
+        if (glyph is null == word is null)
+        {
+            throw new ArgumentException("A script is built for exactly one of: a glyph or a word.", nameof(glyph));
+        }
+
         ArgumentNullException.ThrowIfNull(settings);
         if (strokes.IsDefaultOrEmpty)
         {
@@ -213,6 +219,7 @@ public sealed class AnimationScript
         }
 
         Glyph = glyph;
+        Word = word;
         Settings = settings;
         Strokes = strokes;
         Numbers = numbers;
@@ -221,8 +228,11 @@ public sealed class AnimationScript
         DurationMs = durationMs;
     }
 
-    /// <summary>Глиф, для которого построен сценарий.</summary>
-    public Glyph Glyph { get; }
+    /// <summary>Глиф, для которого построен сценарий, или <c>null</c> для сценария слова.</summary>
+    public Glyph? Glyph { get; }
+
+    /// <summary>Слово, для которого построен сценарий, или <c>null</c> для сценария глифа.</summary>
+    public WordTemplate? Word { get; }
 
     /// <summary>Настройки, по которым построена шкала.</summary>
     public AnimationSettings Settings { get; }
