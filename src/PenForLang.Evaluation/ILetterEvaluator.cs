@@ -12,10 +12,10 @@ public interface ILetterEvaluator
 
     /// <summary>
     /// Оценивает попытку написать изолированную букву: предобработка, нормализация к линейкам, сопоставление штрихов,
-    /// старт/направление/порядок/число штрихов, отложенные штрихи, форма.
+    /// старт/направление/порядок/число штрихов, отложенные штрихи, форма. Контексты слова (<see cref="LetterContext.WordFirst"/>,
+    /// <see cref="LetterContext.WordInner"/>) — для подвыборки чернил одной буквы слова (<see cref="WordEvaluator"/>).
     /// </summary>
     /// <param name="request">Запрос.</param>
     /// <exception cref="ArgumentNullException">Запрос или его части не заданы.</exception>
-    /// <exception cref="NotSupportedException">Контекст буквы отличен от <see cref="LetterContext.Isolated"/>.</exception>
     EvaluationResult Evaluate(LetterEvaluationRequest request);
 }

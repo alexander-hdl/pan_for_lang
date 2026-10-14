@@ -123,7 +123,8 @@ internal static class PairMetricsCalculator
         }
         else
         {
-            (bestStart, nearest, bool viaApproach) = StartError(reference, pos[0], childDirection, process);
+            Vec2 elevationDirection = RegressionDirection(pos, PolylineTools.IndexAtArc(pos, 0, +1, process.Approach.ElevationLength));
+            (bestStart, nearest, bool viaApproach) = StartError(reference, pos[0], childDirection, elevationDirection, process);
             if (viaApproach)
             {
                 // Подход засчитывается, только если путь до входа в тело не перекрыт последующим следом ИЛИ приходит в тело
@@ -310,11 +311,49 @@ internal static class PairMetricsCalculator
     }
 
     /// <summary>
+    /// Направление начала штриха по линейной регрессии точек <c>0..last</c> от номера точки (ресэмплированные точки идут через равные
+    /// отрезки): дрожь медленного письма на участке не меняет наклон прямой, а изгиб — спуск у старта «с овала» — меняет, чего не
+    /// даёт ни хорда (дрожь в её концах), ни слишком длинный участок (овал возвращается вверх). Вектор — смещение вдоль прямой на участке.
+    /// </summary>
+    private static Vec2 RegressionDirection(Vec2[] pos, int last)
+    {
+        last = Math.Min(last, pos.Length - 1);
+        if (last < 2)
+        {
+            return pos[last] - pos[0];
+        }
+
+        double tm = last / 2.0;
+        double xm = 0.0;
+        double ym = 0.0;
+        for (int i = 0; i <= last; i++)
+        {
+            xm += pos[i].X;
+            ym += pos[i].Y;
+        }
+
+        xm /= last + 1;
+        ym /= last + 1;
+        double stt = 0.0;
+        double sxt = 0.0;
+        double syt = 0.0;
+        for (int i = 0; i <= last; i++)
+        {
+            double dt = i - tm;
+            stt += dt * dt;
+            sxt += dt * (pos[i].X - xm);
+            syt += dt * (pos[i].Y - ym);
+        }
+
+        return new Vec2(sxt / stt, syt / stt) * last;
+    }
+
+    /// <summary>
     /// Ошибка старта: расстояние до ближайшего допустимого старта. Допустимы начало тела и (при <c>startDot = leadIn</c>) любое
     /// место подхода — ломаной входящего штриха и её продолжения влево вдоль линии начала — при ходе вперёд, то есть первый
     /// участок рукописи не отклонён от хода подхода больше <c>process.approach.maxAngleDeg</c>.
     /// </summary>
-    private static (double Error, EndpointCandidate Nearest, bool ViaApproach) StartError(RefStroke reference, Vec2 start, Vec2 firstDirection, ProcessConfig process)
+    private static (double Error, EndpointCandidate Nearest, bool ViaApproach) StartError(RefStroke reference, Vec2 start, Vec2 firstDirection, Vec2 elevationDirection, ProcessConfig process)
     {
         EndpointCandidate body = reference.Starts[^1];
         double best = Vec2.Distance(start, body.Position);
@@ -353,7 +392,7 @@ internal static class PairMetricsCalculator
 
         // Ошибка выражается в единицах допуска старта: подход жёстче (process.approach.tolerance), чем начало тела.
         double scaled = onApproach * process.StartTolerance / process.Approach.Tolerance;
-        double elevation = Math.Atan2(firstDirection.Y, Math.Abs(firstDirection.X)) * (180.0 / Math.PI);
+        double elevation = Math.Atan2(elevationDirection.Y, Math.Abs(elevationDirection.X)) * (180.0 / Math.PI);
         if (scaled < best
             && PolylineTools.AngleDegrees(firstDirection, direction) <= process.Approach.MaxAngleDeg
             && elevation >= process.Approach.MinElevationDeg)

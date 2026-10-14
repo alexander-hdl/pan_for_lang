@@ -42,26 +42,26 @@ public sealed record SvgRenderOptions
 /// </summary>
 public static class GlyphSvgRenderer
 {
-    private const double Scale = 100.0;
+    internal const double Scale = 100.0;
     private const double MarginU = 0.35;
     private const double MarginAbove = 0.30;
     private const double MarginBelow = 0.30;
     private const double CaptionHeight = 0.30;
     private const double CaptionCharWidth = 6.4;
     private const double CaptionPadding = 8.0;
-    private const double StrokeWidth = 5.0;
+    internal const double StrokeWidth = 5.0;
     private const double ArrowSize = 0.075;
-    private const double BadgeRadius = 0.085;
-    private const double StartDotRadius = 0.05;
+    internal const double BadgeRadius = 0.085;
+    internal const double StartDotRadius = 0.05;
     private const double KeyPointRadius = 0.025;
 
-    private const string InkColor = "#1a5fb4";
-    private const string DeferredColor = "#c01c28";
-    private const string LeadColor = "#9a9996";
+    internal const string InkColor = "#1a5fb4";
+    internal const string DeferredColor = "#c01c28";
+    internal const string LeadColor = "#9a9996";
     private const string GuideColor = "#c0bfbc";
     private const string BaselineColor = "#5e5c64";
-    private const string StartColor = "#26a269";
-    private const string BadgeColor = "#613583";
+    internal const string StartColor = "#26a269";
+    internal const string BadgeColor = "#613583";
 
     /// <summary>Рисует глиф в SVG-строку.</summary>
     /// <param name="glyph">Глиф.</param>
@@ -205,7 +205,7 @@ public static class GlyphSvgRenderer
         return (min, max);
     }
 
-    private static void AppendGuides(StringBuilder sb, StyleManifest style, double minU, double maxU, bool slantGuides)
+    internal static void AppendGuides(StringBuilder sb, StyleManifest style, double minU, double maxU, bool slantGuides)
     {
         sb.Append("<g id=\"guides\" stroke-width=\"1\" fill=\"none\">\n");
         if (slantGuides && style.SlantDeg is { } slant)
@@ -243,7 +243,7 @@ public static class GlyphSvgRenderer
         sb.Append("</g>\n");
     }
 
-    private static void AppendLead(StringBuilder sb, GlyphPath? path, string id)
+    internal static void AppendLead(StringBuilder sb, GlyphPath? path, string id)
     {
         if (path is null)
         {
@@ -342,7 +342,7 @@ public static class GlyphSvgRenderer
         sb.Append("</g>\n");
     }
 
-    private static string PathData(GlyphPath path)
+    internal static string PathData(GlyphPath path)
     {
         var sb = new StringBuilder();
         sb.Append('M').Append(F(path.Start.X * Scale)).Append(' ').Append(F(-path.Start.Y * Scale));
@@ -361,9 +361,9 @@ public static class GlyphSvgRenderer
         return sb.ToString();
     }
 
-    private static string Pt(Vec2 p) => F(p.X * Scale) + " " + F(-p.Y * Scale);
+    internal static string Pt(Vec2 p) => F(p.X * Scale) + " " + F(-p.Y * Scale);
 
-    private static string F(double value)
+    internal static string F(double value)
     {
         double rounded = Math.Round(value, 2, MidpointRounding.AwayFromZero);
         if (rounded == 0.0)
@@ -374,7 +374,7 @@ public static class GlyphSvgRenderer
         return rounded.ToString("0.##", CultureInfo.InvariantCulture);
     }
 
-    private static string Escape(string text) =>
+    internal static string Escape(string text) =>
         text.Replace("&", "&amp;", StringComparison.Ordinal)
             .Replace("<", "&lt;", StringComparison.Ordinal)
             .Replace(">", "&gt;", StringComparison.Ordinal)

@@ -2,7 +2,7 @@
   "schema": "pfl.test.evaluation-golden/1",
   "glyph": "zaner-bloser/t.default",
   "note": "Evaluator golden: decisions, codes and places exact; numbers within tolerances. Inputs: SynthInk-lite, seeds in case names.",
-  "evaluatorVersion": "v0.7.2",
+  "evaluatorVersion": "v0.10.0",
   "tolerances": {
     "form": 0.02,
     "severity": 0.05,

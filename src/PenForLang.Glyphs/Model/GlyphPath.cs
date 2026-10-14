@@ -127,6 +127,20 @@ public sealed class GlyphPath
         return (new Vec2(minX, minY), new Vec2(maxX, maxY));
     }
 
+    /// <summary>Путь, сдвинутый на <paramref name="delta"/> (признаки сегментов — ретрейс, метка, темп, пауза — сохраняются).</summary>
+    /// <param name="delta">Сдвиг в координатах линейки.</param>
+    public GlyphPath Translated(Vec2 delta)
+    {
+        var shifted = new GlyphSegment[Segments.Length];
+        for (int i = 0; i < shifted.Length; i++)
+        {
+            GlyphSegment s = Segments[i];
+            shifted[i] = s with { P0 = s.P0 + delta, P1 = s.P1 + delta, P2 = s.P2 + delta, P3 = s.P3 + delta };
+        }
+
+        return new GlyphPath(shifted);
+    }
+
     /// <summary>Находит сегмент и локальный параметр кривой для расстояния <paramref name="distance"/> (с обрезкой).</summary>
     /// <param name="distance">Расстояние по дуге от начала пути.</param>
     /// <param name="segmentIndex">Индекс сегмента.</param>

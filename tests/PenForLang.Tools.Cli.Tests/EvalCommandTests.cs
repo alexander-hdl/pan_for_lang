@@ -125,7 +125,7 @@ public sealed class EvalCommandTests : IDisposable
     public void The_glyph_option_overrides_the_target_of_the_log()
     {
         StylePack pack = LoadPack();
-        string log = WritePenLog(new SynthInkGenerator(pack.Manifest).Ideal(pack.GetGlyph("i")), "word:cat");
+        string log = WritePenLog(new SynthInkGenerator(pack.Manifest).Ideal(pack.GetGlyph("i")), "phrase:cat sat");
 
         (int missing, _, string error) = Run("eval", log, "--content", Path.Combine(RepoRoot, "content"));
         (int code, string output, _) = Run("eval", log, "--glyph", "i", "--content", Path.Combine(RepoRoot, "content"));
@@ -149,5 +149,94 @@ public sealed class EvalCommandTests : IDisposable
         Assert.Contains("not found", noFileError, StringComparison.Ordinal);
         Assert.Equal(1, unknown);
         Assert.Contains("glyph 'z'", unknownError, StringComparison.Ordinal);
+    }
+
+    // ---------------------------------- слова (V0.10) ----------------------------------
+
+    [Fact]
+    public void A_lift_on_the_join_is_printed_as_j1_with_the_boundaries_and_the_lift()
+    {
+        StylePack pack = LoadPack();
+        WordTemplate word = WordTemplateBuilder.Build(pack, "at");
+        SynthWordSample sample = new SynthInkGenerator(pack.Manifest).Mutate(word, SynthWordMutation.SkipJoin, 3)!;
+        string log = WritePenLog(sample.Ink, "x");
+
+        (int code, string output, string error) = Run("eval", log, "--word", "at", "--content", Path.Combine(RepoRoot, "content"));
+
+        Assert.Equal(0, code);
+        Assert.Equal(string.Empty, error);
+        Assert.Contains("word 'at'", output, StringComparison.Ordinal);
+        Assert.Contains("decision Target", output, StringComparison.Ordinal);
+        Assert.Contains("join 0 (0->1, JF1, tall): present no", output, StringComparison.Ordinal);
+        Assert.Contains("J1 [Error]", output, StringComparison.Ordinal);
+        Assert.Contains("Join 0 join0", output, StringComparison.Ordinal);
+        Assert.Contains("template join0/Join", output, StringComparison.Ordinal);
+        Assert.Contains("pen lifted", output, StringComparison.Ordinal);
+        Assert.Contains("lift before stroke 1: on join 0", output, StringComparison.Ordinal);
+        Assert.Contains("letter 1 't' (WordInner)", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_word_comes_from_the_log_target_and_a_dot_put_immediately_is_d4_without_j1()
+    {
+        StylePack pack = LoadPack();
+        WordTemplate word = WordTemplateBuilder.Build(pack, "it");
+        SynthWordSample sample = new SynthInkGenerator(pack.Manifest).Mutate(word, SynthWordMutation.DeferredImmediately, 2)!;
+        string log = WritePenLog(sample.Ink, "word:it");
+
+        (int code, string output, _) = Run("eval", log, "--content", Path.Combine(RepoRoot, "content"));
+
+        Assert.Equal(0, code);
+        Assert.Contains("word 'it'", output, StringComparison.Ordinal);
+        Assert.Contains("D4 [Info]", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("J1", output, StringComparison.Ordinal);
+        Assert.Contains("join 0 (0->1, JF1, tall): present yes, lift expected yes", output, StringComparison.Ordinal);
+        Assert.Contains("deferred dot of letter 0 (Dot): Present, Immediate", output, StringComparison.Ordinal);
+        Assert.Contains("lift before stroke 2: on join 0, expected", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_clean_word_is_printed_without_findings_and_an_unknown_letter_is_reported()
+    {
+        StylePack pack = LoadPack();
+        string log = WritePenLog(new SynthInkGenerator(pack.Manifest).Ideal(WordTemplateBuilder.Build(pack, "at")), "word:at");
+
+        (int code, string output, _) = Run("eval", log, "--content", Path.Combine(RepoRoot, "content"));
+        (int unknown, _, string error) = Run("eval", log, "--word", "az", "--content", Path.Combine(RepoRoot, "content"));
+
+        Assert.Equal(0, code);
+        Assert.Contains("findings: none", output, StringComparison.Ordinal);
+        Assert.Contains("segmentation confident", output, StringComparison.Ordinal);
+        Assert.Equal(1, unknown);
+        Assert.Contains("cannot build the word 'az'", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_gzip_recording_is_read_by_its_signature_whatever_its_name()
+    {
+        StylePack pack = LoadPack();
+        string plain = WritePenLog(new SynthInkGenerator(pack.Manifest).Ideal(WordTemplateBuilder.Build(pack, "at")), "word:at");
+        string zipped = Path.Combine(_temp, "at-lift-01.pfl.jsonl.gz");
+        using (FileStream input = File.OpenRead(plain))
+        using (FileStream output = File.Create(zipped))
+        using (var gzip = new System.IO.Compression.GZipStream(output, System.IO.Compression.CompressionLevel.Fastest))
+        {
+            input.CopyTo(gzip);
+        }
+
+        string disguised = Path.Combine(_temp, "no-extension");
+        File.Copy(zipped, disguised);
+        (int code, string output1, string error) = Run("eval", zipped, "--content", Path.Combine(RepoRoot, "content"));
+        (int codeDisguised, string output2, _) = Run("eval", disguised, "--word", "at", "--content", Path.Combine(RepoRoot, "content"));
+        (int codePlain, string output3, _) = Run("eval", plain, "--content", Path.Combine(RepoRoot, "content"));
+
+        Assert.Equal(0, code);
+        Assert.Equal(string.Empty, error);
+        Assert.Contains("word 'at'", output1, StringComparison.Ordinal);
+        Assert.Contains("findings: none", output1, StringComparison.Ordinal);
+        Assert.Equal(0, codeDisguised);
+        Assert.Equal(0, codePlain);
+        Assert.Equal(output3.Replace("word:at.penlog.jsonl", "X", StringComparison.Ordinal), output1.Replace("at-lift-01.pfl.jsonl.gz", "X", StringComparison.Ordinal));
+        Assert.Contains("decision Target", output2, StringComparison.Ordinal);
     }
 }

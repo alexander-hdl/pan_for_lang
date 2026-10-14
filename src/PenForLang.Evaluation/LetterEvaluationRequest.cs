@@ -15,7 +15,7 @@ namespace PenForLang.Evaluation;
 /// Какое время отложенных штрихов принимается; <c>null</c> — значение <c>scoring.json → deferred.acceptTiming</c>
 /// (настройка профиля поверх конфигурации, ARCHITECTURE.md §3.6, слой 4).
 /// </param>
-/// <param name="Context">Контекст буквы; в v0 поддержан только <see cref="LetterContext.Isolated"/>.</param>
+/// <param name="Context">Контекст буквы: изолированная (по умолчанию) или в слове (<see cref="WordEvaluator"/> оценивает вырезанный участок буквы).</param>
 public sealed record LetterEvaluationRequest(
     RulerInk Ink,
     Glyph Glyph,

@@ -19,7 +19,7 @@ public class ScoringConfigTests
     {
         ScoringConfig config = ScoringConfigLoader.Load(Shipped.Source);
 
-        Assert.Equal("0.1.0", config.Version);
+        Assert.Equal("0.2.0", config.Version);
         Assert.Equal(0.04, config.ResampleStep);
         Assert.Equal(0.55, config.Process.StartTolerance);
         Assert.Equal(DeferredAcceptPolicy.Either, config.Deferred.AcceptTiming);

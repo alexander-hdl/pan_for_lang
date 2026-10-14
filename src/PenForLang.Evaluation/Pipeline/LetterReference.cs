@@ -105,7 +105,7 @@ internal sealed class RefDeferred
 /// Эталон изолированной буквы, подготовленный один раз (кеш по экземпляру глифа): штрихи с входящим/выходящим штрихом,
 /// отложенные слоты, проверки и сводки для нормализации (ARCHITECTURE.md §6.4.1–6.4.2, §6.6, A33).
 /// </summary>
-internal sealed class LetterReference
+internal sealed class LetterReference : INormalizationReference
 {
     private LetterReference()
     {

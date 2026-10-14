@@ -2,7 +2,7 @@
   "schema": "pfl.test.evaluation-golden/1",
   "glyph": "hand-fixtures (zaner-bloser a, i, t)",
   "note": "Evaluator golden on hand-drawn formulas (not glyph-derived, not SynthInk): decisions, codes and places exact; numbers within tolerances.",
-  "evaluatorVersion": "v0.7.2",
+  "evaluatorVersion": "v0.10.0",
   "tolerances": {
     "form": 0.02,
     "severity": 0.05,

@@ -70,6 +70,67 @@ public sealed record FormComponent(string Name, double Value, double Score, doub
 /// <param name="TemplateSlantDeg">То же для эталона или <c>null</c>.</param>
 public sealed record NormalizationInfo(double ShearDeg, double Scale, double ShiftU, double ShiftV, double? InkSlantDeg, double? TemplateSlantDeg);
 
+/// <summary>Точка рукописи: штрих и номер точки так же, как в <see cref="PenForLang.Ink.RulerInk"/> (и в разметке корпуса).</summary>
+/// <param name="InkStrokeIndex"><see cref="PenForLang.Ink.RulerStroke.Index"/>.</param>
+/// <param name="PointIndex">Индекс в <see cref="PenForLang.Ink.RulerStroke.Points"/>.</param>
+/// <param name="U">u точки (линейка, без нормализации), x-height.</param>
+/// <param name="V">v точки, x-height.</param>
+/// <param name="TimeUs">Время точки, мкс.</param>
+public sealed record InkPoint(int InkStrokeIndex, int PointIndex, double U, double V, long TimeUs);
+
+/// <summary>
+/// Граница между телами соседних букв слова (§6.4.5): конец тела левой буквы (<c>BodyEnd</c>) и начало тела правой
+/// (<c>BodyStart</c>); участок между ними — соединение.
+/// </summary>
+/// <param name="Join">Индекс соединения (между буквами <c>Join</c> и <c>Join + 1</c>).</param>
+/// <param name="BodyEnd">Где кончается тело левой буквы.</param>
+/// <param name="BodyStart">Где начинается тело правой буквы.</param>
+/// <param name="Lifted">Между ними оторвано перо (конец и начало лежат в разных штрихах рукописи).</param>
+/// <param name="EndConfident">Граница <c>BodyEnd</c> уверенная: стоимость пути растёт при сдвиге на ±<c>word.boundaries.shiftU</c> (отрыв пера уверенный всегда).</param>
+/// <param name="StartConfident">Граница <c>BodyStart</c> уверенная.</param>
+/// <param name="EndRise">Наименьший рост полной стоимости пути при сдвиге <c>BodyEnd</c> на ±<c>shiftU</c>.</param>
+/// <param name="StartRise">То же для <c>BodyStart</c>.</param>
+public sealed record WordBoundary(int Join, InkPoint BodyEnd, InkPoint BodyStart, bool Lifted, bool EndConfident, bool StartConfident, double EndRise, double StartRise);
+
+/// <summary>Метрики одного соединения слова (§6.4.9).</summary>
+/// <param name="Join">Индекс соединения.</param>
+/// <param name="Lifted">В диапазоне соединения оторвано перо.</param>
+/// <param name="LiftExpected">Отрыв ожидаем (разрыв по стилю или отложенный штрих «сразу»).</param>
+/// <param name="Drawn">Рукопись прошла не меньше <c>joins.drawnShare</c> точек эталона соединения.</param>
+/// <param name="Coverage">Доля точек эталона соединения, пройденных рукописью.</param>
+/// <param name="MinV">Наименьшее v рукописи в диапазоне соединения (нормализованное) или <c>null</c>, если соединение не нарисовано.</param>
+/// <param name="EntryErr">Расстояние точки начала тела правой буквы в рукописи от эталонного входа после подгонки масштаба и сдвига тела этой буквы к эталону (то есть относительно буквы ребёнка, а не общей рамки слова), x-height.</param>
+/// <param name="CornerExcessDeg">Наибольший угол поворота в соединении рукописи сверх эталонного, градусы, или <c>null</c>, если не проверялось.</param>
+/// <param name="Loops">Число лишних петель в соединении.</param>
+/// <param name="EntryAngleDeg">Угол между направлением прихода соединения в начало тела и эталонным входом, градусы, или <c>null</c>, если перо оторвано перед входом (прихода нет).</param>
+public sealed record JoinMetrics(int Join, bool Lifted, bool LiftExpected, bool Drawn, double Coverage, double? MinV, double EntryErr, double? CornerExcessDeg, int Loops, double? EntryAngleDeg = null)
+{
+    /// <summary>J1 не выдаётся: в диапазоне нет отрыва, либо отрыв ожидаем (§6.4.9).</summary>
+    public bool Present => !Lifted || LiftExpected;
+}
+
+/// <summary>Отрыв пера в основном следе слова (между штрихами рукописи).</summary>
+/// <param name="BeforeInkStroke"><see cref="PenForLang.Ink.RulerStroke.Index"/> штриха, начатого после отрыва.</param>
+/// <param name="Join">Индекс соединения, в диапазоне которого отрыв, или −1.</param>
+/// <param name="Letter">Индекс буквы, внутри тела которой отрыв (<c>LiftsInsideLetter</c>), или −1.</param>
+/// <param name="Expected">Отрыв ожидаем: рядом поставлен отложенный штрих «сразу» либо разрыв по правилу стиля.</param>
+public sealed record WordLift(int BeforeInkStroke, int Join, int Letter, bool Expected);
+
+/// <summary>Детализация оценки слова: границы букв, метрики соединений, отрывы и результаты по буквам.</summary>
+/// <param name="Boundaries">Границы по порядку соединений.</param>
+/// <param name="Joins">Метрики соединений.</param>
+/// <param name="Lifts">Отрывы основного следа по порядку.</param>
+/// <param name="LetterResults">Результат оценки каждой буквы на её участке (без отложенных штрихов; контекст <see cref="LetterContext.WordFirst"/> или <see cref="LetterContext.WordInner"/>).</param>
+/// <param name="AlignmentCost">Стоимость выравнивания на точку рукописи (нормировка гипотез, §6.4.6).</param>
+/// <param name="LiftsInsideLetter">Число неожиданных отрывов внутри тел букв (не стоп-ошибка).</param>
+public sealed record WordDetail(
+    ImmutableArray<WordBoundary> Boundaries,
+    ImmutableArray<JoinMetrics> Joins,
+    ImmutableArray<WordLift> Lifts,
+    ImmutableArray<EvaluationResult> LetterResults,
+    double AlignmentCost,
+    int LiftsInsideLetter);
+
 /// <summary>
 /// Детализация результата (v0-provisional, ARCHITECTURE.md §6.2): сопоставления штрихов, подбаллы формы, нормализация и
 /// диагностика. Изменяется свободно до решения T0.8; потребители, кроме UI и InkLab, на неё не опираются.
@@ -84,4 +145,8 @@ public sealed record EvaluationDetail(
     ImmutableArray<DeferredMatch> Deferred,
     ImmutableArray<FormComponent> FormComponents,
     NormalizationInfo Normalization,
-    ImmutableSortedDictionary<string, double> Diagnostics);
+    ImmutableSortedDictionary<string, double> Diagnostics)
+{
+    /// <summary>Детализация слова (границы, соединения, отрывы, буквы) или <c>null</c> для изолированной буквы.</summary>
+    public WordDetail? Word { get; init; }
+}

@@ -4,6 +4,25 @@ using PenForLang.Ink;
 
 namespace PenForLang.Evaluation.Pipeline;
 
+/// <summary>
+/// Сводка эталона, нужная нормализации рукописи (§6.4.2): наклон, сдвиг по u и робастные границы по v. Общая для эталона
+/// буквы (<see cref="LetterReference"/>) и слова (<see cref="WordReference"/>).
+/// </summary>
+internal interface INormalizationReference
+{
+    /// <summary>Медиана наклона квазивертикалей эталона или <c>null</c>.</summary>
+    double? SlantDeg { get; }
+
+    /// <summary>Средний u эталона.</summary>
+    double CentroidU { get; }
+
+    /// <summary>Нижний процентиль v эталона.</summary>
+    double LowV { get; }
+
+    /// <summary>Верхний процентиль v эталона.</summary>
+    double HighV { get; }
+}
+
 /// <summary>Штрих рукописи после предобработки (§6.4.1) и нормализации для выравнивания (§6.4.2, проход 1).</summary>
 internal sealed class ChildStroke
 {
@@ -35,7 +54,31 @@ internal sealed class ChildStroke
     /// <summary>Доля длины дуги исходной ломаной в каждой исходной точке, [0, 1].</summary>
     public double[] RawArcFraction { get; init; } = [];
 
+    /// <summary>
+    /// Доля длины дуги сглаженной по времени (но не прореженной) ломаной в каждой точке <see cref="Kept"/>: ресэмплированный
+    /// штрих получен из неё, а не из шумных исходных точек, поэтому по этой доле положение точки <see cref="Pos"/> находится в <see cref="Kept"/> без смещения.
+    /// </summary>
+    public double[] SmoothArcFraction { get; init; } = [];
+
     public required bool Clipped { get; init; }
+
+    /// <summary>Точки штриха после удаления дубликатов и выбросов (с временем и давлением): из них собирается подвыборка буквы в слове.</summary>
+    public RulerPoint[] Kept { get; init; } = [];
+
+    /// <summary>Индекс каждой точки <see cref="Kept"/> в <see cref="RulerStroke.Points"/> исходного штриха.</summary>
+    public int[] KeptOriginalIndex { get; init; } = [];
+
+    /// <summary>
+    /// Множитель длин в нормализованные единицы (слово, R2-02): <c>1 / масштаб нормализации</c>, затем ×масштаб каждой подгонки.
+    /// <c>null</c> — длины штриха не нормализуются (буквенный конвейер: поведение не меняется).
+    /// </summary>
+    public double? LengthFactor { get; set; }
+
+    /// <summary>Длина штриха в нормализованных единицах (<see cref="Length"/>, если нормализация длин не задана).</summary>
+    public double NLength => Length * (LengthFactor ?? 1.0);
+
+    /// <summary>Размер черты в нормализованных единицах (<see cref="Extent"/>, если нормализация длин не задана).</summary>
+    public double NExtent => Extent * (LengthFactor ?? 1.0);
 
     /// <summary>Нормализованные точки (проход 1): деслантинг, масштаб, сдвиг по u и baseline.</summary>
     public Vec2[] NPos { get; set; } = [];
@@ -44,6 +87,41 @@ internal sealed class ChildStroke
 
     /// <summary>Середина по длине дуги в нормализованных координатах.</summary>
     public Vec2 NCenter => PolylineTools.ArcMidpoint(NPos);
+
+    /// <summary>Индекс в <see cref="Kept"/> точки, ближайшей по доле длины дуги к точке <paramref name="local"/> ресэмплированного штриха.</summary>
+    public int NearestKeptIndex(int local)
+    {
+        if (Kept.Length <= 1 || NPos.Length <= 1)
+        {
+            return 0;
+        }
+
+        double fraction = (double)Math.Clamp(local, 0, NPos.Length - 1) / (NPos.Length - 1);
+        int best = 0;
+        double bestDistance = double.PositiveInfinity;
+        for (int k = 0; k < SmoothArcFraction.Length && k < Kept.Length; k++)
+        {
+            double d = Math.Abs(SmoothArcFraction[k] - fraction);
+            if (d < bestDistance)
+            {
+                bestDistance = d;
+                best = k;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>Добавляет исходные точки (с временем) участка <c>[fromLocal, toLocal]</c> ресэмплированного штриха.</summary>
+    public void AppendRaw(int fromLocal, int toLocal, List<RulerPoint> target)
+    {
+        int a = NearestKeptIndex(fromLocal);
+        int b = NearestKeptIndex(toLocal);
+        for (int k = a; k <= b; k++)
+        {
+            target.Add(Kept[k]);
+        }
+    }
 }
 
 /// <summary>Параметры нормализации, применённые к рукописи.</summary>
@@ -56,15 +134,17 @@ internal static class ChildInk
     /// Предобработка (§6.4.1): отбрасывание нечисловых точек и дубликатов, выбросов-«шпилек», пометка микроштрихов,
     /// ресэмплинг по длине дуги, сглаживание. Штрихи упорядочиваются хронологически (по времени первой точки).
     /// </summary>
-    public static List<ChildStroke> Prepare(RulerInk ink, LetterReference reference, ScoringConfig config, SavitzkyGolayFilter filter)
+    public static List<ChildStroke> Prepare(RulerInk ink, INormalizationReference reference, ScoringConfig config, SavitzkyGolayFilter filter)
     {
-        var pending = new List<(RulerStroke Stroke, List<Vec2> Points, List<RulerPoint> Kept, Vec2[] Raw, List<Vec2> Thinned)>(ink.Strokes.Length);
+        var pending = new List<(RulerStroke Stroke, List<Vec2> Points, List<RulerPoint> Kept, List<int> Original, Vec2[] Raw, List<Vec2> Thinned)>(ink.Strokes.Length);
         foreach (RulerStroke stroke in ink.Strokes)
         {
             var points = new List<Vec2>(stroke.Points.Length);
             var kept = new List<RulerPoint>(stroke.Points.Length);
-            foreach (RulerPoint p in stroke.Points)
+            var original = new List<int>(stroke.Points.Length);
+            for (int index = 0; index < stroke.Points.Length; index++)
             {
+                RulerPoint p = stroke.Points[index];
                 if (!double.IsFinite(p.U) || !double.IsFinite(p.V))
                 {
                     continue;
@@ -78,6 +158,7 @@ internal static class ChildInk
 
                 points.Add(v);
                 kept.Add(p);
+                original.Add(index);
             }
 
             if (points.Count == 0)
@@ -85,17 +166,17 @@ internal static class ChildInk
                 continue;
             }
 
-            RemoveSpikes(points, kept, config.Preprocess.SpikeJumpMedianSteps);
+            RemoveSpikes(points, kept, original, config.Preprocess.SpikeJumpMedianSteps);
             Vec2[] raw = [.. points];
             PolylineTools.SmoothByTime(points, [.. kept.Select(p => p.TimeUs)], config.Preprocess.SmoothHalfWindowMs * 1000.0);
-            pending.Add((stroke, points, kept, raw, Decimate(points, config.Preprocess.MinPointDistance)));
+            pending.Add((stroke, points, kept, original, raw, Decimate(points, config.Preprocess.MinPointDistance)));
         }
 
         // Шаг ресэмплинга растёт с размером буквы (оценка по межквартильному размаху v против эталона): крупная буква не должна
         // давать больше точек, чем обычная; после деления на масштаб нормализации шаг снова близок к resampleStep.
         double step = config.ResampleStep * EstimateStepScale(pending.Select(p => p.Thinned), reference, config);
         var result = new List<ChildStroke>(pending.Count);
-        foreach ((RulerStroke stroke, List<Vec2> points, List<RulerPoint> kept, Vec2[] raw, List<Vec2> thinned) in pending)
+        foreach ((RulerStroke stroke, List<Vec2> points, List<RulerPoint> kept, List<int> original, Vec2[] raw, List<Vec2> thinned) in pending)
         {
             long startUs = kept[0].TimeUs;
             long endUs = kept[^1].TimeUs;
@@ -118,6 +199,9 @@ internal static class ChildInk
                 Clipped = stroke.Clipped,
                 Raw = raw,
                 RawArcFraction = ArcFractions(raw),
+                SmoothArcFraction = ArcFractions([.. points]),
+                Kept = [.. kept],
+                KeptOriginalIndex = [.. original],
             });
         }
 
@@ -140,7 +224,7 @@ internal static class ChildInk
     /// Масштаб и сдвиг затем уточняются по соответствиям выравнивания (<see cref="Transform"/>, <see cref="SimilarityFit"/>).
     /// Метрики достижения линий считаются по <see cref="ChildStroke.Pos"/> (проход 2) и от нормализации не зависят.
     /// </summary>
-    public static NormalizationParams Normalize(List<ChildStroke> strokes, LetterReference reference, ScoringConfig config)
+    public static NormalizationParams Normalize(List<ChildStroke> strokes, INormalizationReference reference, ScoringConfig config)
     {
         NormalizationConfig n = config.Normalization;
         double maxLength = 0.0;
@@ -235,6 +319,11 @@ internal static class ChildInk
             {
                 s.NPos[k] = transform.Apply(s.NPos[k]);
             }
+
+            if (s.LengthFactor is { } factor)
+            {
+                s.LengthFactor = factor * transform.Scale;
+            }
         }
     }
 
@@ -296,7 +385,7 @@ internal static class ChildInk
         return Math.Sqrt(((maxX - minX) * (maxX - minX)) + ((maxY - minY) * (maxY - minY)));
     }
 
-    private static double EstimateStepScale(IEnumerable<List<Vec2>> strokes, LetterReference reference, ScoringConfig config)
+    private static double EstimateStepScale(IEnumerable<List<Vec2>> strokes, INormalizationReference reference, ScoringConfig config)
     {
         List<Vec2[]> all = [.. strokes.Where(s => s.Count > 0).Select(s => s.ToArray())];
         double refHeight = reference.HighV - reference.LowV;
@@ -334,7 +423,7 @@ internal static class ChildInk
     private static ReadOnlySpan<Vec2> CollectionsSpan(List<Vec2> list) => System.Runtime.InteropServices.CollectionsMarshal.AsSpan(list);
 
     /// <summary>Убирает точки-«шпильки»: оба шага к точке длиннее порога, а соседи между собой близки.</summary>
-    private static void RemoveSpikes(List<Vec2> points, List<RulerPoint> kept, double jumpMedianSteps)
+    private static void RemoveSpikes(List<Vec2> points, List<RulerPoint> kept, List<int> original, double jumpMedianSteps)
     {
         if (points.Count < 4)
         {
@@ -364,6 +453,7 @@ internal static class ChildInk
             {
                 points.RemoveAt(i);
                 kept.RemoveAt(i);
+                original.RemoveAt(i);
             }
         }
     }
