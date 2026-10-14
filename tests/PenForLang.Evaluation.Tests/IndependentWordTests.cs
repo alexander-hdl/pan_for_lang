@@ -15,7 +15,7 @@ public class IndependentWordTests
 
     private static readonly double[] Belows = [0.2, 0.35, 0.5, 0.7];
 
-    private static readonly string[] WrongByCost = ["W-ot", "W-ru-at", "W-a-only", "W-t-only", "W-ta", "W-it-for-at", "W-at-for-it", "W-scribble"];
+    private static readonly string[] WrongByCost = ["W-ot", "W-ru-at", "W-a-only", "W-t-only", "W-ta", "W-it-for-at", "W-scribble"];
 
     private static readonly string[] LiftedIds =
     [
@@ -192,10 +192,12 @@ public class IndependentWordTests
     {
         // Порог word.unrecognized.costPerPoint между самым дорогим верным почерком и самым дешёвым неверным словом, которое режет эта метрика.
         double threshold = Shipped.Config.Word.Unrecognized.CostPerPoint;
-        double worstCorrect = Correct().Concat(GapAndHeight()).Concat(Speeds()).Where(c => c.Id != "S-it-slow-dot").Max(c => Tester.EvaluateWord(c.Ink, c.Target).Detail.Word!.AlignmentCost);
-        double[] cut = [.. WrongByCost.Select(id => Evaluate(id).Detail.Diagnostics["align.costPerPoint"])];
+        double worstCorrect = Correct().Concat(GapAndHeight()).Concat(Speeds()).Concat(ProbeWords2.Correct()).Concat(ProbeWords2.Gaps())
+            .Where(c => c.Id != "S-it-slow-dot")
+            .Max(c => Tester.EvaluateWord(c.Ink, c.Target).Detail.Diagnostics["align.bodyCostPerPoint"]);
+        double[] cut = [.. WrongByCost.Select(id => Evaluate(id).Detail.Diagnostics["align.bodyCostPerPoint"])];
 
-        Assert.True(worstCorrect < threshold * 0.85, $"the costliest correct handwriting ({worstCorrect:F3}) is within 85% of the threshold {threshold}");
+        Assert.True(worstCorrect < threshold * 0.65, $"the costliest correct handwriting ({worstCorrect:F3}) is within 65% of the threshold {threshold}");
         Assert.True(cut.Min() > threshold, $"the cheapest wrong word cut by cost ({cut.Min():F3}) is above the threshold {threshold}");
     }
 

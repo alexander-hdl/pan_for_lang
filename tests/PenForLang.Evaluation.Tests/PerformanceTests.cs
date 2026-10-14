@@ -204,8 +204,9 @@ public class WordPerformanceTests
     {
         // Четыре «at» подряд независимой рукой (HandFixtures.ProbeWords): ~900 точек в слове; бюджет §6.9 — слово из восьми букв ≤ 20 мс.
         RulerInk ink = HandFixtures.ProbeWords.Long();
-        // Цель — 20 мс; на ноутбуке с гибридным процессором один и тот же код даёт ~14 мс (P-ядро) или ~24 мс (E-ядро) в зависимости от
-        // того, куда планировщик посадил процесс, поэтому порог отказа — 30 мс (цель видна в отчёте PFL_PERF_REPORT).
+        // ОТСТУПЛЕНИЕ от §6.9 (R2-03): цель — 20 мс (в отчёте PFL_PERF_REPORT помечена «target met / TARGET MISSED»), порог отказа — 30 мс.
+        // На ноутбуке с гибридным процессором один и тот же код даёт ~14 мс (P-ядро) или ~24 мс (E-ядро) в зависимости от того, куда
+        // планировщик посадил процесс; жёсткие 20 мс давали бы ложные отказы. Оценка выделяет ~4 МБ (из них ~1,6 МБ — буквенный конвейер).
         Measure("atatatat", ink, "eight letters, independent handwriting", 30.0);
     }
 
@@ -237,7 +238,7 @@ public class WordPerformanceTests
         Array.Sort(times);
         double median = times[Runs / 2];
         double p95 = times[(int)(Runs * 0.95)];
-        string line = $"perf word {text} ({kind}): median {median:F2} ms, p95 {p95:F2} ms, max {times[^1]:F2} ms ({(OptimizedBuild ? "optimized" : "debug")} build; budget {budget:F0} ms, target 20 ms for two letters)";
+        string line = $"perf word {text} ({kind}): median {median:F2} ms, p95 {p95:F2} ms, max {times[^1]:F2} ms ({(OptimizedBuild ? "optimized" : "debug")} build; budget {budget:F0} ms, target 20 ms, ARCHITECTURE §6.9{(median <= 20.0 ? ", target met" : ", TARGET MISSED")})";
         TestContext.Current.SendDiagnosticMessage(line);
         if (Environment.GetEnvironmentVariable("PFL_PERF_REPORT") is { Length: > 0 } report)
         {

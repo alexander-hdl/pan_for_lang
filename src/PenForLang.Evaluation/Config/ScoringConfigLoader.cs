@@ -244,7 +244,10 @@ public static class ScoringConfigLoader
                 a.Double("continuousBreakCostPerPoint", 0, 1000),
                 a.Double("joinSlackU", 0, 3),
                 a.Double("bandMarginU", 0, 5),
-                a.Double("breakCorridorU", 0.01, 5));
+                a.Double("breakCorridorU", 0.01, 5),
+                a.Double("elasticXScale", 0.01, 1),
+                a.Double("elasticMaxShiftU", 0, 10),
+                a.Double("elasticMinSpreadU", 0, 10));
             a.Done();
         }
 

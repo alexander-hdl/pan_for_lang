@@ -68,6 +68,18 @@ internal sealed class ChildStroke
     /// <summary>Индекс каждой точки <see cref="Kept"/> в <see cref="RulerStroke.Points"/> исходного штриха.</summary>
     public int[] KeptOriginalIndex { get; init; } = [];
 
+    /// <summary>
+    /// Множитель длин в нормализованные единицы (слово, R2-02): <c>1 / масштаб нормализации</c>, затем ×масштаб каждой подгонки.
+    /// <c>null</c> — длины штриха не нормализуются (буквенный конвейер: поведение не меняется).
+    /// </summary>
+    public double? LengthFactor { get; set; }
+
+    /// <summary>Длина штриха в нормализованных единицах (<see cref="Length"/>, если нормализация длин не задана).</summary>
+    public double NLength => Length * (LengthFactor ?? 1.0);
+
+    /// <summary>Размер черты в нормализованных единицах (<see cref="Extent"/>, если нормализация длин не задана).</summary>
+    public double NExtent => Extent * (LengthFactor ?? 1.0);
+
     /// <summary>Нормализованные точки (проход 1): деслантинг, масштаб, сдвиг по u и baseline.</summary>
     public Vec2[] NPos { get; set; } = [];
 
@@ -306,6 +318,11 @@ internal static class ChildInk
             for (int k = 0; k < s.NPos.Length; k++)
             {
                 s.NPos[k] = transform.Apply(s.NPos[k]);
+            }
+
+            if (s.LengthFactor is { } factor)
+            {
+                s.LengthFactor = factor * transform.Scale;
             }
         }
     }

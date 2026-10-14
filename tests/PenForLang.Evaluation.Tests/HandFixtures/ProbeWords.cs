@@ -26,13 +26,13 @@ internal static class ProbeWords
     }
 
     /// <summary>Рука: наклон, масштаб, сдвиги, поворот строки, дрожь и скорость.</summary>
-    internal readonly record struct PHand(double Slant = 0, double Scale = 1, double Du = 1.0, double Dv = 0, double Rot = 0, double Tremor = 0.006, double Speed = 1.5)
+    internal readonly record struct PHand(double Slant = 0, double Scale = 1, double Du = 1.0, double Dv = 0, double Rot = 0, double Tremor = 0.006, double Speed = 1.5, double XS = 1.0)
     {
         public PVec Map(PVec p)
         {
             double k = Math.Tan(Slant * Math.PI / 180);
             double r = Rot * Math.PI / 180;
-            p = new PVec(p.X + (p.Y * k), p.Y) * Scale;
+            p = new PVec((p.X * XS) + (p.Y * k), p.Y) * Scale;
             p = new PVec((p.X * Math.Cos(r)) - (p.Y * Math.Sin(r)), (p.X * Math.Sin(r)) + (p.Y * Math.Cos(r)));
             return new PVec(p.X + Du, p.Y + Dv);
         }
@@ -368,6 +368,16 @@ internal static class ProbeWords
         {
             PWord w = MakeAt(JoinLow0, tH: th);
             yield return new PCase($"H-t{th:0.00}", "at", Build(S(w.Curve, H0), Bar(H0, StemAt(w, Math.Min(1.0, th - 0.25)))), w.Truth.Map(H0));
+        }
+    }
+
+    /// <summary>Зазоры a–t первой модели 0,6…1,4 x-height с шагом 0,1 (R2-01: верное слово при любом зазоре — цель, не U0).</summary>
+    public static IEnumerable<PCase> WideGaps()
+    {
+        foreach (double g in new[] { 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4 })
+        {
+            PWord w = MakeAt(JoinLow0, gap: g);
+            yield return new PCase($"G1-gap{g:0.0}", "at", Build(S(w.Curve, H0), Bar(H0, StemAt(w, 1.0))), w.Truth.Map(H0));
         }
     }
 

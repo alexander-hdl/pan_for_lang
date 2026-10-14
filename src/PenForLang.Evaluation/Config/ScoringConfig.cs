@@ -177,8 +177,8 @@ public sealed record ProcessConfig(double StartTolerance, double StartArcToleran
 /// <param name="ExtendRight">Допустимый старт вдоль той же линии и вправо от начала подхода на столько, x-height (короткий подход, начатый ближе к телу).</param>
 /// <param name="Tolerance">Допуск расстояния до подхода, x-height; жёстче допуска старта тела, потому что подход тянется вдоль овала и старт снизу овала близок к нему (ошибка выражается в единицах <c>startTolerance</c>).</param>
 /// <param name="MaxAngleDeg">Старт на подходе засчитывается, если первый участок рукописи отклонён от хода подхода не больше (градусы).</param>
-/// <param name="MinElevationDeg">... и начало не идёт вниз: угол подъёма (от горизонтали) на участке <c>elevationLength</c> не меньше этого, градусы (отрицательный — допустим небольшой спуск).</param>
-/// <param name="ElevationLength">Длина участка начала для проверки подъёма, x-height. Длиннее участка направления (<c>process.direction.firstSegmentLength</c>): дрожь рукописи у медленного письма отклоняет первые 0,2 x-height вниз и без этого давала ложный P1 (старт «не на подходе»).</param>
+/// <param name="MinElevationDeg">... и начало не идёт вниз: угол подъёма (от горизонтали, по регрессии точек на участке <c>elevationLength</c>) не меньше этого, градусы. Инженерное: верные подходы (длина 0,3–1,6, дрожь до 0,03, наклон ±20°) ≥ +1,7°, очень медленное дрожащее начало ≥ +6,8°, старт с овала на 230–240° (перо идёт вниз и вправо) ≤ −5,2°; порог 0.</param>
+/// <param name="ElevationLength">Длина участка начала для проверки подъёма, x-height; направление участка — линейная регрессия его точек (не хорда): дрожь медленного письма не отклоняет его вниз (раньше первые 0,2 x-height хордой давали ложный P1), а спуск у старта с овала (230–260°) отклоняет.</param>
 /// <param name="OverlapMax">Старт на подходе не засчитывается, если путь до точки входа в тело перекрыт последующим следом (доля точек в коридоре) не меньше этого ...</param>
 /// <param name="OverlapTolerance">Ширина коридора перекрытия, x-height.</param>
 /// <param name="OverlapSkipTail">Последние столько (x-height) пути до входа не учитываются: они прилегают к телу по построению.</param>
@@ -289,6 +289,9 @@ public sealed record ConfidenceConfig(double UnrecognizedMeanDtw, double Unrecog
 /// <param name="JoinSlackU">Допуск у границ тел, x-height: отрыв, начатый в пределах допуска перед концом тела эталона или закончившийся в пределах допуска после начала тела следующей буквы, — отрыв на соединении (размер букв ребёнка и эталона различается). Цена отрыва растёт от <c>liftJoinPenalty</c> на границе до <c>liftInLetterPenalty</c> на краю допуска (промежуточный штраф): отрыв глубже в теле буквы — отрыв внутри буквы.</param>
 /// <param name="BandMarginU">Запас полосы, x-height: DP считает только клетки с <c>|Δu| ≤ bandU + bandMarginU</c> (вне — недопустимы; если пути нет, расчёт повторяется без ограничения).</param>
 /// <param name="BreakCorridorU">Ширина коридора вокруг мостика эталона (разрыв стиля), в котором слитное прохождение стоит плоскую цену <c>continuousBreakCostPerPoint</c>; дальше — обычная стоимость расстояния (предел пробега: слитная линия не может уйти далеко от места разрыва).</param>
+/// <param name="ElasticXScale">Множитель разности по x в «упругом» предвыравнивании (R2-01): если обычное выравнивание не принято (U0), буквы сопоставляются с эталоном почти по форме (разность по x ×этот множитель), и сдвиг каждой буквы по x становится смещением её эталона (широкий интервал между буквами — F8, не «чужое слово»).</param>
+/// <param name="ElasticMaxShiftU">Наибольший сдвиг буквы по x, который упругое предвыравнивание может приписать эталону, x-height.</param>
+/// <param name="ElasticMinSpreadU">Наименьший разброс сдвигов букв по x, x-height: меньше — причина отказа не в положении букв, эталон не меняется.</param>
 public sealed record AlignerConfig(
     double BandU,
     double OutOfBandCost,
@@ -298,7 +301,10 @@ public sealed record AlignerConfig(
     double ContinuousBreakCostPerPoint,
     double JoinSlackU,
     double BandMarginU,
-    double BreakCorridorU);
+    double BreakCorridorU,
+    double ElasticXScale,
+    double ElasticMaxShiftU,
+    double ElasticMinSpreadU);
 
 /// <summary>Границы букв и их уверенность (§6.4.5).</summary>
 /// <param name="ShiftU">Сдвиг границы, при котором измеряется рост стоимости пути, x-height (0,3).</param>
@@ -311,9 +317,9 @@ public sealed record BoundaryConfig(double ShiftU, double MinRiseCost, double Li
 /// <param name="Coverage">Доля тел эталона, покрытых рукописью в коридоре, меньше — U0.</param>
 /// <param name="InkShare">Доля точек основного следа в коридоре эталона меньше — U0 (каракули).</param>
 /// <param name="MediumMeanDtw">Среднее отклонение больше — уверенность не выше Medium.</param>
-/// <param name="CostPerPoint">Стоимость выравнивания на точку рукописи (нормировка гипотез, §6.4.6) больше — U0. Инженерное: верные слова ≤ 0,067, неверные от 0,074 до 0,8 (независимые фикстуры); порог с запасом между ними.</param>
+/// <param name="CostPerPoint">Стоимость формы букв на точку рукописи больше — U0: после подгонки каждой буквы (положение и размер — F8/F4, не «чужое слово»), без зоны соединения (длина и дуга соединения при широком зазоре — не признак чужого слова, R2-01). Инженерное: верные почерки обеих моделей букв ≤ 0,041, неверные слова этой метрикой — от 0,05 (at вместо it) до 0,86; порог 0,07 с запасом ×1,7 до верных.</param>
 /// <param name="FarDistance">Точка рукописи дальше этого от выровненной точки эталона — «чужая» (лишняя буква, штрих мимо слова), x-height.</param>
-/// <param name="FarShare">Доля чужих точек больше — U0 (лишняя буква: каждая точка далека от своей пары, а стоимость на точку мала).</param>
+/// <param name="FarShare">Доля чужих точек (по всем зонам, кроме мостика разрыва) больше — U0 (лишняя буква: каждая точка далека от своей пары, а стоимость на точку мала). Инженерное: верные слова с зазором a–t 0,3–1,4 x-height ≤ 0,068, att 0,11–0,14.</param>
 /// <param name="LetterCoverage">Покрытие тела какой-либо буквы рукописью в коридоре меньше — U0 слова (буква без чернил, слово другой длины).</param>
 /// <param name="CoverageTauScale">Множитель <c>form.corridorTau</c> для покрытия и доли чернил в коридоре у слова (допуск шире, чем у изолированной буквы).</param>
 public sealed record WordUnrecognizedConfig(double MeanDtw, double Coverage, double InkShare, double MediumMeanDtw, double CostPerPoint, double FarDistance, double FarShare, double LetterCoverage, double CoverageTauScale);

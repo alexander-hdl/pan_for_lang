@@ -31,7 +31,7 @@
     "startTolerance": 0.55,
     "startArcTolerance": 0.6,
     "startOnPathTolerance": 0.2,
-    "approach": { "extendLeft": true, "extendRight": 0.9, "tolerance": 0.22, "maxAngleDeg": 90, "minElevationDeg": -10, "elevationLength": 0.5, "overlapMax": 0.4, "overlapTolerance": 0.12, "overlapSkipTail": 0.2, "entryAngleMaxDeg": 35, "ambiguousShare": 0.05, "ambiguousAngleDeg": 5 },
+    "approach": { "extendLeft": true, "extendRight": 0.9, "tolerance": 0.22, "maxAngleDeg": 90, "minElevationDeg": 0, "elevationLength": 0.35, "overlapMax": 0.4, "overlapTolerance": 0.12, "overlapSkipTail": 0.2, "entryAngleMaxDeg": 35, "ambiguousShare": 0.05, "ambiguousAngleDeg": 5 },
     "direction": { "reverseCostRatioMax": 0.8, "strongReverseCostRatio": 0.3, "firstSegmentAngleMaxDeg": 60, "firstSegmentLength": 0.2, "minStrokeLength": 0.4, "barMinDirectionalShare": 0.3, "barReverseIsError": false, "rangeAreaMinShare": 0.3 },
     "strokeCount": { "extraForP4": 1, "extraForStop": 2 },
     "retrace": { "tolerance": 0.12, "minShareOfReference": 0.6, "minPriorPoints": 5, "minRangePoints": 4, "coveredByExtraShare": 0.5 }
@@ -100,9 +100,9 @@
   "confidence": { "unrecognizedMeanDtw": 0.5, "unrecognizedCoverage": 0.25, "unrecognizedInkShare": 0.6, "mediumMeanDtw": 0.2 },
   "word": {
     "contextToleranceScale": 1.25,
-    "aligner": { "bandU": 0.8, "outOfBandCost": 1.0, "liftJoinPenalty": 0.02, "liftInLetterPenalty": 0.5, "skipBodyCostPerPoint": 0.1, "continuousBreakCostPerPoint": 0.02, "joinSlackU": 0.25, "bandMarginU": 0.2, "breakCorridorU": 0.5 },
+    "aligner": { "bandU": 0.8, "outOfBandCost": 1.0, "liftJoinPenalty": 0.02, "liftInLetterPenalty": 0.5, "skipBodyCostPerPoint": 0.1, "continuousBreakCostPerPoint": 0.02, "joinSlackU": 0.25, "bandMarginU": 0.2, "breakCorridorU": 0.5, "elasticXScale": 0.3, "elasticMaxShiftU": 2.5, "elasticMinSpreadU": 0.25 },
     "boundaries": { "shiftU": 0.3, "minRiseCost": 0.05, "liftSnapU": 0.12 },
-    "unrecognized": { "meanDtw": 0.4, "coverage": 0.3, "inkShare": 0.55, "mediumMeanDtw": 0.12, "costPerPoint": 0.09, "farDistance": 0.35, "farShare": 0.08, "letterCoverage": 0.5, "coverageTauScale": 2.0 },
+    "unrecognized": { "meanDtw": 0.4, "coverage": 0.3, "inkShare": 0.55, "mediumMeanDtw": 0.12, "costPerPoint": 0.07, "farDistance": 0.35, "farShare": 0.09, "letterCoverage": 0.5, "coverageTauScale": 2.0 },
     "markAdjacencyU": 0.2,
     "retraceCoveredShare": 0.5
   },

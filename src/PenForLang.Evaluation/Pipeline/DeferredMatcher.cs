@@ -202,28 +202,28 @@ internal static class DeferredMatcher
     /// <summary>Лишняя черта (точка или короткая горизонтальная перекладина), а не лишний штрих основного следа.</summary>
     public static bool IsMark(ChildStroke stroke, DeferredConfig d)
     {
-        if (stroke.Extent <= d.DotMaxLength)
+        if (stroke.NExtent <= d.DotMaxLength)
         {
             return true;
         }
 
-        if (stroke.Length > d.ExtraMarkMaxLength || stroke.Pos.Length < 2)
+        if (stroke.NLength > d.ExtraMarkMaxLength || stroke.Pos.Length < 2)
         {
             return false;
         }
 
         double dx = Math.Abs(stroke.Pos[^1].X - stroke.Pos[0].X);
-        return dx >= d.ExtraMarkHorizontalShare * stroke.Length;
+        return dx >= d.ExtraMarkHorizontalShare * stroke.Length; // доли длины — безразмерные
     }
 
     private static bool Compatible(ChildStroke stroke, RefDeferred slot, DeferredConfig d)
     {
         if (slot.Kind == DeferredKind.Dot)
         {
-            return stroke.Extent <= d.DotMaxLength;
+            return stroke.NExtent <= d.DotMaxLength;
         }
 
-        double ratio = stroke.Length / slot.Length;
+        double ratio = stroke.NLength / slot.Length;
         return ratio >= d.BarMinLengthRatio && ratio <= d.BarMaxLengthRatio;
     }
 

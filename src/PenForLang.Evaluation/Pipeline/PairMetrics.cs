@@ -123,7 +123,7 @@ internal static class PairMetricsCalculator
         }
         else
         {
-            Vec2 elevationDirection = pos[PolylineTools.IndexAtArc(pos, 0, +1, process.Approach.ElevationLength)] - pos[0];
+            Vec2 elevationDirection = RegressionDirection(pos, PolylineTools.IndexAtArc(pos, 0, +1, process.Approach.ElevationLength));
             (bestStart, nearest, bool viaApproach) = StartError(reference, pos[0], childDirection, elevationDirection, process);
             if (viaApproach)
             {
@@ -308,6 +308,44 @@ internal static class PairMetricsCalculator
             RangeAreaRatio = rangeRatio,
             RangeSpan = rangeSpan,
         };
+    }
+
+    /// <summary>
+    /// Направление начала штриха по линейной регрессии точек <c>0..last</c> от номера точки (ресэмплированные точки идут через равные
+    /// отрезки): дрожь медленного письма на участке не меняет наклон прямой, а изгиб — спуск у старта «с овала» — меняет, чего не
+    /// даёт ни хорда (дрожь в её концах), ни слишком длинный участок (овал возвращается вверх). Вектор — смещение вдоль прямой на участке.
+    /// </summary>
+    private static Vec2 RegressionDirection(Vec2[] pos, int last)
+    {
+        last = Math.Min(last, pos.Length - 1);
+        if (last < 2)
+        {
+            return pos[last] - pos[0];
+        }
+
+        double tm = last / 2.0;
+        double xm = 0.0;
+        double ym = 0.0;
+        for (int i = 0; i <= last; i++)
+        {
+            xm += pos[i].X;
+            ym += pos[i].Y;
+        }
+
+        xm /= last + 1;
+        ym /= last + 1;
+        double stt = 0.0;
+        double sxt = 0.0;
+        double syt = 0.0;
+        for (int i = 0; i <= last; i++)
+        {
+            double dt = i - tm;
+            stt += dt * dt;
+            sxt += dt * (pos[i].X - xm);
+            syt += dt * (pos[i].Y - ym);
+        }
+
+        return new Vec2(sxt / stt, syt / stt) * last;
     }
 
     /// <summary>

@@ -279,9 +279,9 @@
           "stroke": "s1",
           "ink": 0,
           "span": "s1:Body",
-          "severity": 0.3583,
-          "measured": 0.4667,
-          "threshold": 0.4
+          "severity": 0.7519,
+          "measured": 1.2601,
+          "threshold": 0.55
         },
         {
           "code": "F1",

@@ -109,6 +109,7 @@ public sealed class WordEvaluator : IWordEvaluator
         private List<ChildStroke> _marks = [];
         private MainInk _ink = null!;
         private Alignment _alignment = null!;
+        private Vec2[] _tpl = [];
         private DpTable? _backward;
         private double _toleranceScale;
 
@@ -118,6 +119,7 @@ public sealed class WordEvaluator : IWordEvaluator
             _config = owner._config;
             _request = request;
             _reference = reference;
+            _tpl = reference.Pos;
             _word = request.Word;
         }
 
@@ -137,6 +139,12 @@ public sealed class WordEvaluator : IWordEvaluator
             }
 
             NormalizationParams normalization = ChildInk.Normalize(_children, _reference, _config);
+            foreach (ChildStroke child in _children)
+            {
+                // Длины черт (точка, перекладина) сравниваются с эталоном в нормализованных единицах: письмо ×1,8 и ×2,2 — то же слово.
+                child.LengthFactor = 1.0 / normalization.Scale;
+            }
+
             SplitMainAndMarks();
             if (_main.Count == 0)
             {
@@ -147,18 +155,141 @@ public sealed class WordEvaluator : IWordEvaluator
             Similarity refinement = AlignWithRefinement();
             refinement = new Similarity(refinement.Scale * centering.Scale, (centering.Translation * refinement.Scale) + refinement.Translation);
             AlignmentStats stats = Measure();
-            WordUnrecognizedConfig u = _config.Word.Unrecognized;
-            if (stats.MeanDtw > u.MeanDtw
-                || stats.Coverage < u.Coverage
-                || stats.InkShare < u.InkShare
-                || stats.CostPerPoint > u.CostPerPoint
-                || stats.FarShare > u.FarShare
-                || stats.MinLetterCoverage < u.LetterCoverage)
+            if (IsUnrecognized(stats) && TryElasticTemplate())
             {
-                return Unrecognized(normalization, stats);
+                // Широкий интервал между буквами (R2-01): эталон каждой буквы смещён по x на её сдвиг, выравнивание повторено.
+                _alignment.Dispose();
+                Similarity extra = AlignWithRefinement();
+                refinement = new Similarity(extra.Scale * refinement.Scale, (refinement.Translation * extra.Scale) + extra.Translation);
+                stats = Measure();
             }
 
-            return Assemble(normalization, refinement, stats);
+            return IsUnrecognized(stats) ? Unrecognized(normalization, stats) : Assemble(normalization, refinement, stats);
+        }
+
+        private bool IsUnrecognized(AlignmentStats stats)
+        {
+            WordUnrecognizedConfig u = _config.Word.Unrecognized;
+            return stats.MeanDtw > u.MeanDtw
+                || stats.Coverage < u.Coverage
+                || stats.InkShare < u.InkShare
+                || stats.BodyCostPerPoint > u.CostPerPoint
+                || stats.FarShare > u.FarShare
+                || stats.MinLetterCoverage < u.LetterCoverage;
+        }
+
+        /// <summary>
+        /// «Упругий» эталон (R2-01). Абсолютное положение буквы в слове — не признак «чужого слова»: широкий (или узкий) интервал
+        /// между буквами сдвигает следующие буквы по x на величину, которую выравнивание по абсолютным позициям не прощает. Если
+        /// выравнивание не принято, слово сопоставляется с эталоном почти по форме (разность по x ×<c>elasticXScale</c>), сдвиг по x
+        /// каждой буквы становится смещением её эталона (между буквами — линейно по соединению). Возвращает <c>false</c>, если
+        /// сдвиги малы (причина отказа не в положении букв) или предвыравнивание невозможно.
+        /// </summary>
+        private bool TryElasticTemplate()
+        {
+            AlignerConfig a = _config.Word.Aligner;
+            AlignProblem problem = BuildProblem();
+            double s = a.ElasticXScale;
+            var relaxed = new AlignProblem
+            {
+                InkPos = [.. problem.InkPos.Select(p => new Vec2(p.X * s, p.Y))],
+                InkDir = problem.InkDir,
+                LiftBefore = problem.LiftBefore,
+                TplPos = [.. problem.TplPos.Select(p => new Vec2(p.X * s, p.Y))],
+                TplDir = problem.TplDir,
+                Zone = problem.Zone,
+                SkipPrefix = problem.SkipPrefix,
+                Intervals = problem.Intervals,
+                OpenBeginMax = problem.OpenBeginMax,
+                OpenEndMin = problem.OpenEndMin,
+            };
+            int letters = _word.Letters.Length;
+            var offsets = new List<double>[letters];
+            for (int k = 0; k < letters; k++)
+            {
+                offsets[k] = [];
+            }
+
+            try
+            {
+                using Alignment pre = TargetAligner.Align(relaxed, _config);
+                foreach (PathCell cell in pre.Path)
+                {
+                    if (_reference.Zone[cell.J] == ZoneKind.Body)
+                    {
+                        offsets[_reference.OwnerLetter[cell.J]].Add(_ink.Pos[cell.I].X - _tpl[cell.J].X);
+                    }
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+
+            var shift = new double[letters];
+            var known = new bool[letters];
+            for (int k = 0; k < letters; k++)
+            {
+                if (offsets[k].Count >= 3)
+                {
+                    offsets[k].Sort();
+                    shift[k] = Math.Clamp(offsets[k][offsets[k].Count / 2], -a.ElasticMaxShiftU, a.ElasticMaxShiftU);
+                    known[k] = true;
+                }
+            }
+
+            if (known.Count(x => x) < 2 || shift.Where((_, k) => known[k]).Max() - shift.Where((_, k) => known[k]).Min() < a.ElasticMinSpreadU)
+            {
+                return false;
+            }
+
+            for (int k = 0; k < letters; k++)
+            {
+                if (!known[k])
+                {
+                    shift[k] = k > 0 ? shift[k - 1] : shift[Array.FindIndex(known, x => x)];
+                }
+            }
+
+            _tpl = DisplacedTemplate(shift);
+            return true;
+        }
+
+        /// <summary>Эталон со сдвигом по x: каждая буква — на свой сдвиг, соединение — линейный переход между сдвигами соседей.</summary>
+        private Vec2[] DisplacedTemplate(double[] shift)
+        {
+            var result = new Vec2[_reference.Count];
+            int last = shift.Length - 1;
+            for (int j = 0; j < result.Length; j++)
+            {
+                double dx = shift[0];
+                if (j >= _reference.BodyEnd[last])
+                {
+                    dx = shift[last];
+                }
+                else if (j > _reference.BodyStart[0])
+                {
+                    for (int k = 0; k <= last; k++)
+                    {
+                        if (j <= _reference.BodyEnd[k])
+                        {
+                            dx = shift[k];
+                            break;
+                        }
+
+                        if (k < last && j < _reference.BodyStart[k + 1])
+                        {
+                            double t = (double)(j - _reference.BodyEnd[k]) / (_reference.BodyStart[k + 1] - _reference.BodyEnd[k]);
+                            dx = shift[k] + ((shift[k + 1] - shift[k]) * t);
+                            break;
+                        }
+                    }
+                }
+
+                result[j] = _reference.Pos[j] + new Vec2(dx, 0.0);
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -170,7 +301,7 @@ public sealed class WordEvaluator : IWordEvaluator
             foreach (ChildStroke stroke in _children)
             {
                 bool mark = IsMark(stroke);
-                if (mark && stroke.Extent > _config.Deferred.DotMaxLength && _main.Count > 0
+                if (mark && stroke.NExtent > _config.Deferred.DotMaxLength && _main.Count > 0
                     && Vec2.Distance(stroke.NPos[0], _main[^1].NPos[^1]) <= _config.Word.MarkAdjacencyU)
                 {
                     mark = false;
@@ -206,7 +337,7 @@ public sealed class WordEvaluator : IWordEvaluator
                 InkPos = _ink.Pos,
                 InkDir = _ink.Dir,
                 LiftBefore = _ink.LiftBefore,
-                TplPos = _reference.Pos,
+                TplPos = _tpl,
                 TplDir = _reference.Dir,
                 Zone = _reference.Zone,
                 SkipPrefix = _reference.SkipPrefix,
@@ -271,7 +402,7 @@ public sealed class WordEvaluator : IWordEvaluator
                 }
 
                 ink.Add(_ink.Pos[cell.I]);
-                template.Add(_reference.Pos[cell.J]);
+                template.Add(_tpl[cell.J]);
             }
 
             if (ink.Count == 0)
@@ -289,7 +420,7 @@ public sealed class WordEvaluator : IWordEvaluator
             return change <= refine.MinChange ? (Similarity.Identity, 0.0) : (fit, change);
         }
 
-        private sealed record AlignmentStats(double MeanDtw, double Coverage, double InkShare, double CostPerPoint, double FarShare, double MinLetterCoverage, double[] LetterCoverage);
+        private sealed record AlignmentStats(double MeanDtw, double Coverage, double InkShare, double BodyCostPerPoint, double FarShare, double MinLetterCoverage, double[] LetterCoverage);
 
         /// <summary>Подгонка тела буквы ребёнка к эталону: <c>p' = tplMean + (p − inkMean)·scale</c>.</summary>
         private readonly record struct LetterFit(double Scale, Vec2 InkMean, Vec2 TplMean)
@@ -324,7 +455,7 @@ public sealed class WordEvaluator : IWordEvaluator
 
                 int k = _reference.OwnerLetter[cell.J];
                 ink[k].Add(_ink.Pos[cell.I]);
-                tpl[k].Add(_reference.Pos[cell.J]);
+                tpl[k].Add(_tpl[cell.J]);
             }
 
             var fits = new LetterFit[letters];
@@ -362,16 +493,28 @@ public sealed class WordEvaluator : IWordEvaluator
             int counted = 0;
             int far = 0;
             int inside = 0;
+            DtwConfig weights = _config.Dtw;
+            double shapeCost = 0.0;
+            var shapePoints = new HashSet<int>();
             foreach (PathCell cell in _alignment.Path)
             {
-                if (_reference.Zone[cell.J] == ZoneKind.Connector)
+                ZoneKind zone = _reference.Zone[cell.J];
+                if (zone == ZoneKind.Connector)
                 {
                     continue;
                 }
 
-                sum += Vec2.Distance(_ink.Pos[cell.I], _reference.Pos[cell.J]);
+                sum += Vec2.Distance(_ink.Pos[cell.I], _tpl[cell.J]);
                 counted++;
-                double d = Vec2.Distance(_fits[_reference.OwnerLetter[cell.J]].Apply(_ink.Pos[cell.I]), _reference.Pos[cell.J]);
+                double d = Vec2.Distance(_fits[_reference.OwnerLetter[cell.J]].Apply(_ink.Pos[cell.I]), _tpl[cell.J]);
+                if (zone != ZoneKind.Join)
+                {
+                    // Стоимость формы букв без зоны соединения: длина и дуга соединения при широком зазоре — не признак «чужого слова»
+                    // (R2-01); лишние чернила в соединении ловит доля «чужих» точек, сами соединения судит J1–J4.
+                    shapeCost += (weights.PositionWeight * d * d) + (weights.DirectionWeight * Math.Max(0.0, 1.0 - Vec2.Dot(_ink.Dir[cell.I], _reference.Dir[cell.J])));
+                    shapePoints.Add(cell.I);
+                }
+
                 nearest[cell.J] = Math.Min(nearest[cell.J], d);
                 far += d > u.FarDistance ? 1 : 0;
                 inside += d <= tau ? 1 : 0;
@@ -404,7 +547,7 @@ public sealed class WordEvaluator : IWordEvaluator
                 counted == 0 ? double.PositiveInfinity : sum / counted,
                 body == 0 ? 0.0 : (double)covered / body,
                 counted == 0 ? 0.0 : (double)inside / counted,
-                _alignment.CostPerInkPoint,
+                shapePoints.Count == 0 ? double.PositiveInfinity : shapeCost / shapePoints.Count,
                 counted == 0 ? 1.0 : (double)far / counted,
                 letterCoverage.Length == 0 ? 0.0 : letterCoverage.Min(),
                 letterCoverage);
@@ -680,6 +823,7 @@ public sealed class WordEvaluator : IWordEvaluator
 
             ImmutableSortedDictionary<string, double>.Builder diagnostics = ImmutableSortedDictionary.CreateBuilder<string, double>(StringComparer.Ordinal);
             diagnostics["align.costPerPoint"] = _alignment.CostPerInkPoint;
+            diagnostics["align.bodyCostPerPoint"] = stats.BodyCostPerPoint;
             diagnostics["align.meanDtw"] = stats.MeanDtw;
             diagnostics["align.coverage"] = stats.Coverage;
             diagnostics["align.inkShare"] = stats.InkShare;
@@ -936,7 +1080,7 @@ public sealed class WordEvaluator : IWordEvaluator
         private (double Error, double? AngleDeg) EntryFit(int letter, int startIndex)
         {
             int bs = _reference.BodyStart[letter];
-            Vec2 entry = _reference.Pos[bs];
+            Vec2 entry = _tpl[bs];
             double error = EntryOffset(letter, startIndex);
 
             double? angle = null;
@@ -944,7 +1088,7 @@ public sealed class WordEvaluator : IWordEvaluator
             if (startIndex - w >= 0 && bs - w >= 0 && _ink.StrokeOf(startIndex - w) == _ink.StrokeOf(startIndex))
             {
                 Vec2 inkDirection = _ink.Pos[startIndex] - _ink.Pos[startIndex - w];
-                Vec2 tplDirection = entry - _reference.Pos[bs - w];
+                Vec2 tplDirection = entry - _tpl[bs - w];
                 if (inkDirection.Length > 1e-9 && tplDirection.Length > 1e-9)
                 {
                     double cos = Math.Clamp(Vec2.Dot(inkDirection.Normalized(), tplDirection.Normalized()), -1.0, 1.0);
@@ -973,14 +1117,14 @@ public sealed class WordEvaluator : IWordEvaluator
             {
                 if (cell.J > skipUntil && cell.J <= be)
                 {
-                    Vec2 d = _ink.Pos[cell.I] - _reference.Pos[cell.J];
+                    Vec2 d = _ink.Pos[cell.I] - _tpl[cell.J];
                     v.Add(_ink.Pos[cell.I].Y);
                     du.Add(d.X);
                     dv.Add(d.Y);
                 }
             }
 
-            Vec2 atEntry = _ink.Pos[startIndex] - _reference.Pos[bs];
+            Vec2 atEntry = _ink.Pos[startIndex] - _tpl[bs];
             if (v.Count < 5)
             {
                 return atEntry.Length;
@@ -1049,7 +1193,7 @@ public sealed class WordEvaluator : IWordEvaluator
         {
             JoinCornerConfig corner = _config.Joins.Corner;
             Vec2[] ink = [.. Enumerable.Range(endIndex, startIndex - endIndex + 1).Select(i => _ink.Pos[i])];
-            Vec2[] tpl = _reference.Pos[interval.Lo..(interval.Hi + 1)];
+            Vec2[] tpl = _tpl[interval.Lo..(interval.Hi + 1)];
             double inkStep = ink.Length < 2 ? _config.ResampleStep : Math.Max(1e-6, PolylineMath.Length(ink) / (ink.Length - 1));
             double? inkTurn = MaxTurn(ink, inkStep, corner);
             double? tplTurn = MaxTurn(tpl, _config.ResampleStep, corner);
@@ -1287,7 +1431,7 @@ public sealed class WordEvaluator : IWordEvaluator
                 diagnostics["align.meanDtw"] = stats.MeanDtw;
                 diagnostics["align.coverage"] = stats.Coverage;
                 diagnostics["align.inkShare"] = stats.InkShare;
-                diagnostics["align.costPerPoint"] = stats.CostPerPoint;
+                diagnostics["align.bodyCostPerPoint"] = stats.BodyCostPerPoint;
                 diagnostics["align.farShare"] = stats.FarShare;
                 diagnostics["align.minLetterCoverage"] = stats.MinLetterCoverage;
             }
